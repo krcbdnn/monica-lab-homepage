@@ -1,15 +1,46 @@
-Java 21
-Spring Boot 3
-Spring Security(Session 기반)
-JPA
-QueryDSL
+Presentation Layer
+
+Controller
+
+↓
+
+Application Layer
+
+Service
+
+↓
+
+Persistence Layer
+
+Repository
+
+↓
 
 MySQL
-Redis
 
-AWS EC2
+---
+
+Security
+
+Spring Security
+Session 기반 인증
+
+---
+
+Storage
+
 AWS S3
+
+---
+
+Deploy
+
 Docker
 Nginx
+EC2
+
+---
+
+CI/CD
 
 GitHub Actions
