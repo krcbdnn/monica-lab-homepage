@@ -1,46 +1,511 @@
-Presentation Layer
+# ARCHITECTURE.md
 
+# System Architecture
+
+Version 2.0
+
+---
+
+# Architecture
+
+Spring Boot 기반 MVC + Layered Architecture를 사용한다.
+
+```
+Client
+    │
+    ▼
+Controller
+    │
+    ▼
+Service
+    │
+    ▼
+Repository
+    │
+    ▼
+MariaDB
+```
+
+모든 비즈니스 로직은 Service 계층에서 처리한다.
+
+---
+
+# Package Structure
+
+```
+src/main/java
+└── com.project.cms
+    │
+    ├── config
+    ├── security
+    ├── common
+    │   ├── config
+    │   ├── dto
+    │   ├── entity
+    │   ├── exception
+    │   ├── response
+    │   └── util
+    │
+    ├── admin
+    │
+    ├── page
+    │
+    ├── program
+    │
+    ├── board
+    │
+    ├── banner
+    │
+    ├── popup
+    │
+    └── file
+```
+
+---
+
+# Domain
+
+## Admin
+
+관리자 로그인
+
+```
+AdminController
+AdminService
+AdminRepository
+```
+
+기능
+
+- 로그인
+- 로그아웃
+- 대시보드
+
+---
+
+## Page
+
+CMS 페이지 관리
+
+관리 페이지
+
+- 인사말
+- 기관소개
+- 연혁
+- 오시는 길
+
+```
+PageController
+AdminPageController
+
+PageService
+
+PageRepository
+```
+
+pageType
+
+```
+GREETING
+
+INTRODUCTION
+
+HISTORY
+
+LOCATION
+```
+
+---
+
+## Program
+
+수강 프로그램과 특강을 하나의 도메인으로 관리한다.
+
+```
+ProgramController
+
+AdminProgramController
+
+ProgramService
+
+ProgramRepository
+```
+
+programType
+
+```
+COURSE
+
+SPECIAL
+```
+
+관리 항목
+
+- 제목
+- 내용
+- 썸네일
+- 첨부파일
+- Google Form URL
+- 모집 상태
+- 공개 여부
+
+---
+
+## Board
+
+공지사항
+
+갤러리
+
+자료실
+
+모두 하나의 Board 도메인으로 관리한다.
+
+```
+BoardController
+
+AdminBoardController
+
+BoardService
+
+BoardRepository
+```
+
+boardType
+
+```
+NOTICE
+
+GALLERY
+
+ARCHIVE
+```
+
+관리 항목
+
+- 제목
+- 내용
+- 첨부파일
+- 썸네일
+- 조회수
+- 공개 여부
+
+---
+
+## Banner
+
+```
+BannerController
+
+AdminBannerController
+
+BannerService
+
+BannerRepository
+```
+
+기능
+
+- 등록
+- 수정
+- 삭제
+- 노출 여부
+- 정렬 순서
+
+---
+
+## Popup
+
+```
+PopupController
+
+AdminPopupController
+
+PopupService
+
+PopupRepository
+```
+
+기능
+
+- 등록
+- 수정
+- 삭제
+- 노출 여부
+- 시작일
+- 종료일
+
+---
+
+## File
+
+```
+FileController
+
+FileService
+```
+
+기능
+
+- 이미지 업로드
+- 첨부파일 업로드
+- 삭제
+
+저장소
+
+- Local Storage
+- AWS S3(확장)
+
+---
+
+# CKEditor5
+
+모든 콘텐츠는 CKEditor5를 이용하여 수정한다.
+
+적용 대상
+
+- 기관소개
+- 프로그램
+- 게시판
+- 팝업
+
+기능
+
+- 텍스트
+- 이미지
+- 표
+- 링크
+- 파일 첨부
+
+이미지 업로드
+
+```
+POST /api/admin/files
+```
+
+이미지 URL을 반환하여 CKEditor에 삽입한다.
+
+---
+
+# Common
+
+공통 클래스
+
+```
+BaseEntity
+
+ApiResponse
+
+ErrorCode
+
+CustomException
+
+GlobalExceptionHandler
+
+FileUtil
+
+DateUtil
+```
+
+BaseEntity
+
+```
+createdAt
+
+updatedAt
+```
+
+모든 Entity 공통 사용
+
+---
+
+# Security
+
+Spring Security 사용
+
+인증 대상
+
+```
+/admin/**
+```
+
+비로그인 접근
+
+```
+/
+
+/page/**
+
+/programs/**
+
+/boards/**
+
+/banners
+
+/popups
+```
+
+권한
+
+```
+ROLE_ADMIN
+```
+
+단일 권한 사용
+
+---
+
+# DTO
+
+Entity는 직접 반환하지 않는다.
+
+```
 Controller
 
 ↓
 
-Application Layer
+Request DTO
+
+↓
 
 Service
 
 ↓
 
-Persistence Layer
-
-Repository
+Entity
 
 ↓
 
-MySQL
+Response DTO
+```
 
 ---
 
-Security
+# Exception
 
-Spring Security
-Session 기반 인증
+GlobalExceptionHandler
 
----
+처리
 
-Storage
-
-AWS S3
-
----
-
-Deploy
-
-Docker
-Nginx
-EC2
+- Validation
+- Authentication
+- Authorization
+- File Upload
+- Business Exception
 
 ---
 
-CI/CD
+# Logging
 
-GitHub Actions
+로그 관리
+
+- 로그인
+- 예외
+- 파일 업로드
+- 관리자 작업
+
+---
+
+# Database
+
+MariaDB
+
+ORM
+
+- Spring Data JPA
+- QueryDSL
+
+공통 Entity
+
+```
+BaseEntity
+```
+
+---
+
+# File Storage
+
+기본
+
+```
+/upload/yyyy/MM/dd
+```
+
+파일명
+
+```
+UUID
+```
+
+DB에는 경로만 저장한다.
+
+---
+
+# Frontend
+
+- Thymeleaf
+- Bootstrap 5
+- JavaScript ES6
+- CKEditor5
+
+---
+
+# URL
+
+Public
+
+```
+/
+
+/pages/{type}
+
+/programs
+
+/programs/{id}
+
+/boards
+
+/boards/{id}
+
+/banners
+
+/popups
+```
+
+Admin
+
+```
+/admin/login
+
+/admin/dashboard
+
+/admin/pages
+
+/admin/programs
+
+/admin/boards
+
+/admin/banners
+
+/admin/popups
+
+/admin/files
+```
+
+---
+
+# Design Principles
+
+- MVC Architecture
+- Layered Architecture
+- Repository Pattern
+- DTO Pattern
+- Builder Pattern
+- RESTful API
+- DI
+- SRP
+- BaseEntity 공통 사용
+- Program(programType)으로 수강/특강 통합
+- Board(boardType)으로 공지/갤러리/자료실 통합
+- Google Form URL을 통한 신청
+- CMS에서 모든 콘텐츠 수정 가능

@@ -2,70 +2,47 @@
 
 # REST API Specification
 
-Version 1.0
+Version 2.0
 
 ---
 
-# 공통 규칙
-
-## Base URL
+# Base URL
 
 /api
 
 ---
 
-## 관리자 URL
+# 인증
 
+관리자 API만 인증이 필요하다.
+
+관리자 URL
+
+```
 /api/admin/**
+```
 
 ---
 
-## 인증
+# Authentication
 
-관리자 API는 Spring Security 인증이 필요하다.
-
-Public API는 인증 없이 접근 가능하다.
-
----
-
-# 인증(Authentication)
-
-## 관리자 로그인
+## 로그인
 
 POST /api/admin/login
 
-### Request
-
-```json
-{
-  "loginId": "admin",
-  "password": "password"
-}
-```
-
-### Response
-
-```
-200 OK
-```
-
----
-
-## 관리자 로그아웃
+## 로그아웃
 
 POST /api/admin/logout
 
 ---
 
-# 대시보드
-
-## 대시보드 조회
+# Dashboard
 
 GET /api/admin/dashboard
 
 ---
 
-# 기관소개(Page)
+# Page
 
 ## 페이지 조회
 
@@ -84,25 +61,9 @@ pageType
 
 PUT /api/admin/pages/{pageType}
 
-### Request
-
-```json
-{
-  "title": "...",
-  "content": "..."
-}
-```
-
 ---
 
 # Program
-
-Program은
-
-- 수강 프로그램
-- 특강
-
-을 하나의 API로 관리한다.
 
 programType
 
@@ -111,221 +72,149 @@ programType
 
 ---
 
-## 프로그램 목록
+## 목록
 
 GET /api/programs
 
-### Query
+Query
 
-type
-
-keyword
-
-page
-
-size
+- type
+- keyword
+- page
+- size
 
 ---
 
-## 프로그램 상세
+## 상세
 
 GET /api/programs/{id}
 
 ---
 
-## 프로그램 등록
+## 등록
 
 POST /api/admin/programs
 
-### Request
-
-```json
-{
-  "programType":"COURSE",
-  "title":"...",
-  "content":"...",
-  "googleFormUrl":"...",
-  "recruitStatus":"OPEN",
-  "isPublic":true
-}
-```
-
 ---
 
-## 프로그램 수정
+## 수정
 
 PUT /api/admin/programs/{id}
 
 ---
 
-## 프로그램 삭제
+## 삭제
 
 DELETE /api/admin/programs/{id}
 
 ---
 
-## 모집 상태 변경
-
-PATCH /api/admin/programs/{id}/status
-
-### Request
-
-```json
-{
-  "recruitStatus":"OPEN"
-}
-```
-
-가능 값
-
-- OPEN
-- CLOSED
-
----
-
-## 공개 여부 변경
+## 공개 여부
 
 PATCH /api/admin/programs/{id}/visibility
 
-### Request
+---
 
-```json
-{
-  "isPublic":true
-}
-```
+## 모집 상태
+
+PATCH /api/admin/programs/{id}/status
 
 ---
 
-# Notice
+# Board
 
-## 공지사항 목록
+boardType
 
-GET /api/notices
-
----
-
-## 공지사항 상세
-
-GET /api/notices/{id}
+- NOTICE
+- GALLERY
+- ARCHIVE
 
 ---
-
-## 공지사항 등록
-
-POST /api/admin/notices
-
----
-
-## 공지사항 수정
-
-PUT /api/admin/notices/{id}
-
----
-
-## 공지사항 삭제
-
-DELETE /api/admin/notices/{id}
-
----
-
-# Gallery
 
 ## 목록
 
-GET /api/galleries
+GET /api/boards
+
+Query
+
+- type
+- keyword
+- page
+- size
+
+예)
+
+GET /api/boards?type=NOTICE
+
+GET /api/boards?type=GALLERY
+
+GET /api/boards?type=ARCHIVE
 
 ---
 
 ## 상세
 
-GET /api/galleries/{id}
+GET /api/boards/{id}
 
 ---
 
 ## 등록
 
-POST /api/admin/galleries
+POST /api/admin/boards
 
 ---
 
 ## 수정
 
-PUT /api/admin/galleries/{id}
+PUT /api/admin/boards/{id}
 
 ---
 
 ## 삭제
 
-DELETE /api/admin/galleries/{id}
+DELETE /api/admin/boards/{id}
 
 ---
 
-# Archive
+## 공개 여부
 
-## 목록
-
-GET /api/archives
-
----
-
-## 상세
-
-GET /api/archives/{id}
-
----
-
-## 등록
-
-POST /api/admin/archives
-
----
-
-## 수정
-
-PUT /api/admin/archives/{id}
-
----
-
-## 삭제
-
-DELETE /api/admin/archives/{id}
+PATCH /api/admin/boards/{id}/visibility
 
 ---
 
 # Banner
 
-## 배너 목록
+## 목록
 
 GET /api/banners
 
 ---
 
-## 배너 등록
+## 등록
 
 POST /api/admin/banners
 
 ---
 
-## 배너 수정
+## 수정
 
 PUT /api/admin/banners/{id}
 
 ---
 
-## 배너 삭제
+## 삭제
 
 DELETE /api/admin/banners/{id}
 
 ---
 
-## 노출 여부 변경
+## 노출 여부
 
 PATCH /api/admin/banners/{id}/visibility
 
 ---
 
-## 정렬 순서 변경
+## 정렬
 
 PATCH /api/admin/banners/{id}/order
 
@@ -333,31 +222,31 @@ PATCH /api/admin/banners/{id}/order
 
 # Popup
 
-## 팝업 목록
+## 목록
 
 GET /api/popups
 
 ---
 
-## 팝업 등록
+## 등록
 
 POST /api/admin/popups
 
 ---
 
-## 팝업 수정
+## 수정
 
 PUT /api/admin/popups/{id}
 
 ---
 
-## 팝업 삭제
+## 삭제
 
 DELETE /api/admin/popups/{id}
 
 ---
 
-## 노출 여부 변경
+## 노출 여부
 
 PATCH /api/admin/popups/{id}/visibility
 
@@ -365,7 +254,7 @@ PATCH /api/admin/popups/{id}/visibility
 
 # File
 
-## 파일 업로드
+## 업로드
 
 POST /api/admin/files
 
@@ -373,92 +262,41 @@ multipart/form-data
 
 ---
 
-## 파일 삭제
+## 삭제
 
 DELETE /api/admin/files/{id}
 
 ---
 
-# 검색
-
-## 프로그램 검색
-
-GET /api/programs
-
-Query
-
-- keyword
-- type
-
----
-
-## 공지사항 검색
-
-GET /api/notices
-
-Query
-
-- keyword
-
----
-
-## 갤러리 검색
-
-GET /api/galleries
-
-Query
-
-- keyword
-
----
-
-## 자료실 검색
-
-GET /api/archives
-
-Query
-
-- keyword
-
----
-
 # HTTP Status
 
-200 OK
-
-201 Created
-
-204 No Content
-
-400 Bad Request
-
-401 Unauthorized
-
-403 Forbidden
-
-404 Not Found
-
-500 Internal Server Error
+- 200 OK
+- 201 Created
+- 204 No Content
+- 400 Bad Request
+- 401 Unauthorized
+- 403 Forbidden
+- 404 Not Found
+- 500 Internal Server Error
 
 ---
 
-# 인증 정책
+# Public API
 
-Public API
-
-- 홈페이지
+- 메인
 - 기관소개
 - 프로그램
-- 공지사항
-- 갤러리
-- 자료실
+- 게시판
 - 배너
 - 팝업
 
-관리자 API
+---
 
+# Admin API
+
+- 관리자 로그인
+- 페이지 관리
 - 프로그램 관리
-- 기관소개 관리
 - 게시판 관리
 - 배너 관리
 - 팝업 관리
@@ -468,7 +306,7 @@ Public API
 
 # 제외 API
 
-다음 API는 제공하지 않는다.
+제공하지 않는 기능
 
 - 회원가입
 - 일반 로그인
@@ -476,7 +314,6 @@ Public API
 - 상담 신청
 - 수강 신청 저장
 - 특강 신청 저장
-- 신청 목록 조회
-- 신청 상태 변경
+- 신청 관리
 
-프로그램 신청은 Google Form URL을 통해 외부 Google Form으로 이동한다.
+프로그램 신청은 Google Form URL로 이동한다.
