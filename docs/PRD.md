@@ -4,7 +4,7 @@
 
 교육기관 홈페이지 CMS
 
-Version 1.0
+Version 2.0
 
 ---
 

@@ -308,6 +308,10 @@ CODING_RULES.md
 PROMPTS.md
 
 CONVENTION.md
+
+CLAUDE.md
+
+AI_WORKFLOW.md
 ```
 
 ---
@@ -325,6 +329,8 @@ CONVENTION.md
 - CODING_RULES.md
 - PROMPTS.md
 - CONVENTION.md
+- CLAUDE.md
+- AI_WORKFLOW.md
 
 ---
 
@@ -366,14 +372,13 @@ chore:
 
 # 향후 확장
 
+- 관리자 권한 분리
+- SMS 알림
+- 이메일 알림
 - AWS S3
-- Redis
-- Elasticsearch
-- Docker Compose
-- Kubernetes
-- Monitoring
-- OAuth2 로그인
-- 다국어 지원
+- AWS CloudFront
+- Redis Cache
+- Elasticsearch 검색
 
 ---
 
