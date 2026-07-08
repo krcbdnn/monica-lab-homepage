@@ -1,482 +1,445 @@
 # PROMPTS.md
 
-# AI Development Context
+# AI Prompt Library
 
-Version 1.0
-
----
-
-# 역할(Role)
-
-당신은 Java 21, Spring Boot, Spring Security, JPA, QueryDSL, Thymeleaf를 사용하는 Senior Backend Developer이다.
-
-또한 CMS 개발 경험이 풍부하며 SOLID 원칙과 유지보수성을 최우선으로 고려한다.
-
-프로젝트 전체의 일관성을 유지하면서 기존 구조를 최대한 재사용한다.
+Version 2.0
 
 ---
 
-# 프로젝트 개요
+# 목적
 
-이 프로젝트는 교육기관 홈페이지 CMS이다.
+이 문서는 Codex, Claude Code, ChatGPT에게 반복적으로 요청하는 프롬프트를 모아놓은 템플릿이다.
 
-관리자가 홈페이지 콘텐츠를 직접 관리하는 시스템이며 일반 회원 기능은 존재하지 않는다.
+모든 구현은 반드시 프로젝트 문서를 기준으로 진행한다.
 
-사용자는 홈페이지에서 정보를 조회하고 프로그램 신청 버튼을 클릭하면 Google Form으로 이동한다.
-
-관리자는 Spring Security를 이용하여 로그인하고 CMS를 통해 홈페이지를 관리한다.
-
----
-
-# 프로젝트 목적
-
-교육기관 홈페이지 구축
-
-관리자 CMS 구축
-
-프로그램 관리
-
-게시판 관리
-
-기관소개 관리
-
-배너 관리
-
-팝업 관리
-
-Google Form 연동
-
----
-
-# 절대 변경하면 안 되는 사항
-
-절대로 다음 기능을 추가하지 않는다.
-
-- 회원가입
-- 일반 로그인
-- 마이페이지
-- 신청 데이터 저장
-- 상담 신청
-- 결제 기능
-
-Google Form URL만 관리한다.
-
----
-
-# 프로젝트 구조
-
-Program
-
-↓
-
-COURSE
-
-SPECIAL
-
-Program 하나의 Entity를 사용한다.
-
----
-
-Board
-
-↓
-
-NOTICE
-
-GALLERY
-
-ARCHIVE
-
-Board 하나의 Entity를 사용한다.
-
----
-
-Page
-
-↓
-
-GREETING
-
-INTRODUCTION
-
-HISTORY
-
-LOCATION
-
-Page 하나의 Entity를 사용한다.
-
----
-
-관리자
-
-↓
-
-Admin
-
-하나만 존재한다.
-
-ROLE_ADMIN 하나만 사용한다.
-
----
-
-# 기술 스택
-
-Backend
-
-- Java 21
-- Spring Boot
-- Spring Security
-- Spring Data JPA
-- QueryDSL
-- Validation
-
-Frontend
-
-- Thymeleaf
-- Bootstrap 5
-- JavaScript ES6
-- CKEditor5
-
-Database
-
-- MariaDB
-
-Build
-
-- Gradle
-
-Deployment
-
-- Docker
-- GitHub Actions
-- Nginx
-
----
-
-# 아키텍처
-
-MVC
-
-+
-
-Layered Architecture
-
-```
-Controller
-
-↓
-
-Service
-
-↓
-
-Repository
-
-↓
-
-Database
-```
-
-Controller에는 비즈니스 로직을 작성하지 않는다.
-
-Service에서만 비즈니스 로직을 처리한다.
-
----
-
-# Entity 규칙
-
-BaseEntity 상속
-
-공통 컬럼
-
-- createdAt
-- updatedAt
-
-Builder 사용
-
-Setter 최소화
-
-Entity 직접 반환 금지
-
----
-
-# DTO 규칙
-
-Request DTO
-
-↓
-
-Service
-
-↓
-
-Entity
-
-↓
-
-Response DTO
-
-Validation 사용
-
----
-
-# Response 규칙
-
-ApiResponse<T>
-
-사용
-
-직접 ResponseEntity를 생성하지 않는다.
-
----
-
-# Exception
-
-GlobalExceptionHandler 사용
-
-ErrorCode Enum 사용
-
-CustomException 사용
-
----
-
-# Repository
-
-JpaRepository 사용
-
-검색은 QueryDSL 사용
-
-JPQL 최소화
-
----
-
-# Security
-
-Spring Security 사용
-
-관리자만 로그인
-
-ROLE_ADMIN
-
-관리 URL
-
-```
-/admin/**
-```
-
-회원 기능은 만들지 않는다.
-
----
-
-# Program 규칙
-
-Program Entity 하나만 사용한다.
-
-programType
-
-```
-COURSE
-
-SPECIAL
-```
-
-Course Entity를 새로 만들지 않는다.
-
-Special Entity를 새로 만들지 않는다.
-
----
-
-# Board 규칙
-
-Board Entity 하나만 사용한다.
-
-boardType
-
-```
-NOTICE
-
-GALLERY
-
-ARCHIVE
-```
-
-Notice Entity 생성 금지
-
-Gallery Entity 생성 금지
-
-Archive Entity 생성 금지
-
----
-
-# Google Form
-
-프로그램 신청은 Google Form으로 이동한다.
-
-DB에 신청 데이터를 저장하지 않는다.
-
-Program에는
-
-googleFormUrl
-
-만 저장한다.
-
----
-
-# CKEditor
-
-적용
-
-- Page
-- Program
-- Board
-- Popup
-
-이미지는
-
-```
-POST /api/admin/files
-```
-
-를 사용한다.
-
----
-
-# 파일 업로드
-
-Local Storage
-
-```
-/upload/yyyy/MM/dd
-```
-
-UUID 파일명
-
-DB에는 경로만 저장한다.
-
----
-
-# URL 규칙
-
-Public
-
-```
-/api/pages
-
-/api/programs
-
-/api/boards
-
-/api/banners
-
-/api/popups
-```
-
-Admin
-
-```
-/api/admin/pages
-
-/api/admin/programs
-
-/api/admin/boards
-
-/api/admin/banners
-
-/api/admin/popups
-
-/api/admin/files
-```
-
-RESTful API를 따른다.
-
----
-
-# 개발 원칙
-
-기존 구조를 최대한 재사용한다.
-
-새로운 Entity를 만들기 전에 기존 Entity 사용 여부를 검토한다.
-
-새로운 API를 만들기 전에 기존 API 재사용 여부를 검토한다.
-
-중복 코드를 만들지 않는다.
-
-SOLID 원칙을 따른다.
-
----
-
-# 구현 순서
-
-1. Entity
-
-2. Repository
-
-3. Service
-
-4. DTO
-
-5. Controller
-
-6. View
-
-7. Test
-
----
-
-# 작업 전 반드시 확인
-
-AI는 구현 전에 다음 문서를 반드시 참고한다.
+기준 문서
 
 - PRD.md
 - FEATURES.md
 - ERD.md
 - API.md
 - ARCHITECTURE.md
-- TASK.md
 - CODING_RULES.md
+- CONVENTION.md
 
 ---
 
-# AI 행동 규칙
+# 1. 새로운 기능 구현
 
-새로운 기능을 구현하기 전에 반드시 기존 구조를 확인한다.
+## CRUD 생성
 
-문서와 다른 Entity를 생성하지 않는다.
+```
+docs/PRD.md
+docs/FEATURES.md
+docs/ERD.md
+docs/API.md
+docs/CODING_RULES.md
 
-문서와 다른 API를 생성하지 않는다.
+를 기준으로
 
-문서와 다른 URL을 생성하지 않는다.
+{기능명} CRUD를 구현해줘.
 
-문서와 다른 패키지를 생성하지 않는다.
+요구사항
 
-문서와 다른 Enum을 생성하지 않는다.
-
-문서에 정의되지 않은 기능은 구현하지 않는다.
-
----
-
-# 코드 품질
-
-읽기 쉬운 코드를 작성한다.
-
-중복을 제거한다.
-
-메서드는 하나의 책임만 가진다.
-
-예외 처리를 반드시 구현한다.
-
-Validation을 반드시 적용한다.
-
-JavaDoc을 작성한다.
-
-테스트 가능한 구조를 유지한다.
+- RESTful API
+- DTO 사용
+- Validation 적용
+- GlobalExceptionHandler 사용
+- ApiResponse 사용
+- JavaDoc 작성
+- 기존 구조를 최대한 재사용
+```
 
 ---
 
-# 최종 목표
+## Entity 생성
 
-프로젝트 전체가 하나의 일관된 CMS 구조를 유지하도록 구현한다.
+```
+ERD.md를 기준으로
 
-새로운 코드보다 기존 구조의 재사용을 우선한다.
+{Entity명} Entity를 생성해줘.
 
-모든 구현은 PRD와 ERD를 기준으로 한다.
+조건
+
+- BaseEntity 상속
+- Builder 사용
+- Setter 최소화
+- Validation 고려
+- JPA Mapping 적용
+```
+
+---
+
+## Repository 생성
+
+```
+ERD.md를 기준으로
+
+{Entity명} Repository를 생성해줘.
+
+조건
+
+- JpaRepository 사용
+- QueryDSL 지원
+- Custom Repository 분리
+```
+
+---
+
+## Service 생성
+
+```
+API.md와 CODING_RULES.md를 기준으로
+
+{기능명} Service를 구현해줘.
+
+조건
+
+- Service에만 비즈니스 로직 작성
+- @Transactional 적용
+- DTO 사용
+- Exception 처리
+```
+
+---
+
+## Controller 생성
+
+```
+API.md를 기준으로
+
+{기능명} Controller를 구현해줘.
+
+조건
+
+- RESTful API
+- DTO 사용
+- Validation 적용
+- ApiResponse 반환
+- Entity 직접 반환 금지
+```
+
+---
+
+# 2. 관리자 기능
+
+## 관리자 로그인
+
+```
+Spring Security를 사용하여
+
+관리자 로그인 기능을 구현해줘.
+
+조건
+
+- ROLE_ADMIN
+- Session 기반 인증
+- 로그인
+- 로그아웃
+- 접근 권한 설정
+```
+
+---
+
+## CMS 페이지 관리
+
+```
+Page Entity를 이용하여
+
+CMS 페이지 관리 기능을 구현해줘.
+
+조건
+
+- CKEditor5 사용
+- CRUD 구현
+- 이미지 업로드 지원
+```
+
+---
+
+## 프로그램 관리
+
+```
+Program CRUD를 구현해줘.
+
+조건
+
+- ProgramType 사용
+- COURSE
+- SPECIAL
+- Google Form URL 관리
+- CKEditor 적용
+- 파일 업로드 지원
+```
+
+---
+
+## 게시판 관리
+
+```
+Board CRUD를 구현해줘.
+
+조건
+
+- BoardType 사용
+- NOTICE
+- GALLERY
+- ARCHIVE
+- 검색
+- 페이징
+- CKEditor 적용
+```
+
+---
+
+# 3. 기능 개선
+
+## QueryDSL 검색 추가
+
+```
+기존 CRUD에 QueryDSL 검색 기능을 추가해줘.
+
+조건
+
+- 동적 검색
+- Pagination 유지
+- 성능 고려
+```
+
+---
+
+## 페이징 개선
+
+```
+기존 목록 조회를 개선해줘.
+
+조건
+
+- Pageable 사용
+- QueryDSL 유지
+- 정렬 지원
+```
+
+---
+
+## 파일 업로드
+
+```
+파일 업로드 기능을 구현해줘.
+
+조건
+
+- UUID 파일명
+- 날짜별 디렉토리
+- Local Storage
+- 이미지 미리보기 지원
+```
+
+---
+
+## CKEditor 적용
+
+```
+CKEditor5를 적용해줘.
+
+조건
+
+- 이미지 업로드 API 사용
+- HTML 저장
+- XSS 고려
+```
+
+---
+
+# 4. 리팩토링
+
+## 코드 리팩토링
+
+```
+현재 코드를 리뷰하고 리팩토링해줘.
+
+조건
+
+- SOLID 원칙
+- 중복 제거
+- 가독성 향상
+- 성능 개선
+- 기존 구조 유지
+```
+
+---
+
+## Service 리팩토링
+
+```
+Service 계층을 리팩토링해줘.
+
+조건
+
+- 메서드 분리
+- 책임 분리
+- 중복 제거
+```
+
+---
+
+## QueryDSL 적용
+
+```
+기존 Repository를 QueryDSL 기반으로 개선해줘.
+
+조건
+
+- 성능 고려
+- 동적 검색 지원
+```
+
+---
+
+# 5. 코드 리뷰
+
+## 전체 코드 리뷰
+
+```
+현재 구현된 코드를 리뷰해줘.
+
+확인 항목
+
+- SOLID 원칙
+- DTO 사용 여부
+- Validation
+- Exception 처리
+- RESTful API
+- 성능
+- 가독성
+- 중복 코드
+```
+
+---
+
+## 보안 리뷰
+
+```
+Spring Security 관점에서
+
+현재 코드를 리뷰해줘.
+
+확인 항목
+
+- 인증
+- 인가
+- CSRF
+- XSS
+- SQL Injection
+- 파일 업로드 보안
+```
+
+---
+
+## 성능 리뷰
+
+```
+성능 개선이 가능한 부분을 찾아줘.
+
+확인 항목
+
+- Query
+- N+1 문제
+- Index
+- Cache
+- Pagination
+```
+
+---
+
+# 6. 테스트
+
+## 테스트 코드 생성
+
+```
+현재 Service의 테스트 코드를 작성해줘.
+
+조건
+
+- JUnit5
+- Mockito
+- 성공 케이스
+- 실패 케이스
+```
+
+---
+
+## 버그 수정
+
+```
+다음 오류를 분석하고 수정해줘.
+
+원인 분석
+
+↓
+
+해결 방법
+
+↓
+
+수정 코드
+
+↓
+
+영향 범위
+
+순서로 설명해줘.
+```
+
+---
+
+# 7. 문서 기반 구현
+
+## ERD 기준 구현
+
+```
+ERD.md만 기준으로
+
+Entity와 Repository를 구현해줘.
+```
+
+---
+
+## API 기준 구현
+
+```
+API.md를 기준으로
+
+Controller와 Service를 구현해줘.
+```
+
+---
+
+## Architecture 기준 구현
+
+```
+ARCHITECTURE.md를 기준으로
+
+프로젝트 구조를 생성해줘.
+```
+
+---
+
+# 8. 개발 완료 체크
+
+```
+다음 항목을 확인해줘.
+
+- PRD와 일치
+- FEATURES와 일치
+- ERD와 일치
+- API와 일치
+- Architecture와 일치
+- DTO 사용
+- Validation 적용
+- Exception 처리
+- 테스트 완료
+- 리팩토링 완료
+
+문제가 있으면 수정안을 제안해줘.
+```
