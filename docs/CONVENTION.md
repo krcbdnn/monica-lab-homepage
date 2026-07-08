@@ -2,13 +2,13 @@
 
 # Development Convention
 
-Version 1.0
+Version 2.0
 
 ---
 
 # 목적
 
-본 문서는 프로젝트 전체에서 일관된 개발 방식과 코드 품질을 유지하기 위한 규칙을 정의한다.
+프로젝트 전반에서 일관된 개발 방식과 협업 규칙을 정의한다.
 
 모든 개발자와 AI(Codex, Claude Code)는 본 규칙을 따른다.
 
@@ -16,29 +16,15 @@ Version 1.0
 
 # Git Branch Strategy
 
-Git Flow를 단순화하여 사용한다.
+브랜치 전략
 
-## Branch
-
+```
 main
-
-운영 배포 브랜치
-
 develop
-
-개발 브랜치
-
 feature/{feature-name}
-
-기능 개발
-
 fix/{issue-name}
-
-버그 수정
-
 hotfix/{issue-name}
-
-운영 긴급 수정
+```
 
 ---
 
@@ -46,6 +32,7 @@ hotfix/{issue-name}
 
 예시
 
+```
 feature/admin-login
 
 feature/program-crud
@@ -61,10 +48,13 @@ feature/popup
 fix/login-error
 
 hotfix/security
+```
+
+소문자와 하이픈(-)을 사용한다.
 
 ---
 
-# Commit Message
+# Commit Convention
 
 형식
 
@@ -79,84 +69,51 @@ feat: 관리자 로그인 구현
 
 feat: Program CRUD 구현
 
-feat: Board CRUD 구현
-
 fix: 프로그램 수정 오류 해결
 
 refactor: Service 구조 개선
 
-docs: PRD 수정
-
-style: 코드 포맷 수정
+docs: API 문서 수정
 
 test: ProgramService 테스트 추가
 
-chore: Gradle 의존성 추가
+chore: Gradle 설정 변경
 ```
 
 ---
 
-# Commit Type
+# Commit Types
 
+```
 feat
-
-새 기능
-
 fix
-
-버그 수정
-
 refactor
-
-리팩토링
-
-style
-
-코드 스타일 변경
-
 docs
-
-문서 수정
-
+style
 test
-
-테스트 코드
-
 chore
-
-설정 변경
-
 build
-
-빌드 설정
-
 ci
-
-CI/CD
+```
 
 ---
 
 # Package Convention
 
-패키지명은 모두 소문자를 사용한다.
+패키지는 모두 소문자를 사용한다.
+
+예시
 
 ```
 admin
-
-page
-
-program
-
 board
-
+program
+page
 banner
-
 popup
-
 file
-
 common
-
+config
 security
 ```
 
@@ -182,17 +139,10 @@ Repository
 ProgramRepository
 ```
 
-Entity
-
-```
-Program
-```
-
 DTO
 
 ```
 ProgramRequest
-
 ProgramResponse
 ```
 
@@ -200,9 +150,7 @@ Enum
 
 ```
 ProgramType
-
 BoardType
-
 PageType
 ```
 
@@ -214,10 +162,9 @@ PageType
 
 ```
 find
-
-findById
-
 findAll
+findById
+search
 ```
 
 등록
@@ -238,12 +185,6 @@ update
 delete
 ```
 
-검색
-
-```
-search
-```
-
 ---
 
 # Variable Naming
@@ -257,8 +198,6 @@ programType
 
 boardType
 
-googleFormUrl
-
 createdAt
 
 updatedAt
@@ -267,67 +206,45 @@ updatedAt
 Boolean
 
 ```
-isPublic
-
 isVisible
 
 isDeleted
+
+isPublished
 ```
 
 ---
 
 # Constant Naming
 
-대문자 + 언더바
+```
+UPPER_SNAKE_CASE
+```
+
+예시
 
 ```
-MAX_FILE_SIZE
-
 DEFAULT_PAGE_SIZE
+
+MAX_UPLOAD_SIZE
 
 UPLOAD_PATH
 ```
 
 ---
 
-# Database Convention
+# Database Naming
 
 Table
 
-snake_case
-
-예시
-
 ```
-admin
-
-program
-
-board
-
-banner
-
-popup
-
-page
+snake_case
 ```
 
 Column
 
-snake_case
-
-예시
-
 ```
-created_at
-
-updated_at
-
-google_form_url
-
-board_type
-
-program_type
+snake_case
 ```
 
 Primary Key
@@ -340,290 +257,86 @@ Foreign Key
 
 ```
 admin_id
+
+program_id
+
+board_id
 ```
 
 ---
 
 # URL Convention
 
-Public
-
-```
-/api/programs
-
-/api/programs/{id}
-
-/api/boards
-
-/api/pages
-```
-
-Admin
-
-```
-/api/admin/programs
-
-/api/admin/boards
-
-/api/admin/pages
-
-/api/admin/banners
-
-/api/admin/popups
-```
-
-RESTful URL만 사용한다.
-
-URL에 동사를 사용하지 않는다.
-
----
-
-# API Convention
-
-조회
-
-GET
-
-등록
-
-POST
-
-수정
-
-PUT
-
-부분 수정
-
-PATCH
-
-삭제
-
-DELETE
-
----
-
-# Response Convention
-
-모든 API는 ApiResponse를 사용한다.
-
-성공
-
-```
-ApiResponse.success(data)
-```
-
-실패
-
-```
-ApiResponse.fail(errorCode)
-```
-
-Entity 직접 반환 금지
-
----
-
-# Exception Convention
-
-GlobalExceptionHandler 사용
-
-ErrorCode Enum 사용
-
-CustomException 사용
-
-Controller에서 try-catch 작성 금지
-
----
-
-# Validation Convention
-
-모든 Request DTO는 Validation 적용
+RESTful API를 사용한다.
 
 예시
 
 ```
-@NotBlank
+GET /api/programs
 
-@NotNull
+POST /api/programs
 
-@Size
+PUT /api/programs/{id}
 
-@Pattern
+DELETE /api/programs/{id}
+```
+
+URL에는 동사를 사용하지 않는다.
+
+---
+
+# Code Convention
+
+- 메서드는 하나의 책임만 가진다.
+- 중복 코드를 작성하지 않는다.
+- 의미 있는 변수명을 사용한다.
+- 불필요한 주석을 작성하지 않는다.
+- 복잡한 로직은 메서드로 분리한다.
+
+---
+
+# JavaDoc
+
+public 메서드에는 JavaDoc 작성을 권장한다.
+
+예시
+
+```java
+/**
+ * 프로그램을 등록한다.
+ *
+ * @param request 등록 요청 DTO
+ * @return 등록 결과
+ */
 ```
 
 ---
 
-# Entity Convention
+# Pull Request Checklist
 
-모든 Entity는
+PR 전에 확인한다.
 
-```
-BaseEntity
-```
-
-상속
-
-Setter 최소화
-
-Builder 사용
-
-Protected 생성자 사용
-
----
-
-# Service Convention
-
-비즈니스 로직은 Service에서만 작성
-
-Repository 직접 호출은 Service만 가능
-
-Service 간 순환 참조 금지
-
----
-
-# Repository Convention
-
-JpaRepository 사용
-
-검색은 QueryDSL 사용
-
-JPQL 최소화
-
-Native Query는 꼭 필요한 경우만 사용
-
----
-
-# File Convention
-
-기본 저장소
-
-```
-/upload/yyyy/MM/dd
-```
-
-파일명
-
-UUID
-
-DB에는 파일 경로만 저장
-
----
-
-# CKEditor Convention
-
-적용 대상
-
-- Page
-- Program
-- Board
-- Popup
-
-이미지는 File API를 이용하여 업로드
-
----
-
-# Program Convention
-
-Program 하나만 사용
-
-programType
-
-```
-COURSE
-
-SPECIAL
-```
-
-Course Entity 생성 금지
-
-Special Entity 생성 금지
-
----
-
-# Board Convention
-
-Board 하나만 사용
-
-boardType
-
-```
-NOTICE
-
-GALLERY
-
-ARCHIVE
-```
-
-Notice Entity 생성 금지
-
-Gallery Entity 생성 금지
-
-Archive Entity 생성 금지
-
----
-
-# Google Form Convention
-
-신청 데이터를 저장하지 않는다.
-
-Program에는
-
-```
-googleFormUrl
-```
-
-만 저장한다.
-
-사용자는 Google Form으로 이동한다.
-
----
-
-# Logging Convention
-
-로그 기록
-
-- 관리자 로그인
-- 관리자 CRUD
-- 파일 업로드
-- 예외 발생
-
-비밀번호 등 민감 정보는 로그에 남기지 않는다.
-
----
-
-# Code Review Checklist
-
-PR 생성 전 확인
-
-- 기능 정상 동작
-- 중복 코드 제거
+- 컴파일 성공
+- 테스트 성공
 - Validation 적용
-- 예외 처리 완료
+- Exception 처리
 - DTO 사용
-- Entity 직접 반환 없음
 - RESTful API 준수
-- JavaDoc 작성
-- 테스트 완료
+- Naming Convention 준수
 
 ---
 
 # AI Convention
 
-AI(Codex, Claude Code)는 반드시 다음 문서를 기준으로 개발한다.
+AI는 구현 전에 반드시 다음 문서를 확인한다.
 
 - PRD.md
 - FEATURES.md
 - ERD.md
 - API.md
 - ARCHITECTURE.md
-- TASK.md
 - CODING_RULES.md
-- PROMPTS.md
-- CONVENTION.md
 
-문서에 정의되지 않은 기능은 임의로 추가하지 않는다.
+문서에 없는 기능은 임의로 구현하지 않는다.
 
-기존 구조를 최대한 재사용한다.
-
-Program, Board, Page 구조를 유지한다.
-
-새로운 Entity를 생성하기 전에 기존 Entity 사용 여부를 먼저 검토한다.
+기존 구조를 우선 재사용한다.
