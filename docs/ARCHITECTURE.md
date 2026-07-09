@@ -61,6 +61,19 @@ src/main/java
     └── file
 ```
 
+패키지 설명
+
+- `config` : 애플리케이션 전역 설정(WebConfig, SecurityConfig 등 프로젝트 전체에 적용되는 구성)
+- `security` : Spring Security 인증/인가 관련 클래스(로그인 처리, 접근 제어 등)
+- `common` : 여러 도메인에서 공통으로 사용하는 클래스 모음
+  - `common.config` : common 패키지 내부에서 사용하는 설정(QueryDSL 설정, 공통 리소스 설정 등). 최상위 `config`와 달리 common 모듈 범위에 한정된 설정을 담당한다.
+  - `dto` : 공통으로 사용하는 Request/Response DTO
+  - `entity` : BaseEntity 등 공통 Entity
+  - `exception` : CustomException, ErrorCode 등 예외 관련 클래스
+  - `response` : ApiResponse 등 공통 응답 포맷
+  - `util` : FileUtil, DateUtil 등 공통 유틸리티
+- `admin`, `page`, `program`, `board`, `banner`, `popup`, `file` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
+
 ---
 
 # Domain
@@ -323,10 +336,18 @@ updatedAt
 
 Spring Security 사용
 
+관리자 인증이 필요한 대상은 화면 접근과 API 호출로 구분된다.
+
+- `/admin/**` : 관리자 화면(Thymeleaf) 접근 경로
+- `/api/admin/**` : 관리자 REST API 호출 경로(API.md 기준)
+
+두 경로 모두 동일한 세션 기반 인증(ROLE_ADMIN)을 사용하며, Spring Security가 두 경로를 함께 인증 대상으로 처리한다.
+
 인증 대상
 
 ```
 /admin/**
+/api/admin/**
 ```
 
 비로그인 접근
@@ -344,6 +365,8 @@ Spring Security 사용
 
 /popups
 ```
+
+일반 사용자가 이용하는 조회용 API(`/api/pages/**`, `/api/programs/**`, `/api/boards/**`, `/api/banners`, `/api/popups`, `/api/files/{id}` 등)는 인증 없이 접근 가능하며, `/api/admin/**` 하위 API만 인증을 요구한다(API.md 기준).
 
 권한
 
