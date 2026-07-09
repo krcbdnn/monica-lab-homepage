@@ -10,6 +10,10 @@ Version 2.0
 
 AI(Codex, Claude Code, ChatGPT)를 프로젝트 개발에 일관되게 활용하기 위한 표준 작업 절차를 정의한다.
 
+본 문서는 **프로젝트 전체 개발 절차**(요구사항 확인, 문서 수정, 커밋, 리뷰, 병합 등)를 정의한다.
+
+코드 구현 세부 절차(Entity → Repository → Service → Controller → View → Test)는 docs/CLAUDE.md를 따른다.
+
 ---
 
 # AI 역할
@@ -40,6 +44,8 @@ Git Commit
 ↓
 
 AI 구현
+
+(코드 구현 세부 절차는 CLAUDE.md 참고)
 
 ↓
 

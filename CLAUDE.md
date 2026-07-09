@@ -2,6 +2,10 @@
 
 # AI Project Instructions
 
+본 문서는 **코드 구현 절차**를 정의합니다.
+
+문서 수정, 커밋, 리뷰, 병합 등 프로젝트 전체 개발 절차는 docs/AI_WORKFLOW.md를 따릅니다.
+
 ## Project
 
 Monika Research Institute CMS
@@ -69,6 +73,10 @@ Spring Boot 기반 교육기관 홈페이지 및 관리자 CMS 프로젝트입�
 ---
 
 ## Workflow
+
+기능 하나를 코드로 구현할 때의 절차입니다.
+
+(AI_WORKFLOW.md의 "AI 구현" 단계에서 수행하는 세부 절차에 해당합니다.)
 
 기능 개발 순서
 
