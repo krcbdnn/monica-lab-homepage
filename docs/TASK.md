@@ -1,294 +1,322 @@
-# TASK.md
+# TASK.md (Harness Engineering 방식)
 
-# Development Task
-
-Version 2.0
+Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
-# 프로젝트 목표
+## 이 문서의 원칙
 
-교육기관 홈페이지 CMS 구축
+기존 체크리스트는 "무엇을 만드는가"만 나열되어 있어, 사람이 판단해서 순서·완료 기준을
+채워야 했습니다. 이 버전은 에이전트(Claude Code 등)가 사람의 개입 없이
+**하나씩 집어서 실행 → 스스로 검증 → 다음으로 이동**할 수 있도록 태스크를 재구성합니다.
 
-- 관리자 CMS
-- 프로그램 관리
-- 게시판 관리
-- Google Form 연동
-- 반응형 홈페이지
+각 태스크는 다음 5요소를 모두 갖습니다.
+
+| 요소 | 설명 |
+|---|---|
+| **ID** | `P{phase}-T{n}` 형식의 고유 식별자. 의존성 참조에 사용 |
+| **의존성** | 선행되어야 하는 태스크 ID (없으면 `-`) |
+| **산출물** | 생성/수정되는 파일·디렉토리 경로 (에이전트가 diff 범위를 예측 가능하게) |
+| **작업 내용** | 실행할 구체적 작업 (모호한 동사 대신 확인 가능한 행위로 기술) |
+| **완료 기준(DoD)** | 사람이 아니라 **명령어/코드로 자동 검증** 가능한 조건 |
+
+원본에 있던 `- [ ] 항목명` 형태(사람이 눈으로 체크)는 전부 제거하고,
+**실행 가능한 검증 커맨드**로 대체했습니다.
 
 ---
-
-# 개발 순서
 
 ## Phase 1. 프로젝트 환경 구성
 
-### 프로젝트 생성
+### P1-T1. Spring Boot 프로젝트 생성 및 Gradle 설정
+- 의존성: `-`
+- 산출물: `build.gradle`, `settings.gradle`, `src/main/java/**/Application.java`
+- 작업 내용: Spring Boot 3.x + Java 17 기준 프로젝트 생성. `group`, `version`, `sourceCompatibility` 명시.
+- DoD: `./gradlew build` 종료 코드 `0`, `./gradlew bootRun` 후 기본 포트(8080) 응답 200 또는 404(라우트 없음은 정상)
 
-- [ ] Spring Boot 프로젝트 생성
-- [ ] Gradle 설정
-- [ ] Git Repository 연결
-- [ ] application.yml 설정
-- [ ] MariaDB 연결
+### P1-T2. Git Repository 연결
+- 의존성: P1-T1
+- 산출물: `.git/`, `.gitignore`
+- 작업 내용: `.gitignore`에 `build/`, `.gradle/`, `*.log`, `application-local.yml` 등 포함
+- DoD: `git status`에 빌드 산출물이 잡히지 않음
 
-### 라이브러리 추가
+### P1-T3. application.yml 프로파일 분리
+- 의존성: P1-T1
+- 산출물: `src/main/resources/application.yml`, `application-local.yml`, `application-prod.yml`
+- 작업 내용: `spring.profiles.active`로 local/prod 분리, DB 접속정보는 환경변수 참조(`${DB_URL}` 등)
+- DoD: `local` 프로파일로 `bootRun` 시 정상 기동, 시크릿 값이 git에 커밋되지 않음(grep으로 확인)
 
-- [ ] Spring Security
-- [ ] Spring Data JPA
-- [ ] QueryDSL
-- [ ] Validation
-- [ ] Lombok
-- [ ] Thymeleaf
-- [ ] Bootstrap
-- [ ] CKEditor5
+### P1-T4. MariaDB 연결
+- 의존성: P1-T3
+- 산출물: `application-local.yml` (datasource 설정), `docker-compose.yml`(선택, 로컬 DB용)
+- 작업 내용: JDBC URL, driver-class-name(`org.mariadb.jdbc.Driver`) 설정
+- DoD: 애플리케이션 기동 로그에 `HikariPool-1 - Start completed` 확인, 실패 시 종료코드 non-zero
+
+### P1-T5. 라이브러리 의존성 추가
+- 의존성: P1-T1
+- 산출물: `build.gradle`
+- 작업 내용: Spring Security, Spring Data JPA, QueryDSL(Q타입 생성 플러그인 포함), Validation, Lombok, Thymeleaf 추가. Bootstrap/CKEditor5는 정적 리소스(CDN 또는 `src/main/resources/static/vendor`)로 처리
+- DoD: `./gradlew compileJava` 성공, QueryDSL Q클래스가 `build/generated`에 생성됨
 
 ---
 
 ## Phase 2. 공통 기능
 
-### 공통 클래스
+### P2-T1. BaseEntity
+- 의존성: P1-T5
+- 산출물: `common/entity/BaseEntity.java`
+- 작업 내용: `@MappedSuperclass` + `@EntityListeners(AuditingEntityListener.class)`, `createdAt`, `updatedAt`
+- DoD: 단위 테스트에서 임의 엔티티 저장 시 `createdAt`이 null이 아님
 
-- [ ] BaseEntity
-- [ ] ApiResponse
-- [ ] ErrorCode
-- [ ] GlobalExceptionHandler
-- [ ] CommonConfig
+### P2-T2. ApiResponse / ErrorCode / GlobalExceptionHandler
+- 의존성: P1-T5
+- 산출물: `common/response/ApiResponse.java`, `common/exception/ErrorCode.java`, `common/exception/GlobalExceptionHandler.java`
+- 작업 내용: 성공/실패 응답 포맷 통일, `@RestControllerAdvice`로 예외 처리
+- DoD: 존재하지 않는 엔드포인트 호출 시 정의된 JSON 에러 포맷 반환(테스트 코드로 검증)
 
-### 파일 업로드
+### P2-T3. CommonConfig
+- 의존성: P2-T1
+- 산출물: `common/config/CommonConfig.java`
+- 작업 내용: `JpaAuditing`, `Bean Validation` 등 공통 빈 등록
+- DoD: 컨텍스트 로딩 테스트(`@SpringBootTest`) 통과
 
-- [ ] Local Storage
-- [ ] UUID 파일명
-- [ ] 날짜별 디렉토리 생성
-- [ ] 이미지 업로드
-- [ ] 첨부파일 업로드
+### P2-T4. 파일 업로드 (Local Storage)
+- 의존성: P2-T2
+- 산출물: `common/file/FileStorageService.java`, `common/file/FileUploadController.java`
+- 작업 내용: UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증
+- DoD: 단위 테스트로 업로드 후 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 400 응답
 
 ---
 
 ## Phase 3. 관리자 인증
 
-### Spring Security
+### P3-T1. Admin 도메인 (Entity/Repository/Service/Controller)
+- 의존성: P2-T1
+- 산출물: `admin/entity/Admin.java`, `admin/repository/AdminRepository.java`, `admin/service/AdminService.java`, `admin/controller/AdminController.java`
+- 작업 내용: `username`(unique), `password`(BCrypt 해시 저장), `role`
+- DoD: Repository 통합 테스트에서 중복 username 저장 시 `DataIntegrityViolationException`
 
-- [ ] SecurityConfig
-- [ ] BCrypt 설정
-- [ ] 로그인 구현
-- [ ] 로그아웃 구현
-- [ ] 인증 실패 처리
-- [ ] 접근 권한 설정
+### P3-T2. SecurityConfig + BCrypt
+- 의존성: P3-T1
+- 산출물: `common/config/SecurityConfig.java`
+- 작업 내용: `PasswordEncoder` = `BCryptPasswordEncoder`, `SecurityFilterChain` 정의
+- DoD: 평문 비밀번호로 로그인 시도 시 실패, BCrypt 해시 비교 성공 시 인증 통과 (테스트 코드)
 
-### 관리자
+### P3-T3. 로그인/로그아웃 구현
+- 의존성: P3-T2
+- 산출물: `admin/controller/AuthController.java`, `templates/admin/login.html`
+- 작업 내용: 폼 로그인, 로그아웃 후 세션 무효화
+- DoD: `POST /admin/login` 성공 시 302 리다이렉트 + 세션 쿠키 발급, `/admin/logout` 후 인증 필요 페이지 접근 시 302(로그인 페이지로)
 
-- [ ] Admin Entity
-- [ ] Admin Repository
-- [ ] Admin Service
-- [ ] Admin Controller
+### P3-T4. 인증 실패 처리 및 접근 권한 설정
+- 의존성: P3-T3
+- 산출물: `common/config/SecurityConfig.java`(수정), `common/exception/CustomAuthenticationEntryPoint.java`
+- 작업 내용: 인증 실패 시 커스텀 에러 응답, `/admin/**` 인가 규칙
+- DoD: 미인증 상태로 `/admin/**` 접근 시 401 또는 로그인 페이지 리다이렉트 (통합 테스트)
 
 ---
 
-## Phase 4. CMS 페이지 관리
+## Phase 4. CMS 페이지 관리 (기관소개)
 
-### 기관소개
+### P4-T1. Page Entity/CRUD
+- 의존성: P2-T1, P3-T4
+- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/admin/PageAdminController.java`
+- 작업 내용: 페이지 타입(`GREETING`, `INTRO`, `HISTORY`, `LOCATION`)을 enum으로 관리, 각 타입별 단일 레코드 또는 목록 정책 결정
+- DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과
 
-- [ ] Page Entity
-- [ ] Page CRUD
-- [ ] CKEditor 적용
-- [ ] 이미지 업로드
-
-관리 페이지
-
-- [ ] 인사말
-- [ ] 기관소개
-- [ ] 연혁
-- [ ] 오시는 길
+### P4-T2. CKEditor5 적용 및 이미지 업로드 연동
+- 의존성: P4-T1, P2-T4
+- 산출물: `templates/admin/page/form.html`, `page/controller/admin/PageImageUploadController.java`
+- 작업 내용: CKEditor5 이미지 업로드 어댑터를 P2-T4 FileStorageService와 연결
+- DoD: 에디터에서 이미지 업로드 시 반환 JSON에 `url` 필드 포함, 실제 파일이 스토리지에 존재
 
 ---
 
 ## Phase 5. 프로그램 관리
 
-### Program
+### P5-T1. Program 도메인
+- 의존성: P2-T1
+- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/admin/ProgramAdminController.java`
+- 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드
+- DoD: 타입별 필터 조회 리포지토리 테스트 통과
 
-- [ ] Entity
-- [ ] Repository
-- [ ] Service
-- [ ] Controller
+### P5-T2. 프로그램 CRUD + 공개여부/모집상태
+- 의존성: P5-T1
+- 산출물: `program/controller/admin/ProgramAdminController.java`(수정)
+- 작업 내용: 등록/수정/삭제, `isPublic=false`인 프로그램은 공개 API에서 제외
+- DoD: 비공개 프로그램이 공개 목록 API 응답에 포함되지 않음(테스트)
 
-### 기능
+### P5-T3. Google Form URL 관리
+- 의존성: P5-T1
+- 산출물: `program/entity/Program.java`(필드 추가), 관리 폼
+- 작업 내용: URL 형식 검증(`@URL` 또는 정규식)
+- DoD: 잘못된 URL 형식 입력 시 Validation 에러 응답(400)
 
-- [ ] 프로그램 등록
-- [ ] 프로그램 수정
-- [ ] 프로그램 삭제
-- [ ] 공개 여부
-- [ ] 모집 상태
-- [ ] Google Form URL 관리
-- [ ] 썸네일 업로드
-- [ ] 첨부파일 업로드
-
-Program Type
-
-- [ ] COURSE
-- [ ] SPECIAL
+### P5-T4. 썸네일/첨부파일 업로드
+- 의존성: P5-T1, P2-T4
+- 산출물: `program/controller/admin/ProgramFileController.java`
+- 작업 내용: 썸네일은 이미지 전용, 첨부는 문서 확장자 허용
+- DoD: 이미지 아닌 파일을 썸네일로 업로드 시 400
 
 ---
 
 ## Phase 6. 게시판 관리
 
-### Board
+### P6-T1. Board 도메인 + BoardType
+- 의존성: P2-T1
+- 산출물: `board/entity/Board.java`, `board/entity/BoardType.java`(enum: `NOTICE`,`GALLERY`,`ARCHIVE`), Repository/Service/Controller
+- DoD: 타입별 저장/조회 통합 테스트 통과
 
-Board Type
+### P6-T2. CRUD (목록/상세/등록/수정/삭제)
+- 의존성: P6-T1
+- 산출물: `board/controller/admin/BoardAdminController.java`, `board/controller/BoardController.java`
+- DoD: 각 CRUD 엔드포인트에 대한 통합 테스트 5종 통과
 
-- [ ] NOTICE
-- [ ] GALLERY
-- [ ] ARCHIVE
+### P6-T3. 검색/페이징
+- 의존성: P6-T2
+- 산출물: `board/repository/BoardRepositoryCustom.java`(QueryDSL), `board/dto/BoardSearchCondition.java`
+- 작업 내용: 제목/내용 검색, `Pageable` 지원
+- DoD: 검색 조건에 맞는 결과만 반환되는지 QueryDSL 테스트로 검증
 
-### CRUD
-
-- [ ] 목록
-- [ ] 상세
-- [ ] 등록
-- [ ] 수정
-- [ ] 삭제
-
-### 기능
-
-- [ ] 검색
-- [ ] 페이징
-- [ ] 조회수
-- [ ] 공개 여부
-- [ ] 이미지 업로드
-- [ ] 파일 업로드
+### P6-T4. 조회수, 공개여부, 이미지/파일 업로드
+- 의존성: P6-T2, P2-T4
+- 산출물: `board/entity/Board.java`(필드 추가), `board/service/BoardService.java`
+- 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락)
+- DoD: 동시 요청 100회 시 조회수 정확히 100 증가(부하 테스트 또는 동시성 단위 테스트)
 
 ---
 
 ## Phase 7. 메인 관리
 
-### Banner
+### P7-T1. Banner CRUD + 정렬 + 공개여부
+- 의존성: P2-T1, P2-T4
+- 산출물: `banner/entity/Banner.java`, Repository/Service/Controller
+- 작업 내용: `sortOrder` 필드, 관리자 화면에서 순서 변경 API
+- DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트)
 
-- [ ] CRUD
-- [ ] 이미지 업로드
-- [ ] 정렬
-- [ ] 공개 여부
-
-### Popup
-
-- [ ] CRUD
-- [ ] 기간 설정
-- [ ] 공개 여부
+### P7-T2. Popup CRUD + 기간설정 + 공개여부
+- 의존성: P2-T1
+- 산출물: `popup/entity/Popup.java`, Repository/Service/Controller
+- 작업 내용: `startDate`, `endDate` 범위 밖이면 공개 API에서 자동 제외
+- DoD: 기간이 지난 팝업이 공개 목록에 나타나지 않음(날짜 조작 테스트)
 
 ---
 
-## Phase 8. 홈페이지
+## Phase 8. 홈페이지 (공개 영역)
 
-### 메인
+### P8-T1. 메인 화면 (배너/팝업/최신 게시글)
+- 의존성: P7-T1, P7-T2, P6-T2
+- 산출물: `home/controller/HomeController.java`, `templates/home/index.html`
+- DoD: `GET /` 200 응답, 응답 HTML에 배너/팝업/최신글 영역 태그 존재(HTML 파싱 테스트)
 
-- [ ] 메인 화면
-- [ ] 배너 표시
-- [ ] 팝업 표시
-- [ ] 최신 게시글
+### P8-T2. 기관소개 페이지 조회
+- 의존성: P4-T1
+- 산출물: `templates/home/page/*.html`
+- DoD: 4개 페이지 타입 각각 `GET` 200 응답
 
-### 기관소개
+### P8-T3. 프로그램 목록/상세 + Google Form 이동
+- 의존성: P5-T2, P5-T3
+- 산출물: `templates/home/program/*.html`
+- DoD: 상세 페이지의 "신청하기" 링크 `href`가 등록된 Google Form URL과 일치
 
-- [ ] 페이지 조회
-
-### 프로그램
-
-- [ ] 목록
-- [ ] 상세
-- [ ] Google Form 이동
-
-### 게시판
-
-- [ ] 공지사항
-- [ ] 갤러리
-- [ ] 자료실
+### P8-T4. 게시판 (공지/갤러리/자료실) 공개 화면
+- 의존성: P6-T3
+- 산출물: `templates/home/board/*.html`
+- DoD: 비공개 게시글이 목록/상세에서 접근 불가(403 또는 404)
 
 ---
 
 ## Phase 9. 관리자 CMS
 
-### Dashboard
+### P9-T1. Dashboard
+- 의존성: P6-T2, P5-T2
+- 산출물: `admin/controller/DashboardController.java`, `templates/admin/dashboard.html`
+- 작업 내용: 최근 게시글 N건, 프로그램 현황(모집중/마감 카운트), 빠른 메뉴 링크
+- DoD: 대시보드 API 응답에 세 영역의 데이터가 모두 포함됨
 
-- [ ] 최근 게시글
-- [ ] 프로그램 현황
-- [ ] 빠른 메뉴
-
-### 관리자 화면
-
-- [ ] 프로그램 관리
-- [ ] 게시판 관리
-- [ ] 페이지 관리
-- [ ] 배너 관리
-- [ ] 팝업 관리
-- [ ] 파일 관리
+### P9-T2. 관리자 통합 화면 (프로그램/게시판/페이지/배너/팝업/파일)
+- 의존성: P5~P7 전체
+- 산출물: `templates/admin/layout/*.html`, 각 도메인 admin 뷰
+- DoD: 각 메뉴 진입 시 200 응답 + 인가되지 않은 사용자는 전부 차단
 
 ---
 
 ## Phase 10. 테스트
 
-### 기능 테스트
+### P10-T1. 기능 테스트 스위트
+- 의존성: Phase 1~9 전체
+- 산출물: `src/test/java/**` (로그인, 권한, CRUD, 검색, 파일 업로드, Google Form 연결)
+- DoD: `./gradlew test` 전체 통과, 커버리지 리포트 생성(jacoco 등)
 
-- [ ] 로그인
-- [ ] 권한
-- [ ] CRUD
-- [ ] 검색
-- [ ] 파일 업로드
-- [ ] Google Form 연결
-
-### 예외 처리
-
-- [ ] Validation
-- [ ] 인증 실패
-- [ ] 파일 오류
-- [ ] 잘못된 요청
+### P10-T2. 예외 처리 테스트
+- 의존성: P10-T1
+- 산출물: `src/test/java/**exception**`
+- 작업 내용: Validation 실패, 인증 실패, 파일 오류, 잘못된 요청 각각에 대한 케이스
+- DoD: 정의된 `ErrorCode` 별로 최소 1개 이상의 테스트 존재, 전부 통과
 
 ---
 
 ## Phase 11. UI/UX 개선
 
-- [ ] 반응형 적용
-- [ ] 관리자 UI 개선
-- [ ] CKEditor 스타일 적용
-- [ ] 이미지 최적화
-- [ ] 접근성 개선
+### P11-T1. 반응형 적용
+- 의존성: P8 전체
+- 산출물: `static/css/**`
+- DoD: 모바일/태블릿/데스크톱 뷰포트에서 레이아웃 깨짐 없음 (스크린샷 diff 또는 수동 확인 체크리스트)
+
+### P11-T2. 관리자 UI 개선 + CKEditor 스타일 + 이미지 최적화 + 접근성
+- 의존성: P9-T2
+- 산출물: `static/css/admin/**`
+- DoD: Lighthouse 접근성 점수 목표치(예: 90+) 이상, 이미지 lazy-loading 적용 확인
 
 ---
 
 ## Phase 12. 배포
 
-### Docker
+### P12-T1. Dockerfile / docker-compose
+- 의존성: P10-T1 통과
+- 산출물: `Dockerfile`, `docker-compose.yml`
+- DoD: `docker build` 성공, `docker compose up` 후 헬스체크 엔드포인트 200
 
-- [ ] Dockerfile
-- [ ] docker-compose
+### P12-T2. Nginx (Reverse Proxy + Static Resource)
+- 의존성: P12-T1
+- 산출물: `nginx/nginx.conf`
+- DoD: 80번 포트를 통해 애플리케이션 접근 가능, 정적 리소스는 Nginx가 직접 서빙(응답 헤더로 확인)
 
-### Nginx
-
-- [ ] Reverse Proxy
-- [ ] Static Resource
-
-### GitHub
-
-- [ ] GitHub Actions
-- [ ] CI/CD
-
----
-
-# 완료 기준 (Definition of Done)
-
-## 기능
-
-- [ ] 관리자 로그인 가능
-- [ ] 기관소개 CMS 수정 가능
-- [ ] 프로그램 관리 가능
-- [ ] 게시판 관리 가능
-- [ ] 배너 관리 가능
-- [ ] 팝업 관리 가능
-- [ ] Google Form 정상 연결
-- [ ] 파일 업로드 정상 동작
+### P12-T3. GitHub Actions CI/CD
+- 의존성: P12-T1
+- 산출물: `.github/workflows/ci.yml`, `.github/workflows/cd.yml`
+- DoD: PR 생성 시 CI 워크플로우 자동 실행 및 `./gradlew test` 결과가 PR 상태 체크에 반영
 
 ---
 
-## 품질
+# 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
-- [ ] 예외 처리 완료
-- [ ] 반응형 적용
-- [ ] 권한 검증 완료
-- [ ] 코드 리뷰 완료
-- [ ] 테스트 완료
-- [ ] 배포 완료
+| 항목 | 기존 표현 | 자동 검증 방법 |
+|---|---|---|
+| 관리자 로그인 가능 | 관리자 로그인 가능 | P3-T3 통합 테스트 통과 |
+| 기관소개 CMS 수정 가능 | 기관소개 CMS 수정 가능 | P4-T1 CRUD 테스트 통과 |
+| 프로그램 관리 가능 | 프로그램 관리 가능 | P5-T2 테스트 통과 |
+| 게시판 관리 가능 | 게시판 관리 가능 | P6-T2, P6-T3 테스트 통과 |
+| 배너 관리 가능 | 배너 관리 가능 | P7-T1 테스트 통과 |
+| 팝업 관리 가능 | 팝업 관리 가능 | P7-T2 테스트 통과 |
+| Google Form 정상 연결 | Google Form 정상 연결 | P8-T3 링크 검증 테스트 통과 |
+| 파일 업로드 정상 동작 | 파일 업로드 정상 동작 | P2-T4 테스트 통과 |
+| 예외 처리 완료 | 예외 처리 완료 | P10-T2 통과 |
+| 반응형 적용 | 반응형 적용 | P11-T1 확인 |
+| 권한 검증 완료 | 권한 검증 완료 | P3-T4, P9-T2 통과 |
+| 코드 리뷰 완료 | 코드 리뷰 완료 | PR approve 기록 (GitHub) |
+| 테스트 완료 | 테스트 완료 | `./gradlew test` 성공 + 커버리지 리포트 |
+| 배포 완료 | 배포 완료 | P12-T1~T3 통과, 헬스체크 200 |
+
+---
+
+## 실행 순서 요약 (의존성 그래프 기준 위상정렬)
+
+```
+Phase1 → Phase2 → Phase3 ─┬→ Phase4 ─┐
+                           ├→ Phase5 ─┤
+                           └→ Phase6 ─┤
+                                       ├→ Phase7 → Phase8 → Phase9 → Phase10 → Phase11 → Phase12
+```
+
+에이전트는 각 Phase 내 태스크를 ID 순서대로 실행하되, `의존성` 필드에 명시된
+태스크가 완료(DoD 통과)되지 않으면 다음 태스크로 진행하지 않습니다.
