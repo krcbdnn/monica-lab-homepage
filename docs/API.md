@@ -50,10 +50,10 @@ GET /api/pages/{pageType}
 
 pageType
 
-- greeting
-- introduction
-- history
-- location
+- GREETING
+- INTRODUCTION
+- HISTORY
+- LOCATION
 
 ---
 
@@ -78,16 +78,10 @@ GET /api/programs
 
 Query
 
-- type
+- programType
 - keyword
 - page
 - size
-
----
-
-## 상세
-
-GET /api/programs/{id}
 
 ---
 
@@ -259,6 +253,12 @@ PATCH /api/admin/popups/{id}/visibility
 POST /api/admin/files
 
 multipart/form-data
+
+---
+
+## 다운로드
+
+GET /api/files/{id}
 
 ---
 
