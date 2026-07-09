@@ -2,6 +2,8 @@
 
 # AI Project Instructions
 
+Version 2.0
+
 본 문서는 **코드 구현 절차**를 정의합니다.
 
 문서 수정, 커밋, 리뷰, 병합 등 프로젝트 전체 개발 절차는 docs/AI_WORKFLOW.md를 따릅니다.

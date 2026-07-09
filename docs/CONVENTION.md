@@ -208,9 +208,7 @@ Boolean
 ```
 isVisible
 
-isDeleted
-
-isPublished
+isPublic
 ```
 
 ---

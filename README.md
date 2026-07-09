@@ -1,5 +1,7 @@
 # Monika Research Institute CMS
 
+Version 2.0
+
 교육기관 홈페이지 및 관리자 CMS 프로젝트
 
 Spring Boot 기반으로 구축되는 CMS이며,
