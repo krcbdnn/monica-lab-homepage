@@ -528,7 +528,5 @@ Admin
 - DI
 - SRP
 - BaseEntity 공통 사용
-- Program(programType)으로 수강/특강 통합
-- Board(boardType)으로 공지/갤러리/자료실 통합
-- Google Form URL을 통한 신청
-- CMS에서 모든 콘텐츠 수정 가능
+
+도메인 설계 원칙(Program/Board 통합, Google Form 연동 등)은 ERD.md의 "설계 원칙"을 따른다.

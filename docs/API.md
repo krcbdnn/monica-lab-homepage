@@ -131,18 +131,18 @@ GET /api/boards
 
 Query
 
-- type
+- boardType
 - keyword
 - page
 - size
 
 예)
 
-GET /api/boards?type=NOTICE
+GET /api/boards?boardType=NOTICE
 
-GET /api/boards?type=GALLERY
+GET /api/boards?boardType=GALLERY
 
-GET /api/boards?type=ARCHIVE
+GET /api/boards?boardType=ARCHIVE
 
 ---
 
@@ -283,24 +283,17 @@ DELETE /api/admin/files/{id}
 
 # Public API
 
-- 메인
-- 기관소개
-- 프로그램
-- 게시판
-- 배너
-- 팝업
+인증 없이 호출 가능한 API이다.
+
+대상 도메인은 위 Page, Program, Board, Banner, Popup의 관리자 접두사(/admin)가 없는 API를 참고한다.
 
 ---
 
 # Admin API
 
-- 관리자 로그인
-- 페이지 관리
-- 프로그램 관리
-- 게시판 관리
-- 배너 관리
-- 팝업 관리
-- 파일 관리
+`/api/admin/**` 인증이 필요한 API이다.
+
+대상 도메인은 위 Authentication, Dashboard, Page(수정), Program(등록/수정/삭제/공개여부/모집상태), Board(등록/수정/삭제/공개여부), Banner, Popup, File을 참고한다.
 
 ---
 
@@ -312,8 +305,6 @@ DELETE /api/admin/files/{id}
 - 일반 로그인
 - 마이페이지
 - 상담 신청
-- 수강 신청 저장
-- 특강 신청 저장
-- 신청 관리
+- 신청 데이터 저장
 
 프로그램 신청은 Google Form URL로 이동한다.
