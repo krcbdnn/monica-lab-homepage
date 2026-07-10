@@ -145,6 +145,29 @@ Entity 직접 반환 금지
 
 Controller에서 try-catch를 작성하지 않는다.
 
+## ErrorCode 카탈로그
+
+`ErrorCode`는 아래 항목을 최소 기준으로 정의한다. 도메인이 늘어나면 동일한 네이밍 규칙(`{DOMAIN}_{REASON}`)으로 추가한다.
+
+| ErrorCode | HTTP Status | 설명 |
+|---|---|---|
+| INVALID_INPUT_VALUE | 400 | Validation 실패(공통) |
+| AUTHENTICATION_FAILED | 401 | 로그인 아이디/비밀번호 불일치 |
+| UNAUTHORIZED | 401 | 미인증 상태로 인증 필요 리소스 접근 |
+| ACCESS_DENIED | 403 | 권한 없는 리소스 접근(ROLE_ADMIN 아님) |
+| ADMIN_NOT_FOUND | 404 | 관리자 계정 없음 |
+| PAGE_NOT_FOUND | 404 | Page 리소스 없음 |
+| PROGRAM_NOT_FOUND | 404 | Program 리소스 없음 |
+| BOARD_NOT_FOUND | 404 | Board 리소스 없음 |
+| BANNER_NOT_FOUND | 404 | Banner 리소스 없음 |
+| POPUP_NOT_FOUND | 404 | Popup 리소스 없음 |
+| FILE_NOT_FOUND | 404 | File 리소스 없음 |
+| DUPLICATE_LOGIN_ID | 409 | login_id 중복 |
+| INVALID_FILE_TYPE | 400 | 허용되지 않은 확장자 업로드 |
+| FILE_SIZE_EXCEEDED | 400 | 파일 업로드 용량 초과(File Upload 섹션 기준값 참고) |
+| FILE_UPLOAD_FAILED | 500 | 파일 저장 중 I/O 오류 |
+| INTERNAL_SERVER_ERROR | 500 | 정의되지 않은 서버 오류(공통 fallback) |
+
 ---
 
 # Security
@@ -152,6 +175,12 @@ Controller에서 try-catch를 작성하지 않는다.
 - Spring Security 사용
 - BCryptPasswordEncoder 사용
 - 인증 및 인가는 Security에서 처리
+
+## 비밀번호 정책
+
+- 최소 8자 이상, 영문/숫자/특수문자 중 2종 이상 조합
+- Request DTO에 `@Pattern` 또는 커스텀 Validator로 적용
+- 관리자 계정은 초기 데이터(seed) 또는 최초 로그인 시 등록으로 생성하며, 본 프로젝트 범위에서 별도 회원가입 화면은 제공하지 않는다(PRD.md 원칙 준수)
 
 ---
 
@@ -162,6 +191,17 @@ Controller에서 try-catch를 작성하지 않는다.
 - UUID 파일명 사용
 - 날짜별 디렉터리 저장
 - DB에는 파일 경로만 저장
+
+## 업로드 제한 값
+
+| 상수 | 값 | 비고 |
+|---|---|---|
+| MAX_UPLOAD_SIZE | 10MB | 파일 1건당 최대 크기 |
+| MAX_IMAGE_SIZE | 5MB | 이미지(썸네일, CKEditor 삽입 이미지) 최대 크기 |
+| ALLOWED_IMAGE_EXTENSIONS | jpg, jpeg, png, gif | FEATURES.md 지원 형식 중 이미지 |
+| ALLOWED_ATTACHMENT_EXTENSIONS | jpg, jpeg, png, gif, pdf, hwp, hwpx, docx, xlsx, pptx, zip | FEATURES.md 지원 형식 전체 |
+
+초과 시 `FILE_SIZE_EXCEEDED`, 허용되지 않은 확장자는 `INVALID_FILE_TYPE`을 반환한다(위 ErrorCode 카탈로그 기준).
 
 ---
 

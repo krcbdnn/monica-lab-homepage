@@ -58,7 +58,9 @@ src/main/java
     │
     ├── popup
     │
-    └── file
+    ├── file
+    │
+    └── home
 ```
 
 패키지 설명
@@ -73,6 +75,7 @@ src/main/java
   - `response` : ApiResponse 등 공통 응답 포맷
   - `util` : FileUtil, DateUtil 등 공통 유틸리티
 - `admin`, `page`, `program`, `board`, `banner`, `popup`, `file` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
+- `home` : 공개 메인 화면(`GET /`) 전용 패키지. 자체 Entity/Repository 없이 Page, Program, Board, Banner, Popup Service를 조합하여 메인 화면 데이터를 구성하는 Controller만 포함한다.
 
 ---
 
@@ -247,6 +250,25 @@ PopupRepository
 - 노출 여부
 - 시작일
 - 종료일
+
+---
+
+## Home
+
+공개 메인 화면(`GET /`)
+
+```
+HomeController
+```
+
+기능
+
+- 메인 배너 조회
+- 팝업 조회
+- 최신 공지/갤러리 조회
+- 프로그램 바로가기
+
+자체 Entity/Repository 없이 Banner, Popup, Board, Program Service를 조합하여 사용한다.
 
 ---
 

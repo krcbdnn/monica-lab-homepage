@@ -30,7 +30,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P1-T1. Spring Boot 프로젝트 생성 및 Gradle 설정
 - 의존성: `-`
 - 산출물: `build.gradle`, `settings.gradle`, `src/main/java/**/Application.java`
-- 작업 내용: Spring Boot 3.x + Java 17 기준 프로젝트 생성. `group`, `version`, `sourceCompatibility` 명시.
+- 작업 내용: Spring Boot 3.x + Java 21 기준 프로젝트 생성. `group`, `version`, `sourceCompatibility` 명시.
 - DoD: `./gradlew build` 종료 코드 `0`, `./gradlew bootRun` 후 기본 포트(8080) 응답 200 또는 404(라우트 없음은 정상)
 
 ### P1-T2. Git Repository 연결
@@ -79,37 +79,37 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: `JpaAuditing`, `Bean Validation` 등 공통 빈 등록
 - DoD: 컨텍스트 로딩 테스트(`@SpringBootTest`) 통과
 
-### P2-T4. 파일 업로드 (Local Storage)
-- 의존성: P2-T2
-- 산출물: `common/file/FileStorageService.java`, `common/file/FileUploadController.java`
-- 작업 내용: UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증
-- DoD: 단위 테스트로 업로드 후 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 400 응답
+### P2-T4. File 도메인 + 파일 업로드 (Local Storage)
+- 의존성: P2-T1, P2-T2
+- 산출물: `file/entity/File.java`, `file/repository/FileRepository.java`, `file/service/FileService.java`, `file/controller/FileController.java`, `file/controller/AdminFileController.java`
+- 작업 내용: ERD.md File 테이블 기준 Entity 생성(BaseEntity 상속). UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증(CODING_RULES.md ALLOWED_IMAGE_EXTENSIONS/ALLOWED_ATTACHMENT_EXTENSIONS 기준), 파일 크기 검증(MAX_UPLOAD_SIZE=10MB, MAX_IMAGE_SIZE=5MB). 업로드 시 File 레코드 저장 후 id 반환(`POST /api/admin/files`), `GET /api/files/{id}`로 다운로드, `DELETE /api/admin/files/{id}`로 레코드 및 실파일 삭제(API.md 기준)
+- DoD: 업로드 후 File 레코드가 DB에 저장되고 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 `INVALID_FILE_TYPE`(400), 용량 초과 시 `FILE_SIZE_EXCEEDED`(400), `GET /api/files/{id}` 200 + 파일 스트림 반환, `DELETE` 후 재조회 시 404
 
 ---
 
 ## Phase 3. 관리자 인증
 
-### P3-T1. Admin 도메인 (Entity/Repository/Service/Controller)
+### P3-T1. Admin 도메인 (Entity/Repository/Service/Controller) + 초기 계정
 - 의존성: P2-T1
-- 산출물: `admin/entity/Admin.java`, `admin/repository/AdminRepository.java`, `admin/service/AdminService.java`, `admin/controller/AdminController.java`
-- 작업 내용: `username`(unique), `password`(BCrypt 해시 저장), `role`
-- DoD: Repository 통합 테스트에서 중복 username 저장 시 `DataIntegrityViolationException`
+- 산출물: `admin/entity/Admin.java`, `admin/repository/AdminRepository.java`, `admin/service/AdminService.java`, `admin/controller/AdminController.java`, `resources/data.sql`(또는 `ApplicationRunner` 기반 초기 계정 생성)
+- 작업 내용: `login_id`(unique), `password`(BCrypt 해시 저장), `name`, `role`(ERD.md 기준). 비밀번호는 CODING_RULES.md 정책(최소 8자, 영문/숫자/특수문자 중 2종 이상) 충족 값으로 초기 계정 1건 생성(회원가입 화면 없음, PRD.md 원칙 준수)
+- DoD: Repository 통합 테스트에서 중복 login_id 저장 시 `DataIntegrityViolationException`, 애플리케이션 기동 후 초기 관리자 계정으로 로그인 가능
 
 ### P3-T2. SecurityConfig + BCrypt
 - 의존성: P3-T1
-- 산출물: `common/config/SecurityConfig.java`
+- 산출물: `config/SecurityConfig.java`
 - 작업 내용: `PasswordEncoder` = `BCryptPasswordEncoder`, `SecurityFilterChain` 정의
 - DoD: 평문 비밀번호로 로그인 시도 시 실패, BCrypt 해시 비교 성공 시 인증 통과 (테스트 코드)
 
 ### P3-T3. 로그인/로그아웃 구현
 - 의존성: P3-T2
-- 산출물: `admin/controller/AuthController.java`, `templates/admin/login.html`
-- 작업 내용: 폼 로그인, 로그아웃 후 세션 무효화
-- DoD: `POST /admin/login` 성공 시 302 리다이렉트 + 세션 쿠키 발급, `/admin/logout` 후 인증 필요 페이지 접근 시 302(로그인 페이지로)
+- 산출물: `admin/controller/AdminViewController.java`(GET `/admin/login` 화면만 렌더링), `admin/controller/AdminAuthController.java`(API.md 기준 `POST /api/admin/login`, `POST /api/admin/logout`), `templates/admin/login.html`
+- 작업 내용: `/admin/login`은 로그인 폼 화면(GET)만 제공하고, 폼 제출은 JS(fetch)로 API.md의 `POST /api/admin/login`을 호출한다. 인증 성공 시 세션 생성 후 `ApiResponse.success` 반환, 프론트엔드에서 `/admin/dashboard`로 이동한다. 로그아웃은 `POST /api/admin/logout` 호출 후 세션 무효화, 프론트엔드에서 `/admin/login`으로 이동한다. `/admin/**` 화면 경로와 `/api/admin/**` API 경로는 ARCHITECTURE.md 기준 동일한 세션 인증(ROLE_ADMIN)을 공유한다.
+- DoD: `POST /api/admin/login` 성공 시 200 + `ApiResponse.success` + 세션 쿠키 발급, 실패 시 401 + `ApiResponse.fail`. `POST /api/admin/logout` 후 인증 필요 API(`/api/admin/**`) 호출 시 401. 미인증 상태로 `/admin/dashboard` 접근 시 302로 `/admin/login` 리다이렉트
 
 ### P3-T4. 인증 실패 처리 및 접근 권한 설정
 - 의존성: P3-T3
-- 산출물: `common/config/SecurityConfig.java`(수정), `common/exception/CustomAuthenticationEntryPoint.java`
+- 산출물: `config/SecurityConfig.java`(수정), `common/exception/CustomAuthenticationEntryPoint.java`
 - 작업 내용: 인증 실패 시 커스텀 에러 응답, `/admin/**` 인가 규칙
 - DoD: 미인증 상태로 `/admin/**` 접근 시 401 또는 로그인 페이지 리다이렉트 (통합 테스트)
 
@@ -119,14 +119,14 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P4-T1. Page Entity/CRUD
 - 의존성: P2-T1, P3-T4
-- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/admin/PageAdminController.java`
-- 작업 내용: 페이지 타입(`GREETING`, `INTRO`, `HISTORY`, `LOCATION`)을 enum으로 관리, 각 타입별 단일 레코드 또는 목록 정책 결정
+- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`
+- 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지)
 - DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과
 
 ### P4-T2. CKEditor5 적용 및 이미지 업로드 연동
 - 의존성: P4-T1, P2-T4
-- 산출물: `templates/admin/page/form.html`, `page/controller/admin/PageImageUploadController.java`
-- 작업 내용: CKEditor5 이미지 업로드 어댑터를 P2-T4 FileStorageService와 연결
+- 산출물: `templates/admin/page/form.html`, `page/controller/AdminPageImageUploadController.java`
+- 작업 내용: CKEditor5 이미지 업로드 어댑터를 P2-T4 FileService(`POST /api/admin/files`)와 연결
 - DoD: 에디터에서 이미지 업로드 시 반환 JSON에 `url` 필드 포함, 실제 파일이 스토리지에 존재
 
 ---
@@ -135,15 +135,15 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P5-T1. Program 도메인
 - 의존성: P2-T1
-- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/admin/ProgramAdminController.java`
+- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/AdminProgramController.java`
 - 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드
 - DoD: 타입별 필터 조회 리포지토리 테스트 통과
 
 ### P5-T2. 프로그램 CRUD + 공개여부/모집상태
 - 의존성: P5-T1
-- 산출물: `program/controller/admin/ProgramAdminController.java`(수정)
-- 작업 내용: 등록/수정/삭제, `isPublic=false`인 프로그램은 공개 API에서 제외
-- DoD: 비공개 프로그램이 공개 목록 API 응답에 포함되지 않음(테스트)
+- 산출물: `program/controller/AdminProgramController.java`(수정)
+- 작업 내용: 등록/수정/삭제, `isPublic=false`인 프로그램은 공개 API에서 제외. `recruitStatus`는 자동 전환 없이 `PATCH /api/admin/programs/{id}/status`를 통한 관리자 수동 변경만 지원(ERD.md 기준)
+- DoD: 비공개 프로그램이 공개 목록 API 응답에 포함되지 않음(테스트), `PATCH .../status` 호출 없이는 recruitStatus가 변경되지 않음(테스트)
 
 ### P5-T3. Google Form URL 관리
 - 의존성: P5-T1
@@ -153,7 +153,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P5-T4. 썸네일/첨부파일 업로드
 - 의존성: P5-T1, P2-T4
-- 산출물: `program/controller/admin/ProgramFileController.java`
+- 산출물: `program/controller/AdminProgramFileController.java`
 - 작업 내용: 썸네일은 이미지 전용, 첨부는 문서 확장자 허용
 - DoD: 이미지 아닌 파일을 썸네일로 업로드 시 400
 
@@ -168,7 +168,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P6-T2. CRUD (목록/상세/등록/수정/삭제)
 - 의존성: P6-T1
-- 산출물: `board/controller/admin/BoardAdminController.java`, `board/controller/BoardController.java`
+- 산출물: `board/controller/AdminBoardController.java`, `board/controller/BoardController.java`
 - DoD: 각 CRUD 엔드포인트에 대한 통합 테스트 5종 통과
 
 ### P6-T3. 검색/페이징
@@ -189,13 +189,13 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P7-T1. Banner CRUD + 정렬 + 공개여부
 - 의존성: P2-T1, P2-T4
-- 산출물: `banner/entity/Banner.java`, Repository/Service/Controller
+- 산출물: `banner/entity/Banner.java`, `BannerRepository`, `BannerService`, `BannerController`, `AdminBannerController`(ARCHITECTURE.md 명명 기준)
 - 작업 내용: `sortOrder` 필드, 관리자 화면에서 순서 변경 API
 - DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트)
 
 ### P7-T2. Popup CRUD + 기간설정 + 공개여부
 - 의존성: P2-T1
-- 산출물: `popup/entity/Popup.java`, Repository/Service/Controller
+- 산출물: `popup/entity/Popup.java`, `PopupRepository`, `PopupService`, `PopupController`, `AdminPopupController`(ARCHITECTURE.md 명명 기준)
 - 작업 내용: `startDate`, `endDate` 범위 밖이면 공개 API에서 자동 제외
 - DoD: 기간이 지난 팝업이 공개 목록에 나타나지 않음(날짜 조작 테스트)
 

@@ -59,6 +59,8 @@ Admin (1)
 | created_at | DATETIME | 생성일 |
 | updated_at | DATETIME | 수정일 |
 
+`recruit_status`는 마감일 컬럼이 없으므로 시스템에 의한 자동 전환을 수행하지 않는다. 관리자가 API.md `PATCH /api/admin/programs/{id}/status`를 통해 수동으로 OPEN/CLOSED를 변경한다.
+
 ---
 
 # 3. Board
@@ -122,6 +124,31 @@ Admin (1)
 | content | LONGTEXT | 내용 |
 | created_at | DATETIME | 생성일 |
 | updated_at | DATETIME | 수정일 |
+
+---
+
+# 7. File
+
+업로드된 파일(이미지/첨부파일)의 메타데이터를 관리한다.
+
+Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드가 이 테이블을 참조한다.
+
+| 컬럼 | 타입 | 설명 |
+|-------|------|------|
+| id | BIGINT | PK |
+| original_name | VARCHAR(255) | 원본 파일명 |
+| stored_name | VARCHAR(255) | 저장 파일명(UUID) |
+| path | VARCHAR(500) | 저장 경로(`/upload/yyyy/MM/dd/{uuid}.{ext}`) |
+| content_type | VARCHAR(100) | MIME 타입 |
+| size | BIGINT | 파일 크기(byte) |
+| file_type | ENUM | IMAGE / ATTACHMENT |
+| created_at | DATETIME | 생성일 |
+| updated_at | DATETIME | 수정일 |
+
+비고
+
+- API.md의 `POST /api/admin/files`, `GET /api/files/{id}`, `DELETE /api/admin/files/{id}`는 본 File 테이블을 기준으로 동작한다.
+- Program.thumbnail / Program.attachment / Board.thumbnail / Board.attachment 컬럼은 File.id를 참조하는 FK(`file_id`)가 아니라, 응답 시 필요한 URL 문자열만 저장한다(외부 연동 단순화를 위해 정규화하지 않음). File 테이블은 업로드 이력·삭제 관리용으로 별도 운용한다.
 
 ---
 
