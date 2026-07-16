@@ -104,6 +104,7 @@ src
     │       ├── banner
     │       ├── popup
     │       ├── file
+    │       ├── home
     │       ├── common
     │       ├── config
     │       └── security

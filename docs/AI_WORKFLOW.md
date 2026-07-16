@@ -18,11 +18,15 @@ AI(Codex, Claude Code, ChatGPT)를 프로젝트 개발에 일관되게 활용하
 
 # AI 역할
 
+본 프로젝트는 TASK.md(Harness Engineering 방식)와 CLAUDE.md 기준으로 **Claude Code가 Entity → Repository → Service → Controller → View → Test 전 구현 단계를 수행하는 것을 기본 워크플로우로 한다.** ChatGPT와 Codex는 아래와 같이 보조적으로 사용할 수 있으나, 필수 구성 요소는 아니다.
+
 | AI | 역할 |
 |------|------|
-| ChatGPT | 요구사항 분석, 설계, 코드 리뷰 |
-| Codex | 기능 구현 |
-| Claude Code | 리팩토링, 대규모 수정, 프로젝트 분석 |
+| Claude Code | TASK.md 기반 기능 구현(Entity/Repository/Service/Controller/View/Test), 리팩토링, 대규모 수정, 프로젝트 분석 |
+| ChatGPT (선택) | 요구사항 분석, 설계, 코드 리뷰 보조 |
+| Codex (선택) | CRUD 구현 보조(사용 시에도 최종 산출물은 CLAUDE.md 절차와 docs/ 문서를 기준으로 검증) |
+
+아래 "Codex 사용 시점" 절은 Codex를 보조적으로 활용하는 경우의 참고 기준이며, 본 프로젝트의 기본 실행 주체는 Claude Code(TASK.md)이다.
 
 ---
 
@@ -110,7 +114,7 @@ Merge
 
 # 기능 개발 순서
 
-기능 하나를 개발할 때의 순서
+기능 하나를 개발할 때의 순서(ChatGPT/Codex를 보조적으로 병행하는 경우의 참고 흐름이며, Claude Code 단독으로 TASK.md를 실행하는 경우 5번(Codex 구현)은 Claude Code가 CLAUDE.md 절차에 따라 대체 수행한다)
 
 ```
 1. TASK 확인

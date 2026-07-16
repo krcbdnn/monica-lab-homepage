@@ -2,7 +2,7 @@
 
 # AI Project Instructions
 
-Version 3.0
+Version 2.0
 
 본 문서는 **코드 구현 절차**를 정의합니다.
 
@@ -65,6 +65,7 @@ src/main/java/com/project/cms/
 ├── banner/     (메인 배너)
 ├── popup/      (팝업 관리)
 ├── file/       (파일 관리)
+├── home/       (공개 메인 화면 GET /, 자체 Entity 없이 다른 도메인 Service 조합, ARCHITECTURE.md 기준)
 ├── common/     (BaseEntity, ApiResponse, GlobalExceptionHandler 등)
 ├── config/
 └── security/
