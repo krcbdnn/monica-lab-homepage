@@ -86,8 +86,13 @@ src/main/java
 관리자 로그인
 
 ```
-AdminController
+AdminController        (관리자 계정 조회 등 내부 용도)
+AdminAuthController     (POST /api/admin/login, POST /api/admin/logout)
+AdminViewController     (GET /admin/login 등 화면 렌더링, Thymeleaf)
+DashboardController     (GET /api/admin/dashboard)
+
 AdminService
+
 AdminRepository
 ```
 
@@ -388,7 +393,7 @@ Spring Security 사용
 ```
 /
 
-/page/**
+/pages/**
 
 /programs/**
 
@@ -398,6 +403,8 @@ Spring Security 사용
 
 /popups
 ```
+
+`/admin/login`(GET, 로그인 화면)과 `POST /api/admin/login`은 `/admin/**`, `/api/admin/**` 인증 대상의 예외로 permitAll 처리한다. 이는 로그인 화면 자체를 인증 대상에 포함시키면 미인증 사용자가 로그인 화면에 접근할 수 없어 리다이렉트 루프가 발생하기 때문이다. 그 외 `/admin/**`, `/api/admin/**` 하위 경로는 모두 세션 기반 인증(ROLE_ADMIN)을 요구한다.
 
 일반 사용자가 이용하는 조회용 API(`/api/pages/**`, `/api/programs/**`, `/api/boards/**`, `/api/banners`, `/api/popups`, `/api/files/{id}` 등)는 인증 없이 접근 가능하며, `/api/admin/**` 하위 API만 인증을 요구한다(API.md 기준).
 

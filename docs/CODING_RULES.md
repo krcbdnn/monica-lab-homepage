@@ -152,21 +152,23 @@ Controller에서 try-catch를 작성하지 않는다.
 | ErrorCode | HTTP Status | 설명 |
 |---|---|---|
 | INVALID_INPUT_VALUE | 400 | Validation 실패(공통) |
-| AUTHENTICATION_FAILED | 401 | 로그인 아이디/비밀번호 불일치 |
+| AUTHENTICATION_FAILED | 401 | 로그인 아이디/비밀번호 불일치(아이디가 존재하지 않는 경우 포함) |
 | UNAUTHORIZED | 401 | 미인증 상태로 인증 필요 리소스 접근 |
 | ACCESS_DENIED | 403 | 권한 없는 리소스 접근(ROLE_ADMIN 아님) |
-| ADMIN_NOT_FOUND | 404 | 관리자 계정 없음 |
+| ADMIN_NOT_FOUND | 404 | (로그인 실패에는 사용하지 않음) 인증된 관리자 컨텍스트에서 특정 관리자 계정 조회 시 대상 없음 |
 | PAGE_NOT_FOUND | 404 | Page 리소스 없음 |
 | PROGRAM_NOT_FOUND | 404 | Program 리소스 없음 |
 | BOARD_NOT_FOUND | 404 | Board 리소스 없음 |
 | BANNER_NOT_FOUND | 404 | Banner 리소스 없음 |
 | POPUP_NOT_FOUND | 404 | Popup 리소스 없음 |
 | FILE_NOT_FOUND | 404 | File 리소스 없음 |
-| DUPLICATE_LOGIN_ID | 409 | login_id 중복 |
+| DUPLICATE_LOGIN_ID | 409 | login_id 중복 (본 프로젝트 범위에는 관리자 계정 등록 API가 없어 seed 데이터 검증 등 내부 용도로만 예약됨. 향후 관리자 계정 관리 API가 추가되기 전까지는 API 응답으로 노출되지 않는다) |
 | INVALID_FILE_TYPE | 400 | 허용되지 않은 확장자 업로드 |
 | FILE_SIZE_EXCEEDED | 400 | 파일 업로드 용량 초과(File Upload 섹션 기준값 참고) |
 | FILE_UPLOAD_FAILED | 500 | 파일 저장 중 I/O 오류 |
 | INTERNAL_SERVER_ERROR | 500 | 정의되지 않은 서버 오류(공통 fallback) |
+
+로그인 실패 시에는 아이디 존재 여부와 무관하게 항상 `AUTHENTICATION_FAILED`(401)를 반환한다. 계정 존재 여부가 응답 코드로 노출되면 아이디 추측 공격에 악용될 수 있기 때문이다. `ADMIN_NOT_FOUND`는 로그인 흐름이 아닌, 인증된 관리자 컨텍스트에서의 조회 실패에만 사용한다.
 
 ---
 
