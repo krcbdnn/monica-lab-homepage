@@ -23,6 +23,13 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 원본에 있던 `- [ ] 항목명` 형태(사람이 눈으로 체크)는 전부 제거하고,
 **실행 가능한 검증 커맨드**로 대체했습니다.
 
+> **docs/AI_WORKFLOW.md와의 관계**: AI_WORKFLOW.md의 표준 개발 절차(요구사항 확인 → 문서 수정 →
+> Git Commit → AI 구현 → 개발자 리뷰 → **테스트** → Commit → Merge)는 기능 단위 반복을 원칙으로 한다.
+> 본 문서의 각 태스크는 DoD 자체에 해당 기능의 테스트 통과를 포함하므로, 태스크를 완료할 때마다
+> 그 자리에서 테스트를 통과시키고 커밋하는 것이 기본 흐름이다. `Phase 10`(P10-T1, P10-T2)은
+> 이 기능 단위 테스트를 대체하는 것이 아니라, Phase 1~9 전체에 대한 회귀 테스트와
+> ErrorCode 전수 테스트를 추가로 보강하는 단계다.
+
 ---
 
 ## Phase 1. 프로젝트 환경 구성
@@ -104,8 +111,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P3-T2. SecurityConfig + BCrypt + CSRF
 - 의존성: P3-T1
 - 산출물: `config/SecurityConfig.java`
-- 작업 내용: `PasswordEncoder` = `BCryptPasswordEncoder`, `SecurityFilterChain` 정의. ARCHITECTURE.md "CSRF 정책" 기준으로 `CookieCsrfTokenRepository.withHttpOnlyFalse()`를 사용해 `XSRF-TOKEN` 쿠키를 발급하고, `POST /api/admin/login`은 세션 수립 이전 요청이므로 CSRF 검증 예외로 처리한다. `GET`으로 상태를 변경하는 API는 두지 않는다.
-- DoD: 평문 비밀번호로 로그인 시도 시 실패, BCrypt 해시 비교 성공 시 인증 통과(테스트 코드). 로그인 성공 응답에 `XSRF-TOKEN` 쿠키가 발급됨. 유효한 세션이 있어도 `X-XSRF-TOKEN` 헤더 없이 `POST/PUT/PATCH/DELETE /api/admin/**` 호출 시 403
+- 작업 내용: `PasswordEncoder` = `BCryptPasswordEncoder`, `SecurityFilterChain` 정의. `/admin/login`(GET, 로그인 화면)과 `POST /api/admin/login`은 인증 대상에서 제외(permitAll)하고, 그 외 `/admin/**`, `/api/admin/**`는 세션 기반 ROLE_ADMIN 인증을 요구한다(ARCHITECTURE.md Security 섹션 기준). ARCHITECTURE.md "CSRF 정책" 기준 `CookieCsrfTokenRepository.withHttpOnlyFalse()`를 적용해 `XSRF-TOKEN` 쿠키를 발급하고, `POST /api/admin/login`은 CSRF 토큰 없이도 호출 가능하도록 예외 처리한다.
+- DoD: 평문 비밀번호로 로그인 시도 시 실패, BCrypt 해시 비교 성공 시 인증 통과 (테스트 코드). 미인증 상태로 `GET /admin/login` 접근 시 200(리다이렉트 루프 없음). CSRF 토큰 없이 `POST /api/admin/programs` 호출 시 403, `POST /api/admin/login`은 CSRF 토큰 없이도 200/401 정상 응답.
 
 ### P3-T3. 로그인/로그아웃 구현
 - 의존성: P3-T2
@@ -130,9 +137,9 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## Phase 4. CMS 페이지 관리 (기관소개)
 
 ### P4-T1. Page Entity/CRUD
-- 의존성: P2-T1, P2-T5, P3-T4
+- 의존성: P2-T1, P2-T2, P2-T5, P3-T4
 - 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`
-- 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다.
+- 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. 공개 조회 Controller(`PageController`)는 이 Task에서 만들지 않고 P4-T3에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
 - DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과. `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
 ### P4-T2. CKEditor5 적용 및 이미지 업로드 연동
@@ -152,9 +159,9 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## Phase 5. 프로그램 관리
 
 ### P5-T1. Program 도메인
-- 의존성: P2-T1, P3-T4
+- 의존성: P2-T1, P2-T2, P3-T4
 - 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/AdminProgramController.java`
-- 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드
+- 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드. 공개 조회 Controller(`ProgramController`)는 이 Task에서 만들지 않고 P5-T5에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
 - DoD: 타입별 필터 조회 리포지토리 테스트 통과
 
 ### P5-T2. 프로그램 CRUD + 공개여부/모집상태
@@ -192,7 +199,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## Phase 6. 게시판 관리
 
 ### P6-T1. Board 도메인 + BoardType
-- 의존성: P2-T1, P3-T4
+- 의존성: P2-T1, P2-T2, P3-T4
 - 산출물: `board/entity/Board.java`, `board/entity/BoardType.java`(enum: `NOTICE`,`GALLERY`,`ARCHIVE`), Repository/Service/Controller
 - DoD: 타입별 저장/조회 통합 테스트 통과
 
@@ -211,7 +218,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P6-T4. 조회수, 공개여부, 이미지/파일 업로드
 - 의존성: P6-T2, P2-T4
 - 산출물: `board/entity/Board.java`(필드 추가), `board/service/BoardService.java`
-- 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락)
+- 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락). (content sanitize는 P6-T2에서 이미 처리하므로 이 Task는 중복 적용하지 않는다)
 - DoD: 동시 요청 100회 시 조회수 정확히 100 증가(부하 테스트 또는 동시성 단위 테스트)
 
 ### P6-T5. Board CKEditor5 이미지 업로드 연동
@@ -225,13 +232,13 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## Phase 7. 메인 관리
 
 ### P7-T1. Banner CRUD + 정렬 + 공개여부
-- 의존성: P2-T1, P2-T4, P3-T4
+- 의존성: P2-T1, P2-T2, P2-T4, P3-T4
 - 산출물: `banner/entity/Banner.java`, `BannerRepository`, `BannerService`, `BannerController`, `AdminBannerController`(ARCHITECTURE.md 명명 기준)
 - 작업 내용: `sortOrder` 필드, 관리자 화면에서 순서 변경 API
 - DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트)
 
 ### P7-T2. Popup CRUD + 기간설정 + 공개여부
-- 의존성: P2-T1, P2-T5, P3-T4
+- 의존성: P2-T1, P2-T2, P2-T5, P3-T4
 - 산출물: `popup/entity/Popup.java`, `PopupRepository`, `PopupService`, `PopupController`, `AdminPopupController`(ARCHITECTURE.md 명명 기준)
 - 작업 내용: `startDate`, `endDate` 범위 밖이면 공개 API에서 자동 제외. `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다.
 - DoD: 기간이 지난 팝업이 공개 목록에 나타나지 않음(날짜 조작 테스트), `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
@@ -247,9 +254,9 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## Phase 8. 홈페이지 (공개 영역)
 
 ### P8-T1. 메인 화면 (배너/팝업/최신 게시글)
-- 의존성: P7-T1, P7-T2, P6-T2
+- 의존성: P5-T2, P7-T1, P7-T2, P6-T2
 - 산출물: `home/controller/HomeController.java`, `templates/home/index.html`
-- DoD: `GET /` 200 응답, 응답 HTML에 배너/팝업/최신글 영역 태그 존재(HTML 파싱 테스트)
+- DoD: `GET /` 200 응답, 응답 HTML에 배너/팝업/최신글/프로그램 바로가기 영역 태그 존재(HTML 파싱 테스트)
 
 ### P8-T2. 기관소개 페이지 조회
 - 의존성: P4-T3
@@ -277,7 +284,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: 대시보드 API 응답에 세 영역의 데이터가 모두 포함됨
 
 ### P9-T2. 관리자 통합 화면 (프로그램/게시판/페이지/배너/팝업/파일)
-- 의존성: P5~P7 전체
+- 의존성: P2-T4, P4-T1, P5~P7 전체
 - 산출물: `templates/admin/layout/*.html`, 각 도메인 admin 뷰
 - DoD: 각 메뉴 진입 시 200 응답 + 인가되지 않은 사용자는 전부 차단
 
@@ -303,12 +310,12 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P11-T1. 반응형 적용
 - 의존성: P8 전체
 - 산출물: `static/css/**`
-- DoD: 모바일/태블릿/데스크톱 뷰포트에서 레이아웃 깨짐 없음 (스크린샷 diff 또는 수동 확인 체크리스트)
+- DoD: Playwright(또는 Puppeteer) 기반 뷰포트별(375px/768px/1440px) 스크린샷을 자동 캡처하여 기준 이미지 대비 픽셀 diff 비율이 임계치(예: 2%) 이하
 
 ### P11-T2. 관리자 UI 개선 + CKEditor 스타일 + 이미지 최적화 + 접근성
 - 의존성: P9-T2
 - 산출물: `static/css/admin/**`
-- DoD: Lighthouse 접근성 점수 목표치(예: 90+) 이상, 이미지 lazy-loading 적용 확인
+- DoD: Lighthouse CI 접근성 점수 90 이상(고정 임계치), 이미지 `loading="lazy"` 속성 적용 여부를 HTML 파싱으로 확인
 
 ---
 
@@ -359,9 +366,12 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ```
 Phase1 → Phase2 → Phase3 ─┬→ Phase4 ─┐
                            ├→ Phase5 ─┤
-                           └→ Phase6 ─┤
-                                       ├→ Phase7 → Phase8 → Phase9 → Phase10 → Phase11 → Phase12
+                           └→ Phase6 ─┼→ Phase7 → Phase8 → Phase9 → Phase10 → Phase11 → Phase12
 ```
+
+> 주: Phase3(관리자 인증)은 Phase4/5/6/7의 관리자용(Admin) 태스크 전체의 선행 조건이다.
+> 위 다이어그램은 각 태스크의 `의존성` 필드와 항상 동기화되어야 하며, 본 버전에서는
+> P5-T1·P6-T1·P7-T1·P7-T2의 `의존성`에 P3-T4(관리자 인가 완료)를 명시적으로 추가해 다이어그램과 일치시켰다.
 
 에이전트는 각 Phase 내 태스크를 ID 순서대로 실행하되, `의존성` 필드에 명시된
 태스크가 완료(DoD 통과)되지 않으면 다음 태스크로 진행하지 않습니다.
