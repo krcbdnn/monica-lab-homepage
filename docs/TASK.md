@@ -54,15 +54,15 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P1-T4. MariaDB 연결
 - 의존성: P1-T3
-- 산출물: `application-local.yml` (datasource 설정), `docker-compose.yml`(선택, 로컬 DB용)
+- 산출물: `application-local.yml` (datasource 설정), `docker-compose.local.yml`(선택, 로컬 DB 전용 — 배포용 `docker-compose.yml`은 P12-T1에서 별도 생성)
 - 작업 내용: JDBC URL, driver-class-name(`org.mariadb.jdbc.Driver`) 설정
 - DoD: 애플리케이션 기동 로그에 `HikariPool-1 - Start completed` 확인, 실패 시 종료코드 non-zero
 
 ### P1-T5. 라이브러리 의존성 추가
 - 의존성: P1-T1
 - 산출물: `build.gradle`
-- 작업 내용: Spring Security, Spring Data JPA, QueryDSL(Q타입 생성 플러그인 포함), Validation, Lombok, Thymeleaf 추가. Bootstrap/CKEditor5는 정적 리소스(CDN 또는 `src/main/resources/static/vendor`)로 처리
-- DoD: `./gradlew compileJava` 성공, QueryDSL Q클래스가 `build/generated`에 생성됨
+- 작업 내용: Spring Security, Spring Data JPA, QueryDSL(Q타입 생성 플러그인 포함), Validation, Lombok, Thymeleaf, Jacoco(테스트 커버리지 플러그인, P10-T1 DoD 대비) 추가. Bootstrap/CKEditor5는 정적 리소스(CDN 또는 `src/main/resources/static/vendor`)로 처리
+- DoD: `./gradlew compileJava` 성공, QueryDSL Q클래스가 `build/generated`에 생성됨, `./gradlew jacocoTestReport` 태스크가 정상 등록되어 실행 가능
 
 ---
 
@@ -92,6 +92,12 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: ERD.md File 테이블 기준 Entity 생성(BaseEntity 상속). UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증(CODING_RULES.md ALLOWED_IMAGE_EXTENSIONS/ALLOWED_ATTACHMENT_EXTENSIONS 기준), 파일 크기 검증(MAX_UPLOAD_SIZE=10MB, MAX_IMAGE_SIZE=5MB). 업로드 시 File 레코드 저장 후 id 반환(`POST /api/admin/files`), `GET /api/files/{id}`로 다운로드, `DELETE /api/admin/files/{id}`로 레코드 및 실파일 삭제(API.md 기준)
 - DoD: 업로드 후 File 레코드가 DB에 저장되고 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 `INVALID_FILE_TYPE`(400), 용량 초과 시 `FILE_SIZE_EXCEEDED`(400), `GET /api/files/{id}` 200 + 파일 스트림 반환, `DELETE` 후 재조회 시 404
 
+### P2-T5. HtmlSanitizer 공통 유틸 (XSS 방지)
+- 의존성: P1-T5
+- 산출물: `common/util/HtmlSanitizer.java`
+- 작업 내용: ARCHITECTURE.md "XSS 방지 정책" 기준. jsoup `Safelist` 또는 OWASP Java HTML Sanitizer 사용. 허용 태그는 `p`,`br`,`strong`,`em`,`u`,`h1~h6`,`table`,`tr`,`td`,`th`,`a[href]`,`img[src]`로 한정하고, `script`,`iframe`,`on*` 이벤트 속성, `javascript:` 스킴 링크는 모두 제거한다. Page/Program/Board/Popup Service(P4-T1, P5-T2, P6-T2, P7-T2)의 등록/수정 로직에서 이 유틸을 공통 호출한다.
+- DoD: 단위 테스트에서 `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`, `<a href="javascript:alert(1)">` 입력이 각각 sanitize 후 스크립트/이벤트 속성/스킴이 제거된 채로 반환됨을 검증. 허용 태그(`p`,`table` 등)는 그대로 보존됨을 검증
+
 ---
 
 ## Phase 3. 관리자 인증
@@ -102,7 +108,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: `login_id`(unique), `password`(BCrypt 해시 저장), `name`, `role`(ERD.md 기준). 비밀번호는 CODING_RULES.md 정책(최소 8자, 영문/숫자/특수문자 중 2종 이상) 충족 값으로 초기 계정 1건 생성(회원가입 화면 없음, PRD.md 원칙 준수)
 - DoD: Repository 통합 테스트에서 중복 login_id 저장 시 `DataIntegrityViolationException`, 애플리케이션 기동 후 초기 관리자 계정으로 로그인 가능
 
-### P3-T2. SecurityConfig + BCrypt
+### P3-T2. SecurityConfig + BCrypt + CSRF
 - 의존성: P3-T1
 - 산출물: `config/SecurityConfig.java`
 - 작업 내용: `PasswordEncoder` = `BCryptPasswordEncoder`, `SecurityFilterChain` 정의. `/admin/login`(GET, 로그인 화면)과 `POST /api/admin/login`은 인증 대상에서 제외(permitAll)하고, 그 외 `/admin/**`, `/api/admin/**`는 세션 기반 ROLE_ADMIN 인증을 요구한다(ARCHITECTURE.md Security 섹션 기준). ARCHITECTURE.md "CSRF 정책" 기준 `CookieCsrfTokenRepository.withHttpOnlyFalse()`를 적용해 `XSRF-TOKEN` 쿠키를 발급하고, `POST /api/admin/login`은 CSRF 토큰 없이도 호출 가능하도록 예외 처리한다.
@@ -120,17 +126,21 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: 인증 실패 시 커스텀 에러 응답, `/admin/**` 인가 규칙
 - DoD: 미인증 상태로 `/admin/**` 접근 시 401 또는 로그인 페이지 리다이렉트 (통합 테스트)
 
+### P3-T5. 관리자 공통 fetch 유틸 (CSRF 헤더 자동 첨부)
+- 의존성: P3-T2, P3-T3
+- 산출물: `static/js/admin/common-fetch.js`
+- 작업 내용: ARCHITECTURE.md "CSRF 정책" 기준. `/admin/**` 화면의 모든 JS는 이 공통 fetch 유틸을 통해서만 `/api/admin/**`을 호출한다. 유틸은 `XSRF-TOKEN` 쿠키 값을 읽어 요청 헤더 `X-XSRF-TOKEN`에 자동으로 담아 전송한다. 이후 모든 관리자 화면(Page/Program/Board/Banner/Popup/File) Task는 이 유틸을 재사용한다.
+- DoD: 이 유틸을 통해 보낸 `POST/PUT/PATCH/DELETE` 요청 헤더에 `X-XSRF-TOKEN`이 자동 포함됨을 브라우저 테스트 또는 JS 단위 테스트로 검증
+
 ---
 
 ## Phase 4. CMS 페이지 관리 (기관소개)
 
 ### P4-T1. Page Entity/CRUD
-- 의존성: P2-T1, P2-T2, P3-T4
-- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`,
-  `page/controller/PageController.java`(공개: `GET /api/pages/{pageType}`, API.md 기준),
-  `page/controller/AdminPageController.java`(관리자: `PUT /api/admin/pages/{pageType}`)
-- 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). 등록/수정 시 `common/util/HtmlSanitizer.java`(ARCHITECTURE.md XSS 방지 정책)를 통해 content를 정제한 뒤 저장한다.
-- DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과, `GET /api/pages/{pageType}` 인증 없이 200 응답, `script` 태그 포함 content 저장 시도 시 응답/DB에 `script` 태그가 제거되어 있음
+- 의존성: P2-T1, P2-T2, P2-T5, P3-T4
+- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`
+- 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. 공개 조회 Controller(`PageController`)는 이 Task에서 만들지 않고 P4-T3에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
+- DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과. `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
 ### P4-T2. CKEditor5 적용 및 이미지 업로드 연동
 - 의존성: P4-T1, P2-T4
@@ -138,23 +148,27 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: CKEditor5 이미지 업로드 어댑터를 P2-T4 FileService(`POST /api/admin/files`)와 연결
 - DoD: 에디터에서 이미지 업로드 시 반환 JSON에 `url` 필드 포함, 실제 파일이 스토리지에 존재
 
+### P4-T3. 공개 Page 조회 Controller (API + 화면)
+- 의존성: P4-T1
+- 산출물: `page/controller/PageController.java`(API.md 기준 `GET /api/pages/{pageType}`, `ApiResponse` 반환), `page/controller/PageViewController.java`(ARCHITECTURE.md URL 섹션 기준 `GET /pages/{type}`, Thymeleaf 뷰 반환)
+- 작업 내용: 두 경로 모두 인증 없이 접근 가능하도록 Security 설정을 확인한다(ARCHITECTURE.md "비로그인 접근" 대상). API Controller와 View Controller는 별도 클래스로 분리하여 JSON 응답과 화면 렌더링 책임을 섞지 않는다(P3-T3의 AdminViewController/AdminAuthController 분리 패턴과 동일).
+- DoD: 인증 없이 `GET /api/pages/{pageType}` 200 + `ApiResponse.success`, `GET /pages/{type}` 200 + HTML 응답 (4개 타입 각각 검증)
+
 ---
 
 ## Phase 5. 프로그램 관리
 
 ### P5-T1. Program 도메인
 - 의존성: P2-T1, P2-T2, P3-T4
-- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`,
-  `program/controller/ProgramController.java`(공개: `GET /api/programs`, API.md 기준),
-  `program/controller/AdminProgramController.java`(관리자)
-- 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드. 등록/수정 시 HtmlSanitizer로 content 정제.
-- DoD: 타입별 필터 조회 리포지토리 테스트 통과, `GET /api/programs` 인증 없이 200 응답
+- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/AdminProgramController.java`
+- 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드. 공개 조회 Controller(`ProgramController`)는 이 Task에서 만들지 않고 P5-T5에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
+- DoD: 타입별 필터 조회 리포지토리 테스트 통과
 
 ### P5-T2. 프로그램 CRUD + 공개여부/모집상태
-- 의존성: P5-T1
+- 의존성: P5-T1, P2-T5
 - 산출물: `program/controller/AdminProgramController.java`(수정)
-- 작업 내용: 등록/수정/삭제, `isPublic=false`인 프로그램은 공개 API에서 제외. `recruitStatus`는 자동 전환 없이 `PATCH /api/admin/programs/{id}/status`를 통한 관리자 수동 변경만 지원(ERD.md 기준)
-- DoD: 비공개 프로그램이 공개 목록 API 응답에 포함되지 않음(테스트), `PATCH .../status` 호출 없이는 recruitStatus가 변경되지 않음(테스트)
+- 작업 내용: 등록/수정/삭제, `isPublic=false`인 프로그램은 공개 API에서 제외. `recruitStatus`는 자동 전환 없이 `PATCH /api/admin/programs/{id}/status`를 통한 관리자 수동 변경만 지원(ERD.md 기준). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다.
+- DoD: 비공개 프로그램이 공개 목록 API 응답에 포함되지 않음(테스트), `PATCH .../status` 호출 없이는 recruitStatus가 변경되지 않음(테스트), `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
 ### P5-T3. Google Form URL 관리
 - 의존성: P5-T1
@@ -168,6 +182,18 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: 썸네일은 이미지 전용, 첨부는 문서 확장자 허용
 - DoD: 이미지 아닌 파일을 썸네일로 업로드 시 400
 
+### P5-T5. 공개 Program 조회 Controller (API + 화면)
+- 의존성: P5-T2, P5-T3
+- 산출물: `program/controller/ProgramController.java`(API.md 기준 `GET /api/programs`, `GET /api/programs/{id}`), `program/controller/ProgramViewController.java`(ARCHITECTURE.md URL 섹션 기준 `GET /programs`, `GET /programs/{id}`, Thymeleaf 뷰 반환)
+- 작업 내용: `isPublic=false`인 프로그램은 목록/상세 모두 404 처리. `programType` 쿼리 파라미터로 COURSE/SPECIAL 필터링(API.md Query 기준)
+- DoD: 인증 없이 목록/상세 조회 200, 비공개 프로그램 상세 조회 시 404, `programType` 필터 적용 시 해당 타입만 반환
+
+### P5-T6. Program CKEditor5 이미지 업로드 연동
+- 의존성: P5-T2, P2-T4
+- 산출물: `templates/admin/program/form.html`
+- 작업 내용: CKEditor5 이미지 업로드 어댑터를 P2-T4 FileService(`POST /api/admin/files`)와 연결(P4-T2와 동일한 연동 방식 재사용)
+- DoD: 에디터에서 이미지 업로드 시 반환 JSON에 `url` 필드 포함, 실제 파일이 스토리지에 존재
+
 ---
 
 ## Phase 6. 게시판 관리
@@ -178,9 +204,10 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: 타입별 저장/조회 통합 테스트 통과
 
 ### P6-T2. CRUD (목록/상세/등록/수정/삭제)
-- 의존성: P6-T1
-- 산출물: `board/controller/AdminBoardController.java`, `board/controller/BoardController.java`
-- DoD: 각 CRUD 엔드포인트에 대한 통합 테스트 5종 통과
+- 의존성: P6-T1, P2-T5
+- 산출물: `board/controller/AdminBoardController.java`, `board/controller/BoardController.java`(API.md 기준 공개 API), `board/controller/BoardViewController.java`(ARCHITECTURE.md URL 섹션 기준 `GET /boards`, `GET /boards/{id}` 화면)
+- 작업 내용: `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. `BoardController`(API)와 `BoardViewController`(화면)는 책임을 분리한다.
+- DoD: 각 CRUD 엔드포인트에 대한 통합 테스트 5종 통과, `<script>` 포함 content 저장 시 정제되어 저장됨을 검증, `GET /boards`, `GET /boards/{id}` 화면 200 응답
 
 ### P6-T3. 검색/페이징
 - 의존성: P6-T2
@@ -191,8 +218,14 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P6-T4. 조회수, 공개여부, 이미지/파일 업로드
 - 의존성: P6-T2, P2-T4
 - 산출물: `board/entity/Board.java`(필드 추가), `board/service/BoardService.java`
-- 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락). 등록/수정 시 `common/util/HtmlSanitizer.java`로 content 정제.
+- 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락). (content sanitize는 P6-T2에서 이미 처리하므로 이 Task는 중복 적용하지 않는다)
 - DoD: 동시 요청 100회 시 조회수 정확히 100 증가(부하 테스트 또는 동시성 단위 테스트)
+
+### P6-T5. Board CKEditor5 이미지 업로드 연동
+- 의존성: P6-T2, P2-T4
+- 산출물: `templates/admin/board/form.html`
+- 작업 내용: CKEditor5 이미지 업로드 어댑터를 P2-T4 FileService(`POST /api/admin/files`)와 연결(P4-T2와 동일한 연동 방식 재사용). 갤러리(`GALLERY`)는 대표 이미지 업로드와 별도 항목이므로 혼동하지 않는다.
+- DoD: 에디터에서 이미지 업로드 시 반환 JSON에 `url` 필드 포함, 실제 파일이 스토리지에 존재
 
 ---
 
@@ -205,10 +238,16 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트)
 
 ### P7-T2. Popup CRUD + 기간설정 + 공개여부
-- 의존성: P2-T1, P2-T2, P3-T4
+- 의존성: P2-T1, P2-T2, P2-T5, P3-T4
 - 산출물: `popup/entity/Popup.java`, `PopupRepository`, `PopupService`, `PopupController`, `AdminPopupController`(ARCHITECTURE.md 명명 기준)
-- 작업 내용: `startDate`, `endDate` 범위 밖이면 공개 API에서 자동 제외. 등록/수정 시 `common/util/HtmlSanitizer.java`로 content 정제(ARCHITECTURE.md CKEditor5 적용 대상 기준).
-- DoD: 기간이 지난 팝업이 공개 목록에 나타나지 않음(날짜 조작 테스트)
+- 작업 내용: `startDate`, `endDate` 범위 밖이면 공개 API에서 자동 제외. `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다.
+- DoD: 기간이 지난 팝업이 공개 목록에 나타나지 않음(날짜 조작 테스트), `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
+
+### P7-T3. Popup CKEditor5 이미지 업로드 연동
+- 의존성: P7-T2, P2-T4
+- 산출물: `templates/admin/popup/form.html`
+- 작업 내용: CKEditor5 이미지 업로드 어댑터를 P2-T4 FileService(`POST /api/admin/files`)와 연결(P4-T2와 동일한 연동 방식 재사용)
+- DoD: 에디터에서 이미지 업로드 시 반환 JSON에 `url` 필드 포함, 실제 파일이 스토리지에 존재
 
 ---
 
@@ -220,13 +259,13 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: `GET /` 200 응답, 응답 HTML에 배너/팝업/최신글/프로그램 바로가기 영역 태그 존재(HTML 파싱 테스트)
 
 ### P8-T2. 기관소개 페이지 조회
-- 의존성: P4-T1
-- 산출물: `templates/home/page/*.html`
-- DoD: 4개 페이지 타입 각각 `GET` 200 응답
+- 의존성: P4-T3
+- 산출물: `templates/home/page/*.html`(`PageViewController`가 렌더링, P4-T3 기준)
+- DoD: 4개 페이지 타입 각각 `GET /pages/{type}` 200 응답
 
 ### P8-T3. 프로그램 목록/상세 + Google Form 이동
-- 의존성: P5-T2, P5-T3
-- 산출물: `templates/home/program/*.html`
+- 의존성: P5-T5
+- 산출물: `templates/home/program/*.html`(`ProgramViewController`가 렌더링, P5-T5 기준)
 - DoD: 상세 페이지의 "신청하기" 링크 `href`가 등록된 Google Form URL과 일치
 
 ### P8-T4. 게시판 (공지/갤러리/자료실) 공개 화면
@@ -311,6 +350,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 | 팝업 관리 가능 | 팝업 관리 가능 | P7-T2 테스트 통과 |
 | Google Form 정상 연결 | Google Form 정상 연결 | P8-T3 링크 검증 테스트 통과 |
 | 파일 업로드 정상 동작 | 파일 업로드 정상 동작 | P2-T4 테스트 통과 |
+| XSS 방지 적용 완료 | XSS 방지 | P2-T5 단위 테스트 + P4-T1/P5-T2/P6-T2/P7-T2 sanitize 검증 통과 |
+| CSRF 보호 적용 완료 | CSRF 보호 | P3-T2, P3-T5 테스트 통과 |
 | 예외 처리 완료 | 예외 처리 완료 | P10-T2 통과 |
 | 반응형 적용 | 반응형 적용 | P11-T1 확인 |
 | 권한 검증 완료 | 권한 검증 완료 | P3-T4, P9-T2 통과 |
