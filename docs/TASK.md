@@ -106,7 +106,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 의존성: P2-T1
 - 산출물: `admin/entity/Admin.java`, `admin/repository/AdminRepository.java`, `admin/service/AdminService.java`, `admin/controller/AdminController.java`, `resources/data.sql`(또는 `ApplicationRunner` 기반 초기 계정 생성)
 - 작업 내용: `login_id`(unique), `password`(BCrypt 해시 저장), `name`, `role`(ERD.md 기준). 비밀번호는 CODING_RULES.md 정책(최소 8자, 영문/숫자/특수문자 중 2종 이상) 충족 값으로 초기 계정 1건 생성(회원가입 화면 없음, PRD.md 원칙 준수)
-- DoD: Repository 통합 테스트에서 중복 login_id 저장 시 `DataIntegrityViolationException`, 애플리케이션 기동 후 초기 관리자 계정으로 로그인 가능
+- DoD: Repository 통합 테스트에서 중복 login_id 저장 시 `DataIntegrityViolationException`, 애플리케이션 기동 후 `AdminRepository.findByLoginId()`로 초기 관리자 계정 조회 성공 및 `PasswordEncoder.matches(평문비밀번호, 저장된 해시)`가 `true`를 반환함을 단위 테스트로 검증(HTTP 로그인 플로우 자체는 P3-T3에서 별도 검증)
 
 ### P3-T2. SecurityConfig + BCrypt + CSRF
 - 의존성: P3-T1
@@ -160,7 +160,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P5-T1. Program 도메인
 - 의존성: P2-T1, P2-T2, P3-T4
-- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/AdminProgramController.java`, `program/dto/ProgramRequest.java`, `program/dto/ProgramResponse.java`
+- 산출물: `program/entity/Program.java`, `program/entity/ProgramType.java`(enum: `COURSE`, `SPECIAL`), `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/AdminProgramController.java`, `program/dto/ProgramRequest.java`, `program/dto/ProgramResponse.java`
 - 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드. 공개 조회 Controller(`ProgramController`)는 이 Task에서 만들지 않고 P5-T5에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
 - DoD: 타입별 필터 조회 리포지토리 테스트 통과
 
@@ -176,11 +176,11 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: URL 형식 검증(`@URL` 또는 정규식)
 - DoD: 잘못된 URL 형식 입력 시 Validation 에러 응답(400)
 
-### P5-T4. 썸네일/첨부파일 업로드
+### P5-T4. 썸네일/첨부파일 연동
 - 의존성: P5-T1, P2-T4
-- 산출물: `program/controller/AdminProgramFileController.java`
-- 작업 내용: 썸네일은 이미지 전용, 첨부는 문서 확장자 허용
-- DoD: 이미지 아닌 파일을 썸네일로 업로드 시 400
+- 산출물: `templates/admin/program/form.html`(썸네일/첨부파일 업로드 UI), `program/dto/ProgramRequest.java`(수정, 도메인 검증 반영)
+- 작업 내용: Program 전용 업로드 엔드포인트를 별도로 생성하지 않는다(API.md "용도별 별도 엔드포인트를 두지 않는다" 원칙 준수). 화면 JS가 기존 `POST /api/admin/files`를 썸네일은 `fileType=IMAGE`, 첨부는 `fileType=ATTACHMENT`로 호출하여 File 업로드 후 반환된 `url`을 Program 등록/수정 폼에 담아 `AdminProgramController`(P5-T2)의 `POST`/`PUT`으로 전달한다. 이미지 전용/문서 확장자 허용 검증은 P2-T4 FileService가 `fileType` 기준으로 이미 수행하므로 이 Task에서 중복 검증 로직을 만들지 않는다.
+- DoD: `fileType=IMAGE`로 이미지 아닌 파일 업로드 시 `INVALID_FILE_TYPE`(400, P2-T4 기준 검증 재사용 확인), 등록/수정 화면에서 업로드된 File의 `url`이 Program의 썸네일/첨부파일 필드에 정상 저장됨을 통합 테스트로 검증
 
 ### P5-T4A. Program 검색(QueryDSL)
 - 의존성: P5-T1
@@ -213,7 +213,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 의존성: P6-T1, P2-T5
 - 산출물: `board/controller/AdminBoardController.java`, `board/controller/BoardController.java`(API.md 기준 공개 API), `board/controller/BoardViewController.java`(ARCHITECTURE.md URL 섹션 기준 `GET /boards`, `GET /boards/{id}` 화면)
 - 작업 내용: `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. `BoardController`(API)와 `BoardViewController`(화면)는 책임을 분리한다.
-- DoD: 각 CRUD 엔드포인트에 대한 통합 테스트 5종 통과, `<script>` 포함 content 저장 시 정제되어 저장됨을 검증, `GET /boards`, `GET /boards/{id}` 화면 200 응답
+- DoD: 각 CRUD 엔드포인트에 대한 통합 테스트 5종 통과, `<script>` 포함 content 저장 시 정제되어 저장됨을 검증, `GET /boards`, `GET /boards/{id}` 화면 200 응답, `PATCH /api/admin/boards/{id}/visibility` 호출로 `is_public=false` 전환 시 해당 게시글이 공개 목록/상세 API 응답에서 제외됨을 통합 테스트로 검증
 
 ### P6-T3. 검색/페이징
 - 의존성: P6-T2
@@ -241,7 +241,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 의존성: P2-T1, P2-T2, P2-T4, P3-T4
 - 산출물: `banner/entity/Banner.java`, `BannerRepository`, `BannerService`, `BannerController`, `AdminBannerController`(ARCHITECTURE.md 명명 기준), `banner/dto/BannerRequest.java`, `banner/dto/BannerResponse.java`
 - 작업 내용: `sortOrder` 필드, 관리자 화면에서 순서 변경 API
-- DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트)
+- DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트), `PATCH /api/admin/banners/{id}/visibility` 호출로 `is_visible=false` 전환 시 해당 배너가 공개 목록 API(`GET /api/banners`) 응답에서 제외됨을 통합 테스트로 검증
 
 ### P7-T2. Popup CRUD + 기간설정 + 공개여부
 - 의존성: P2-T1, P2-T2, P2-T5, P3-T4
