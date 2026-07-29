@@ -149,6 +149,7 @@ Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드
 
 - API.md의 `POST /api/admin/files`, `GET /api/files/{id}`, `DELETE /api/admin/files/{id}`는 본 File 테이블을 기준으로 동작한다.
 - Program.thumbnail / Program.attachment / Board.thumbnail / Board.attachment 컬럼은 File.id를 참조하는 FK(`file_id`)가 아니라, 응답 시 필요한 URL 문자열만 저장한다(외부 연동 단순화를 위해 정규화하지 않음). File 테이블은 업로드 이력·삭제 관리용으로 별도 운용한다.
+- **고아 파일(orphan file) 정책**: Program/Board/Page/Popup을 삭제하거나 썸네일·첨부파일을 교체해도, 연결되어 있던 File 레코드와 실제 파일은 **자동으로 함께 삭제하지 않는다**. File 삭제는 `DELETE /api/admin/files/{id}`를 통한 관리자의 명시적 조작으로만 수행한다(P2-T4 기준). 고아 파일 일괄 정리는 본 프로젝트 범위에 포함하지 않으며, 필요 시 "향후 확장" 과제로 별도 진행한다.
 
 ---
 
