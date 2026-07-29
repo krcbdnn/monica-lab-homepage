@@ -81,15 +81,26 @@ src/main/java
 
 # Domain
 
+## Admin 화면(View) / API 컨트롤러 명명 규칙
+
+`/admin/**`(Thymeleaf 화면)과 `/api/admin/**`(REST API)는 인증 대상은 같지만 응답 형식이 다르므로(HTML vs JSON), 도메인마다 **두 개의 컨트롤러로 분리**한다. 하나의 컨트롤러가 화면 렌더링과 JSON 응답을 함께 처리하지 않는다.
+
+| 구분 | 네이밍 | 책임 | 예시 |
+|---|---|---|---|
+| API | `Admin{Domain}Controller` | `@RestController`, `/api/admin/{domain}` 하위 CRUD/상태변경 API, `ApiResponse` 반환 | `AdminProgramController` |
+| View | `Admin{Domain}ViewController` | `@Controller`, `/admin/{domain}` 하위 화면(목록/등록/수정 폼) 렌더링, Thymeleaf View 이름 반환. 데이터는 자체 조회하지 않고 화면 진입만 담당하며, 실제 데이터는 화면의 JS가 P3-T5 공통 fetch 유틸로 `Admin{Domain}Controller`의 API를 호출해 채운다 | `AdminProgramViewController` |
+
+이 규칙은 Program, Board, Page, Banner, Popup, File, Admin(Dashboard 포함) 전 도메인에 동일하게 적용한다. 공개 영역의 `{Domain}Controller`(API) / `{Domain}ViewController`(View) 분리(Page/Program/Board)와 동일한 패턴이다.
+
 ## Admin
 
-관리자 로그인
+관리자 로그인 및 대시보드
 
 ```
-AdminController        (관리자 계정 조회 등 내부 용도)
-AdminAuthController     (POST /api/admin/login, POST /api/admin/logout)
-AdminViewController     (GET /admin/login 등 화면 렌더링, Thymeleaf)
-DashboardController     (GET /api/admin/dashboard)
+AdminController             (관리자 계정 조회 등 내부 용도)
+AdminAuthController         (POST /api/admin/login, POST /api/admin/logout)
+AdminViewController         (GET /admin/login, GET /admin/dashboard 등 관리자 공통/대시보드 화면 렌더링, Thymeleaf)
+DashboardController         (GET /api/admin/dashboard, 위 명명 규칙의 API 컨트롤러 역할)
 
 AdminService
 
@@ -101,6 +112,8 @@ AdminRepository
 - 로그인
 - 로그아웃
 - 대시보드
+
+비고: Admin 도메인은 로그인 화면과 대시보드 화면을 함께 다루므로 `AdminViewController` 하나가 두 화면(`/admin/login`, `/admin/dashboard`)을 모두 렌더링한다(로그인은 `AdminAuthController`가, 대시보드 데이터는 `DashboardController`가 API로 제공).
 
 ---
 
@@ -118,6 +131,7 @@ CMS 페이지 관리
 ```
 PageController
 AdminPageController
+AdminPageViewController     (GET /admin/pages 목록/수정 화면 렌더링, Thymeleaf)
 
 PageService
 
@@ -146,6 +160,7 @@ LOCATION
 ProgramController
 
 AdminProgramController
+AdminProgramViewController  (GET /admin/programs 목록/등록/수정 화면 렌더링, Thymeleaf)
 
 ProgramService
 
@@ -170,6 +185,8 @@ SPECIAL
 - 모집 상태
 - 공개 여부
 
+검색: `GET /api/programs`의 `keyword` 파라미터(API.md 기준)는 제목/내용을 대상으로 QueryDSL 동적 조건으로 검색하며, `programType`과 동시 조합 가능하다(Board의 검색 방식과 동일한 패턴).
+
 ---
 
 ## Board
@@ -186,6 +203,7 @@ SPECIAL
 BoardController
 
 AdminBoardController
+AdminBoardViewController    (GET /admin/boards 목록/등록/수정 화면 렌더링, Thymeleaf)
 
 BoardService
 
@@ -219,6 +237,7 @@ ARCHIVE
 BannerController
 
 AdminBannerController
+AdminBannerViewController   (GET /admin/banners 목록/등록/수정 화면 렌더링, Thymeleaf)
 
 BannerService
 
@@ -241,6 +260,7 @@ BannerRepository
 PopupController
 
 AdminPopupController
+AdminPopupViewController    (GET /admin/popups 목록/등록/수정 화면 렌더링, Thymeleaf)
 
 PopupService
 
@@ -284,6 +304,7 @@ HomeController
 FileController        (공개: GET /api/files/{id} 다운로드)
 
 AdminFileController    (관리자: POST /api/admin/files, DELETE /api/admin/files/{id})
+AdminFileViewController (GET /admin/files 업로드 이력 목록 화면 렌더링, Thymeleaf)
 
 FileService
 ```
@@ -647,17 +668,29 @@ Admin
 /admin/dashboard
 
 /admin/pages
+/admin/pages/{pageType}/edit
 
 /admin/programs
+/admin/programs/new
+/admin/programs/{id}/edit
 
 /admin/boards
+/admin/boards/new
+/admin/boards/{id}/edit
 
 /admin/banners
+/admin/banners/new
+/admin/banners/{id}/edit
 
 /admin/popups
+/admin/popups/new
+/admin/popups/{id}/edit
 
 /admin/files
 ```
+
+- `/new`, `/{id}/edit`은 각 도메인 `Admin{Domain}ViewController`가 등록/수정 폼 화면을 렌더링하는 경로이며, 실제 저장/수정은 화면의 JS가 `Admin{Domain}Controller`의 `POST`/`PUT` API를 호출한다.
+- Page는 4개 타입(GREETING/INTRODUCTION/HISTORY/LOCATION)이 타입별 단일 레코드이므로 `/new` 없이 `/admin/pages/{pageType}/edit`만 사용한다.
 
 ---
 

@@ -138,7 +138,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P4-T1. Page Entity/CRUD
 - 의존성: P2-T1, P2-T2, P2-T5, P3-T4
-- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`
+- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`, `page/dto/PageRequest.java`, `page/dto/PageResponse.java`
 - 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. 공개 조회 Controller(`PageController`)는 이 Task에서 만들지 않고 P4-T3에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
 - DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과. `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
@@ -160,7 +160,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P5-T1. Program 도메인
 - 의존성: P2-T1, P2-T2, P3-T4
-- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/AdminProgramController.java`
+- 산출물: `program/entity/Program.java`, `program/repository/ProgramRepository.java`, `program/service/ProgramService.java`, `program/controller/AdminProgramController.java`, `program/dto/ProgramRequest.java`, `program/dto/ProgramResponse.java`
 - 작업 내용: `ProgramType` enum(`COURSE`, `SPECIAL`), `isPublic`, `recruitStatus` 필드. 공개 조회 Controller(`ProgramController`)는 이 Task에서 만들지 않고 P5-T5에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
 - DoD: 타입별 필터 조회 리포지토리 테스트 통과
 
@@ -182,11 +182,17 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: 썸네일은 이미지 전용, 첨부는 문서 확장자 허용
 - DoD: 이미지 아닌 파일을 썸네일로 업로드 시 400
 
+### P5-T4A. Program 검색(QueryDSL)
+- 의존성: P5-T1
+- 산출물: `program/repository/ProgramRepositoryCustom.java`(QueryDSL), `program/dto/ProgramSearchCondition.java`
+- 작업 내용: API.md `GET /api/programs`의 `keyword`(제목/내용 대상) 쿼리 파라미터를 QueryDSL 동적 조건으로 구현한다. `programType` 필터와 동시 조합 가능해야 하며(BooleanBuilder 또는 BooleanExpression 조합), `Pageable`을 지원한다. Board의 `BoardRepositoryCustom`(P6-T3)과 동일한 패턴을 재사용한다.
+- DoD: `keyword`만 적용, `programType`만 적용, 둘을 동시 적용한 3가지 조건 각각에 대해 검색 결과가 조건에 맞는 항목만 반환되는지 QueryDSL 테스트로 검증
+
 ### P5-T5. 공개 Program 조회 Controller (API + 화면)
-- 의존성: P5-T2, P5-T3
+- 의존성: P5-T2, P5-T3, P5-T4A
 - 산출물: `program/controller/ProgramController.java`(API.md 기준 `GET /api/programs`, `GET /api/programs/{id}`), `program/controller/ProgramViewController.java`(ARCHITECTURE.md URL 섹션 기준 `GET /programs`, `GET /programs/{id}`, Thymeleaf 뷰 반환)
-- 작업 내용: `isPublic=false`인 프로그램은 목록/상세 모두 404 처리. `programType` 쿼리 파라미터로 COURSE/SPECIAL 필터링(API.md Query 기준)
-- DoD: 인증 없이 목록/상세 조회 200, 비공개 프로그램 상세 조회 시 404, `programType` 필터 적용 시 해당 타입만 반환
+- 작업 내용: `isPublic=false`인 프로그램은 목록/상세 모두 404 처리. `programType`, `keyword`(P5-T4A 기준) 쿼리 파라미터로 필터링(API.md Query 기준)
+- DoD: 인증 없이 목록/상세 조회 200, 비공개 프로그램 상세 조회 시 404, `programType` 필터 적용 시 해당 타입만 반환, `keyword` 검색 시 제목/내용에 일치하는 항목만 반환
 
 ### P5-T6. Program CKEditor5 이미지 업로드 연동
 - 의존성: P5-T2, P2-T4
@@ -200,7 +206,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P6-T1. Board 도메인 + BoardType
 - 의존성: P2-T1, P2-T2, P3-T4
-- 산출물: `board/entity/Board.java`, `board/entity/BoardType.java`(enum: `NOTICE`,`GALLERY`,`ARCHIVE`), Repository/Service/Controller
+- 산출물: `board/entity/Board.java`, `board/entity/BoardType.java`(enum: `NOTICE`,`GALLERY`,`ARCHIVE`), Repository/Service/Controller, `board/dto/BoardRequest.java`, `board/dto/BoardResponse.java`
 - DoD: 타입별 저장/조회 통합 테스트 통과
 
 ### P6-T2. CRUD (목록/상세/등록/수정/삭제)
@@ -233,13 +239,13 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P7-T1. Banner CRUD + 정렬 + 공개여부
 - 의존성: P2-T1, P2-T2, P2-T4, P3-T4
-- 산출물: `banner/entity/Banner.java`, `BannerRepository`, `BannerService`, `BannerController`, `AdminBannerController`(ARCHITECTURE.md 명명 기준)
+- 산출물: `banner/entity/Banner.java`, `BannerRepository`, `BannerService`, `BannerController`, `AdminBannerController`(ARCHITECTURE.md 명명 기준), `banner/dto/BannerRequest.java`, `banner/dto/BannerResponse.java`
 - 작업 내용: `sortOrder` 필드, 관리자 화면에서 순서 변경 API
 - DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트)
 
 ### P7-T2. Popup CRUD + 기간설정 + 공개여부
 - 의존성: P2-T1, P2-T2, P2-T5, P3-T4
-- 산출물: `popup/entity/Popup.java`, `PopupRepository`, `PopupService`, `PopupController`, `AdminPopupController`(ARCHITECTURE.md 명명 기준)
+- 산출물: `popup/entity/Popup.java`, `PopupRepository`, `PopupService`, `PopupController`, `AdminPopupController`(ARCHITECTURE.md 명명 기준), `popup/dto/PopupRequest.java`, `popup/dto/PopupResponse.java`
 - 작업 내용: `startDate`, `endDate` 범위 밖이면 공개 API에서 자동 제외. `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다.
 - DoD: 기간이 지난 팝업이 공개 목록에 나타나지 않음(날짜 조작 테스트), `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
@@ -279,10 +285,10 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## Phase 9. 관리자 CMS
 
 ### P9-T1. Dashboard
-- 의존성: P6-T2, P5-T2
-- 산출물: `admin/controller/DashboardController.java`, `templates/admin/dashboard.html`
-- 작업 내용: 최근 게시글 N건, 프로그램 현황(모집중/마감 카운트), 빠른 메뉴 링크
-- DoD: 대시보드 API 응답에 세 영역의 데이터가 모두 포함됨
+- 의존성: P6-T2, P5-T2, P3-T5
+- 산출물: `admin/controller/DashboardController.java`(API, `GET /api/admin/dashboard`), `admin/controller/AdminViewController.java`(수정, `GET /admin/dashboard` 화면 렌더링 추가), `templates/admin/dashboard.html`
+- 작업 내용: 최근 게시글 N건, 프로그램 현황(모집중/마감 카운트), 빠른 메뉴 링크. ARCHITECTURE.md "Admin 화면(View) / API 컨트롤러 명명 규칙" 기준, `DashboardController`는 JSON 데이터만 반환하고 화면 렌더링은 P3-T3에서 생성된 `AdminViewController`가 담당한다(로그인 화면과 동일 클래스). `dashboard.html`은 P3-T5 공통 fetch 유틸로 `GET /api/admin/dashboard`를 호출해 데이터를 채운다.
+- DoD: `GET /api/admin/dashboard` 응답에 세 영역의 데이터가 모두 포함됨. 미인증 상태로 `GET /admin/dashboard` 접근 시 302 리다이렉트(인증 후 200)
 
 ### P9-T2a. 관리자 공통 레이아웃
 - 의존성: P3-T4, P3-T5
@@ -291,33 +297,39 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: 레이아웃 템플릿이 하위 도메인 화면 1개 이상에서 정상 렌더링됨(통합 테스트)
 
 ### P9-T2b. Program 관리자 화면
-- 의존성: P9-T2a, P5-T2, P5-T3, P5-T4, P5-T6
-- 산출물: `templates/admin/program/list.html`, `templates/admin/program/form.html`(P5-T6 기존 form.html과 통합)
-- DoD: `/admin/programs` 목록/등록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+- 의존성: P9-T2a, P5-T2, P5-T3, P5-T4, P5-T4A, P5-T6
+- 산출물: `program/controller/AdminProgramViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/programs`, `/admin/programs/new`, `/admin/programs/{id}/edit` 화면 렌더링), `templates/admin/program/list.html`, `templates/admin/program/form.html`(P5-T6 기존 form.html과 통합)
+- 작업 내용: `AdminProgramViewController`는 화면 렌더링만 담당하며, 실제 CRUD/검색은 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminProgramController`(P5-T2)의 API를 호출해 처리한다.
+- DoD: `/admin/programs`, `/admin/programs/new`, `/admin/programs/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2c. Board 관리자 화면
 - 의존성: P9-T2a, P6-T2, P6-T3, P6-T5
-- 산출물: `templates/admin/board/list.html`, `templates/admin/board/form.html`(P6-T5 기존 form.html과 통합)
-- DoD: `/admin/boards` 목록/등록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+- 산출물: `board/controller/AdminBoardViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/boards`, `/admin/boards/new`, `/admin/boards/{id}/edit` 화면 렌더링), `templates/admin/board/list.html`, `templates/admin/board/form.html`(P6-T5 기존 form.html과 통합)
+- 작업 내용: `AdminBoardViewController`는 화면 렌더링만 담당하며, 실제 CRUD/검색은 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminBoardController`(P6-T2)의 API를 호출해 처리한다.
+- DoD: `/admin/boards`, `/admin/boards/new`, `/admin/boards/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2d. Page 관리자 화면
 - 의존성: P9-T2a, P4-T1, P4-T2
-- 산출물: `templates/admin/page/list.html`(P4-T2 기존 form.html과 통합)
-- DoD: `/admin/pages` 목록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+- 산출물: `page/controller/AdminPageViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/pages`, `/admin/pages/{pageType}/edit` 화면 렌더링), `templates/admin/page/list.html`(P4-T2 기존 form.html과 통합)
+- 작업 내용: `AdminPageViewController`는 화면 렌더링만 담당하며, 실제 조회/수정은 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminPageController`(P4-T1)의 API를 호출해 처리한다. Page는 타입별 단일 레코드이므로 `/new` 라우트는 두지 않는다.
+- DoD: `/admin/pages`, `/admin/pages/{pageType}/edit`(4개 타입) 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2e. Banner 관리자 화면
 - 의존성: P9-T2a, P7-T1
-- 산출물: `templates/admin/banner/list.html`, `templates/admin/banner/form.html`
-- DoD: `/admin/banners` 목록/등록/수정/정렬 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+- 산출물: `banner/controller/AdminBannerViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/banners`, `/admin/banners/new`, `/admin/banners/{id}/edit` 화면 렌더링), `templates/admin/banner/list.html`, `templates/admin/banner/form.html`
+- 작업 내용: `AdminBannerViewController`는 화면 렌더링만 담당하며, 실제 CRUD/정렬은 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminBannerController`(P7-T1)의 API를 호출해 처리한다.
+- DoD: `/admin/banners`, `/admin/banners/new`, `/admin/banners/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2f. Popup 관리자 화면
 - 의존성: P9-T2a, P7-T2, P7-T3
-- 산출물: `templates/admin/popup/list.html`(P7-T3 기존 form.html과 통합)
-- DoD: `/admin/popups` 목록/등록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+- 산출물: `popup/controller/AdminPopupViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/popups`, `/admin/popups/new`, `/admin/popups/{id}/edit` 화면 렌더링), `templates/admin/popup/list.html`(P7-T3 기존 form.html과 통합)
+- 작업 내용: `AdminPopupViewController`는 화면 렌더링만 담당하며, 실제 CRUD는 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminPopupController`(P7-T2)의 API를 호출해 처리한다.
+- DoD: `/admin/popups`, `/admin/popups/new`, `/admin/popups/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2g. File 관리자 화면
 - 의존성: P9-T2a, P2-T4
-- 산출물: `templates/admin/file/list.html`(ARCHITECTURE.md Admin URL `/admin/files` 기준, 업로드 이력 조회 및 삭제)
+- 산출물: `file/controller/AdminFileViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/files` 화면 렌더링), `templates/admin/file/list.html`(ARCHITECTURE.md Admin URL `/admin/files` 기준, 업로드 이력 조회 및 삭제)
+- 작업 내용: `AdminFileViewController`는 화면 렌더링만 담당하며, 목록 데이터 조회 및 삭제는 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminFileController`(P2-T4)의 API를 호출해 처리한다.
 - DoD: `/admin/files` 목록 화면 200 응답, 삭제 버튼 클릭 시 `DELETE /api/admin/files/{id}` 호출 후 목록 갱신, 인가되지 않은 사용자는 401/302로 차단
 
 ---
@@ -396,14 +408,18 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## 실행 순서 요약 (의존성 그래프 기준 위상정렬)
 
 ```
-Phase1 → Phase2 → Phase3 ─┬→ Phase4 ─┐
+                           ┌→ Phase4 ─┐
                            ├→ Phase5 ─┤
-                           └→ Phase6 ─┼→ Phase7 → Phase8 → Phase9 → Phase10 → Phase11 → Phase12
+Phase1 → Phase2 → Phase3 ─┼→ Phase6 ─┼→ Phase8 → Phase9 → Phase10 → Phase11 → Phase12
+                           └→ Phase7 ─┘
 ```
 
 > 주: Phase3(관리자 인증)은 Phase4/5/6/7의 관리자용(Admin) 태스크 전체의 선행 조건이다.
-> 위 다이어그램은 각 태스크의 `의존성` 필드와 항상 동기화되어야 하며, 본 버전에서는
-> P5-T1·P6-T1·P7-T1·P7-T2의 `의존성`에 P3-T4(관리자 인가 완료)를 명시적으로 추가해 다이어그램과 일치시켰다.
+> P5-T1·P6-T1·P7-T1·P7-T2의 `의존성`에는 P3-T4(관리자 인가 완료)가 명시되어 있다.
+> Phase4(Page)·Phase5(Program)·Phase6(Board)·Phase7(Banner/Popup)는 서로 직접적인 선행 관계가
+> 없으므로 Phase3 완료 후 **병렬로 진행 가능**하다(각 Phase의 첫 태스크가 P3-T4에만 의존).
+> 네 Phase가 모두 수렴하는 지점은 Phase8(홈페이지)이며, P8-T1은 P4-T3·P5-T5·P6-T2·P7-T1·P7-T2를
+> 모두 필요로 한다. 위 다이어그램은 각 태스크의 `의존성` 필드와 항상 동기화되어야 한다.
 
 에이전트는 각 Phase 내 태스크를 ID 순서대로 실행하되, `의존성` 필드에 명시된
 태스크가 완료(DoD 통과)되지 않으면 다음 태스크로 진행하지 않습니다.

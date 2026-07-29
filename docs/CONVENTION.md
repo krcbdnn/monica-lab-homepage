@@ -127,6 +127,18 @@ Controller
 ProgramController
 ```
 
+Admin Controller (API, `@RestController`, `/api/admin/{domain}`)
+
+```
+AdminProgramController
+```
+
+Admin View Controller (화면, `@Controller`, `/admin/{domain}`, ARCHITECTURE.md "Admin 화면(View) / API 컨트롤러 명명 규칙" 기준)
+
+```
+AdminProgramViewController
+```
+
 Service
 
 ```
