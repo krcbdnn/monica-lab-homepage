@@ -270,10 +270,11 @@ HomeController
 
 - 메인 배너 조회
 - 팝업 조회
+- 기관소개(인사말, GREETING) 요약 조회
 - 최신 공지/갤러리 조회
 - 프로그램 바로가기
 
-자체 Entity/Repository 없이 Banner, Popup, Board, Program Service를 조합하여 사용한다.
+자체 Entity/Repository 없이 Banner, Popup, Board, Program, Page Service를 조합하여 사용한다.
 
 ---
 
@@ -367,6 +368,100 @@ updatedAt
 ```
 
 모든 Entity 공통 사용
+
+---
+
+# ApiResponse 스키마
+
+모든 API 응답(성공/실패)은 아래 포맷을 따른다. `ApiResponse.success(data)` / `ApiResponse.fail(errorCode)` 호출 시 이 구조로 직렬화되어야 한다.
+
+## 성공 응답
+
+```json
+{
+  "success": true,
+  "data": { },
+  "error": null
+}
+```
+
+- `data` : 실제 응답 데이터. 객체, 배열, `null`(204 등) 모두 가능하다.
+
+예)
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "title": "공지사항 제목"
+  },
+  "error": null
+}
+```
+
+## 실패 응답
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "BOARD_NOT_FOUND",
+    "message": "게시글을 찾을 수 없습니다."
+  }
+}
+```
+
+- `error.code` : CODING_RULES.md "ErrorCode 카탈로그"의 Enum 이름을 그대로 사용한다(예: `PROGRAM_NOT_FOUND`, `INVALID_INPUT_VALUE`).
+- `error.message` : 사용자에게 노출 가능한 한글 메시지. `ErrorCode`마다 고정 메시지를 갖는다.
+- HTTP 상태 코드는 CODING_RULES.md ErrorCode 카탈로그의 매핑을 따르며, 응답 바디의 `error.code`와 항상 1:1로 대응한다.
+
+Validation 실패(`INVALID_INPUT_VALUE`)처럼 필드 단위 상세가 필요한 경우 `error`에 `fields` 배열을 추가한다.
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "INVALID_INPUT_VALUE",
+    "message": "입력값이 올바르지 않습니다.",
+    "fields": [
+      { "field": "title", "reason": "제목은 필수입니다." }
+    ]
+  }
+}
+```
+
+---
+
+# Pagination 응답 구조
+
+목록 조회 API(Program, Board 등 `page`, `size` 쿼리 파라미터를 받는 API)는 `ApiResponse.data`에 아래 구조를 담는다.
+
+```json
+{
+  "success": true,
+  "data": {
+    "content": [ ],
+    "page": 0,
+    "size": 10,
+    "totalElements": 42,
+    "totalPages": 5,
+    "last": false
+  },
+  "error": null
+}
+```
+
+- `content` : 조회된 항목 배열
+- `page` : 현재 페이지(0부터 시작)
+- `size` : 페이지당 항목 수
+- `totalElements` : 전체 항목 수
+- `totalPages` : 전체 페이지 수
+- `last` : 마지막 페이지 여부
+
+Spring Data `Page<T>`를 직접 반환하지 않고, 위 필드로 구성된 별도 Response DTO(`PageResponse<T>` 등 공통 DTO, `common/dto`)로 변환하여 반환한다.
 
 ---
 

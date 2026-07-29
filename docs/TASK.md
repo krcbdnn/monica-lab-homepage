@@ -253,10 +253,11 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ## Phase 8. 홈페이지 (공개 영역)
 
-### P8-T1. 메인 화면 (배너/팝업/최신 게시글)
-- 의존성: P5-T2, P7-T1, P7-T2, P6-T2
+### P8-T1. 메인 화면 (배너/팝업/기관소개 요약/최신 게시글)
+- 의존성: P5-T2, P7-T1, P7-T2, P6-T2, P4-T3
 - 산출물: `home/controller/HomeController.java`, `templates/home/index.html`
-- DoD: `GET /` 200 응답, 응답 HTML에 배너/팝업/최신글/프로그램 바로가기 영역 태그 존재(HTML 파싱 테스트)
+- 작업 내용: ARCHITECTURE.md Home 기능 목록 기준. 배너/팝업/최신 공지·갤러리/프로그램 바로가기에 더해, PageService(P4-T1)를 조합하여 기관소개 인사말(`GREETING`) 요약을 메인 화면에 노출한다.
+- DoD: `GET /` 200 응답, 응답 HTML에 배너/팝업/인사말 요약/최신글/프로그램 바로가기 영역 태그 존재(HTML 파싱 테스트)
 
 ### P8-T2. 기관소개 페이지 조회
 - 의존성: P4-T3
@@ -283,10 +284,41 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: 최근 게시글 N건, 프로그램 현황(모집중/마감 카운트), 빠른 메뉴 링크
 - DoD: 대시보드 API 응답에 세 영역의 데이터가 모두 포함됨
 
-### P9-T2. 관리자 통합 화면 (프로그램/게시판/페이지/배너/팝업/파일)
-- 의존성: P2-T4, P4-T1, P5~P7 전체
-- 산출물: `templates/admin/layout/*.html`, 각 도메인 admin 뷰
-- DoD: 각 메뉴 진입 시 200 응답 + 인가되지 않은 사용자는 전부 차단
+### P9-T2a. 관리자 공통 레이아웃
+- 의존성: P3-T4, P3-T5
+- 산출물: `templates/admin/layout/*.html`(공통 헤더/사이드바/푸터 레이아웃, 각 도메인 화면이 상속)
+- 작업 내용: P3-T5 common-fetch.js를 사용하는 공통 레이아웃 뼈대 생성. 이후 P9-T2b~T2g는 이 레이아웃을 상속만 한다.
+- DoD: 레이아웃 템플릿이 하위 도메인 화면 1개 이상에서 정상 렌더링됨(통합 테스트)
+
+### P9-T2b. Program 관리자 화면
+- 의존성: P9-T2a, P5-T2, P5-T3, P5-T4, P5-T6
+- 산출물: `templates/admin/program/list.html`, `templates/admin/program/form.html`(P5-T6 기존 form.html과 통합)
+- DoD: `/admin/programs` 목록/등록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+
+### P9-T2c. Board 관리자 화면
+- 의존성: P9-T2a, P6-T2, P6-T3, P6-T5
+- 산출물: `templates/admin/board/list.html`, `templates/admin/board/form.html`(P6-T5 기존 form.html과 통합)
+- DoD: `/admin/boards` 목록/등록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+
+### P9-T2d. Page 관리자 화면
+- 의존성: P9-T2a, P4-T1, P4-T2
+- 산출물: `templates/admin/page/list.html`(P4-T2 기존 form.html과 통합)
+- DoD: `/admin/pages` 목록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+
+### P9-T2e. Banner 관리자 화면
+- 의존성: P9-T2a, P7-T1
+- 산출물: `templates/admin/banner/list.html`, `templates/admin/banner/form.html`
+- DoD: `/admin/banners` 목록/등록/수정/정렬 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+
+### P9-T2f. Popup 관리자 화면
+- 의존성: P9-T2a, P7-T2, P7-T3
+- 산출물: `templates/admin/popup/list.html`(P7-T3 기존 form.html과 통합)
+- DoD: `/admin/popups` 목록/등록/수정 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
+
+### P9-T2g. File 관리자 화면
+- 의존성: P9-T2a, P2-T4
+- 산출물: `templates/admin/file/list.html`(ARCHITECTURE.md Admin URL `/admin/files` 기준, 업로드 이력 조회 및 삭제)
+- DoD: `/admin/files` 목록 화면 200 응답, 삭제 버튼 클릭 시 `DELETE /api/admin/files/{id}` 호출 후 목록 갱신, 인가되지 않은 사용자는 401/302로 차단
 
 ---
 
@@ -313,7 +345,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: Playwright(또는 Puppeteer) 기반 뷰포트별(375px/768px/1440px) 스크린샷을 자동 캡처하여 기준 이미지 대비 픽셀 diff 비율이 임계치(예: 2%) 이하
 
 ### P11-T2. 관리자 UI 개선 + CKEditor 스타일 + 이미지 최적화 + 접근성
-- 의존성: P9-T2
+- 의존성: P9-T2a, P9-T2b, P9-T2c, P9-T2d, P9-T2e, P9-T2f, P9-T2g
 - 산출물: `static/css/admin/**`
 - DoD: Lighthouse CI 접근성 점수 90 이상(고정 임계치), 이미지 `loading="lazy"` 속성 적용 여부를 HTML 파싱으로 확인
 
@@ -354,7 +386,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 | CSRF 보호 적용 완료 | CSRF 보호 | P3-T2, P3-T5 테스트 통과 |
 | 예외 처리 완료 | 예외 처리 완료 | P10-T2 통과 |
 | 반응형 적용 | 반응형 적용 | P11-T1 확인 |
-| 권한 검증 완료 | 권한 검증 완료 | P3-T4, P9-T2 통과 |
+| 권한 검증 완료 | 권한 검증 완료 | P3-T4, P9-T2a~T2g 통과 |
 | 코드 리뷰 완료 | 코드 리뷰 완료 | PR approve 기록 (GitHub) |
 | 테스트 완료 | 테스트 완료 | `./gradlew test` 성공 + 커버리지 리포트 |
 | 배포 완료 | 배포 완료 | P12-T1~T3 통과, 헬스체크 200 |
