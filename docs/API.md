@@ -254,6 +254,29 @@ POST /api/admin/files
 
 multipart/form-data
 
+Request Part
+
+| 이름 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| file | File | Y | 업로드할 파일 본문 |
+| fileType | String (Form field) | Y | `IMAGE` 또는 `ATTACHMENT`(ERD.md File.file_type 기준). 서버는 이 값에 따라 CODING_RULES.md의 `ALLOWED_IMAGE_EXTENSIONS`/`ALLOWED_ATTACHMENT_EXTENSIONS`와 `MAX_IMAGE_SIZE`/`MAX_UPLOAD_SIZE` 중 해당 기준을 선택하여 검증한다. |
+
+Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "url": "/api/files/1",
+    "originalName": "photo.png"
+  },
+  "error": null
+}
+```
+
+- Program 썸네일(`fileType=IMAGE`), Program/Board 첨부파일(`fileType=ATTACHMENT`), CKEditor 삽입 이미지(`fileType=IMAGE`) 모두 이 단일 엔드포인트를 `fileType`으로 구분하여 사용한다. 용도별 별도 엔드포인트를 두지 않는다.
+
 ---
 
 ## 다운로드
