@@ -97,7 +97,7 @@ src/main/java
 관리자 로그인 및 대시보드
 
 ```
-AdminController             (관리자 계정 조회 등 내부 용도)
+AdminController             (GET /api/admin/me — 로그인한 관리자 본인 정보 조회 전용. 타 관리자 계정 조회/등록/수정 API는 없음, API.md 기준)
 AdminAuthController         (POST /api/admin/login, POST /api/admin/logout)
 AdminViewController         (GET /admin/login, GET /admin/dashboard 등 관리자 공통/대시보드 화면 렌더링, Thymeleaf)
 DashboardController         (GET /api/admin/dashboard, 위 명명 규칙의 API 컨트롤러 역할)

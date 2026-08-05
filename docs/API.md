@@ -34,6 +34,27 @@ POST /api/admin/login
 
 POST /api/admin/logout
 
+## 로그인 관리자 정보 조회
+
+GET /api/admin/me
+
+세션으로 인증된 관리자 본인의 정보(`id`, `loginId`, `name`, `role`)를 조회한다. 관리자 공통 레이아웃(P9-T2a)의 헤더에 로그인한 관리자명을 표시하는 용도로 사용하며, ARCHITECTURE.md `AdminController`("관리자 계정 조회 등 내부 용도")가 담당하는 유일한 API다. 다른 관리자 계정을 조회/등록/수정하는 API는 제공하지 않는다(관리자 계정 관리 API는 본 프로젝트 범위 밖).
+
+Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "loginId": "admin",
+    "name": "관리자",
+    "role": "ROLE_ADMIN"
+  },
+  "error": null
+}
+```
+
 ---
 
 # Dashboard
