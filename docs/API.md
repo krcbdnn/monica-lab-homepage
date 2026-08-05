@@ -329,7 +329,7 @@ DELETE /api/admin/files/{id}
 
 인증 없이 호출 가능한 API이다.
 
-대상 도메인은 위 Page, Program, Board, Banner, Popup의 관리자 접두사(/admin)가 없는 API를 참고한다.
+대상 도메인은 위 Page, Program, Board, Banner, Popup, File(다운로드 `GET /api/files/{id}`)의 관리자 접두사(/admin)가 없는 API를 참고한다.
 
 ---
 

@@ -144,7 +144,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P4-T1. Page Entity/CRUD
 - 의존성: P2-T1, P2-T2, P2-T5, P3-T4
-- 산출물: `page/entity/CmsPage.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`, `page/dto/PageRequest.java`, `page/dto/PageResponse.java`
+- 산출물: `page/entity/CmsPage.java`, `page/entity/PageType.java`(enum: `GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`), `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`, `page/dto/PageRequest.java`, `page/dto/PageResponse.java`
 - 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. **Entity 클래스명은 `CmsPage`를 사용한다(`org.springframework.data.domain.Page<T>`와의 이름 충돌 방지 목적. 테이블명(`page`)/패키지명/API 경로는 영향 없음, CODING_RULES.md "Naming" 섹션 기준). Repository/Service/Controller의 목록 조회 메서드가 `Pageable`/`Page<T>`를 반환하는 경우 반드시 FQCN 또는 명시적 import로 구분한다.** 공개 조회 Controller(`PageController`)는 이 Task에서 만들지 않고 P4-T3에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
 - DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과. `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
@@ -357,15 +357,21 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ## Phase 11. UI/UX 개선
 
+### P11-T0. 프론트엔드 테스트 도구 설치 (Playwright / Lighthouse CI)
+- 의존성: P1-T1
+- 산출물: `package.json`, `package-lock.json`(또는 동등 lockfile), `.gitignore`(수정, `node_modules/` 추가), `frontend-tests/playwright.config.js`, `frontend-tests/lighthouserc.js`
+- 작업 내용: Java/Gradle 프로젝트와 별개로 Node.js 기반 프론트엔드 테스트 전용 디렉토리(`frontend-tests/`)를 구성한다. `npm init` 후 `@playwright/test`(P11-T1의 뷰포트 스크린샷/픽셀 diff용)와 `@lhci/cli`(P11-T2의 Lighthouse 접근성 점수용)를 devDependencies로 추가한다. Gradle 빌드와는 독립적으로 `npm ci && npx playwright install --with-deps`로 실행 가능해야 하며, Gradle에 Node 플러그인을 강제 통합하지 않는다(빌드 도구 분리 원칙).
+- DoD: `npm ci` 종료 코드 `0`, `npx playwright --version` 및 `npx lhci --version` 정상 출력, `node_modules/`가 `git status`에 잡히지 않음
+
 ### P11-T1. 반응형 적용
-- 의존성: P8 전체
-- 산출물: `static/css/**`
-- DoD: Playwright(또는 Puppeteer) 기반 뷰포트별(375px/768px/1440px) 스크린샷을 자동 캡처하여 기준 이미지 대비 픽셀 diff 비율이 임계치(예: 2%) 이하
+- 의존성: P8 전체, P11-T0
+- 산출물: `static/css/**`, `frontend-tests/visual-regression.spec.js`
+- DoD: P11-T0에서 설치한 Playwright 기반 뷰포트별(375px/768px/1440px) 스크린샷을 자동 캡처하여 기준 이미지 대비 픽셀 diff 비율이 임계치(예: 2%) 이하
 
 ### P11-T2. 관리자 UI 개선 + CKEditor 스타일 + 이미지 최적화 + 접근성
-- 의존성: P9-T2a, P9-T2b, P9-T2c, P9-T2d, P9-T2e, P9-T2f, P9-T2g
-- 산출물: `static/css/admin/**`
-- DoD: Lighthouse CI 접근성 점수 90 이상(고정 임계치), 이미지 `loading="lazy"` 속성 적용 여부를 HTML 파싱으로 확인
+- 의존성: P9-T2a, P9-T2b, P9-T2c, P9-T2d, P9-T2e, P9-T2f, P9-T2g, P11-T0
+- 산출물: `static/css/admin/**`, `frontend-tests/lighthouserc.js`(설정 보강)
+- DoD: P11-T0에서 설치한 Lighthouse CI로 측정한 접근성 점수 90 이상(고정 임계치), 이미지 `loading="lazy"` 속성 적용 여부를 HTML 파싱으로 확인
 
 ---
 
