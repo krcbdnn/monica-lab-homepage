@@ -118,6 +118,8 @@ Admin (1)
 
 기관소개 페이지 관리
 
+> **Entity 클래스명 주의**: 테이블명은 `page`를 사용하지만, JPA Entity 클래스명은 `CmsPage`를 사용한다. `Page`는 `org.springframework.data.domain.Page<T>`(Spring Data 페이지네이션 타입)와 이름이 충돌하여 Repository/Service 계층에서 import 모호성이 발생하기 때문이다(ARCHITECTURE.md, CODING_RULES.md 기준).
+
 | 컬럼 | 타입 | 설명 |
 |-------|------|------|
 | id | BIGINT | PK |
@@ -132,6 +134,8 @@ Admin (1)
 # 7. File
 
 업로드된 파일(이미지/첨부파일)의 메타데이터를 관리한다.
+
+> **Entity 클래스명 주의**: 테이블명은 `file`을 사용하지만, JPA Entity 클래스명은 `UploadFile`을 사용한다. `File`은 `java.io.File`과 이름이 충돌하여 파일 업로드/스트리밍 코드에서 import 모호성이 발생하기 때문이다(ARCHITECTURE.md, CODING_RULES.md 기준).
 
 Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드가 이 테이블을 참조한다.
 

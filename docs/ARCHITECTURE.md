@@ -136,6 +136,8 @@ AdminPageViewController     (GET /admin/pages 목록/수정 화면 렌더링, Th
 PageService
 
 PageRepository
+
+CmsPage                     (Entity. 클래스명은 Page가 아닌 CmsPage 사용 — ERD.md "Entity 클래스명 주의" 참고)
 ```
 
 pageType
@@ -307,6 +309,8 @@ AdminFileController    (관리자: POST /api/admin/files, DELETE /api/admin/file
 AdminFileViewController (GET /admin/files 업로드 이력 목록 화면 렌더링, Thymeleaf)
 
 FileService
+
+UploadFile              (Entity. 클래스명은 File이 아닌 UploadFile 사용 — ERD.md "Entity 클래스명 주의" 참고)
 ```
 
 기능

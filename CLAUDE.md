@@ -85,6 +85,7 @@ MVC + Layered Architecture: `Controller → Service → Repository → MariaDB`
 문서 전체를 항상 다 읽지 말고, 작업 범위에 맞춰 조건부로 확인합니다.
 
 **항상 확인**
+- docs/TASK.md — 현재 진행할 태스크(`P{phase}-T{n}`)와 그 의존성·산출물·완료 기준(DoD)을 먼저 확인합니다. 의존 태스크가 완료(DoD 통과)되지 않았다면 해당 태스크로 진행하지 않습니다. (docs/AI_WORKFLOW.md 기준 TASK.md가 본 프로젝트의 기본 실행 단위입니다.)
 - docs/CODING_RULES.md
 - docs/CONVENTION.md
 

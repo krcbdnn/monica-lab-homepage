@@ -249,6 +249,15 @@ CMS 콘텐츠는 CKEditor5를 이용하여 수정한다.
 
 # 실행 방법
 
+## 사전 요구사항
+
+로컬 Docker 데몬이 실행 중이어야 한다.
+
+- 로컬 MariaDB 구동(`docker-compose.local.yml`, TASK.md P1-T4)
+- 통합 테스트(`./gradlew test`)의 Testcontainers MariaDB 모듈 기동(TASK.md P1-T6)
+
+두 용도 모두 Docker에 의존하므로, Phase 1~9 개발 및 테스트 진행 전 Docker Desktop(또는 Docker Engine)이 설치·실행되어 있는지 먼저 확인한다. CI(GitHub Actions)는 러너에 내장된 Docker를 사용하므로 별도 설정이 필요 없다(TASK.md P12-T3).
+
 ## 프로젝트 Clone
 
 ```bash

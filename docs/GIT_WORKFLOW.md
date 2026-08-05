@@ -30,7 +30,7 @@ git pull origin develop
 | 테스트 코드만 추가 | `feature/*` | `feature/program-service-test` | `test:` |
 | 빌드/설정 파일 변경 | `feature/*` | `feature/gradle-config` | `chore:` |
 
-> CONVENTION.md 원문에는 `docs/*` 브랜치 타입이 명시되어 있지 않습니다. 문서 전용 작업도 `feature/*`로 통일하고 싶다면 `feature/docs-task-review`처럼 쓰셔도 무방합니다. 오늘처럼 `docs/*`를 쓰는 것도 실무에서 흔한 변형이라 문제 없습니다 — 팀(나중에 생긴다면) 안에서만 통일하면 됩니다.
+> `docs/*`는 CONVENTION.md 브랜치 전략에 정식으로 포함되어 있습니다(코드 변경 없이 문서만 수정하는 작업 전용). 문서 전용 작업도 `feature/*`로 통일하고 싶다면 `feature/docs-task-review`처럼 써도 무방하지만, 기본값은 `docs/*`입니다.
 
 ---
 
