@@ -170,6 +170,8 @@ Controller에서 try-catch를 작성하지 않는다.
 
 로그인 실패 시에는 아이디 존재 여부와 무관하게 항상 `AUTHENTICATION_FAILED`(401)를 반환한다. 계정 존재 여부가 응답 코드로 노출되면 아이디 추측 공격에 악용될 수 있기 때문이다. `ADMIN_NOT_FOUND`는 로그인 흐름이 아닌, 인증된 관리자 컨텍스트에서의 조회 실패에만 사용한다.
 
+**`ACCESS_DENIED`(403)에 대한 비고**: 본 프로젝트는 `ROLE_ADMIN` 단일 권한만 존재하므로(FEATURES.md/PRD.md 기준 일반 회원 없음), "인증은 되었으나 권한이 부족한" 사용자가 구조적으로 존재하지 않는다. 따라서 `ACCESS_DENIED`는 실제 요청 흐름에서 트리거되는 경로가 없으며, `SecurityConfig`의 `AccessDeniedHandler`가 이 코드를 반환하도록 구현만 해두고(향후 관리자 권한 분리 확장 대비, README.md "향후 확장" 참고), P10-T2의 검증은 실제 HTTP 시나리오가 아니라 `AccessDeniedHandler` 단위 테스트(임의의 `AccessDeniedException`을 주입해 응답 포맷 확인)로 대체한다.
+
 ---
 
 # Security
@@ -204,6 +206,15 @@ Controller에서 try-catch를 작성하지 않는다.
 | ALLOWED_ATTACHMENT_EXTENSIONS | jpg, jpeg, png, gif, pdf, hwp, hwpx, docx, xlsx, pptx, zip | FEATURES.md 지원 형식 전체 |
 
 초과 시 `FILE_SIZE_EXCEEDED`, 허용되지 않은 확장자는 `INVALID_FILE_TYPE`을 반환한다(위 ErrorCode 카탈로그 기준).
+
+## 콘텐츠 검증 (확장자 위장 방지)
+
+확장자 검증만으로는 실행 파일 등을 이미지 확장자로 위장해 업로드하는 것을 막을 수 없으므로, `fileType=IMAGE`(썸네일, CKEditor 삽입 이미지) 업로드에 한해 파일 시그니처(매직바이트)를 추가 검증한다.
+
+- 검증 대상: `ALLOWED_IMAGE_EXTENSIONS`(jpg/jpeg/png/gif)로 판별된 파일만. `ALLOWED_ATTACHMENT_EXTENSIONS`의 문서형 확장자(pdf, hwp, hwpx, docx, xlsx, pptx, zip)는 컨테이너 포맷이 다양해 매직바이트 화이트리스트를 유지보수하기 어려우므로 이번 범위에서는 확장자 검증만 적용한다.
+- 방법: `java.nio.file.Files.probeContentType()` 또는 스트림 앞부분 시그니처(예: PNG `89 50 4E 47`, JPEG `FF D8 FF`, GIF `47 49 46 38`) 비교로 실제 콘텐츠가 선언한 확장자와 일치하는지 확인한다.
+- 불일치 시 `INVALID_FILE_TYPE`(400)을 반환한다(위 ErrorCode 카탈로그 기준, 확장자 검증과 동일 코드 재사용).
+- 이 검증은 P2-T4(File 도메인)의 `fileType=IMAGE` 분기에서 확장자 검증 직후 수행한다.
 
 ---
 

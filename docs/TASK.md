@@ -14,7 +14,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 | 요소 | 설명 |
 |---|---|
-| **ID** | `P{phase}-T{n}` 형식의 고유 식별자. 의존성 참조에 사용 |
+| **ID** | `P{phase}-T{n}` 형식의 고유 식별자. 의존성 참조에 사용. 한 태스크에서 파생된 세부/병렬 태스크는 `P{phase}-T{n}{알파벳}`(예: `P5-T4A`, `P9-T2a`)으로 확장할 수 있다 |
 | **의존성** | 선행되어야 하는 태스크 ID (없으면 `-`) |
 | **산출물** | 생성/수정되는 파일·디렉토리 경로 (에이전트가 diff 범위를 예측 가능하게) |
 | **작업 내용** | 실행할 구체적 작업 (모호한 동사 대신 확인 가능한 행위로 기술) |
@@ -64,6 +64,12 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: Spring Security, Spring Data JPA, QueryDSL(Q타입 생성 플러그인 포함), Validation, Lombok, Thymeleaf, Jacoco(테스트 커버리지 플러그인, P10-T1 DoD 대비) 추가. Bootstrap/CKEditor5는 정적 리소스(CDN 또는 `src/main/resources/static/vendor`)로 처리
 - DoD: `./gradlew compileJava` 성공, QueryDSL Q클래스가 `build/generated`에 생성됨, `./gradlew jacocoTestReport` 태스크가 정상 등록되어 실행 가능
 
+### P1-T6. 테스트 프로파일 및 DB 전략 구성
+- 의존성: P1-T4, P1-T5
+- 산출물: `build.gradle`(Testcontainers 의존성 추가), `src/test/resources/application-test.yml`, `src/test/java/**/support/AbstractIntegrationTest.java`(공통 테스트 베이스, MariaDB Testcontainers 기동)
+- 작업 내용: `@SpringBootTest`가 필요한 모든 Repository/통합 테스트(P3-T1, P4-T1, P5-T1, P6-T1 등)는 실제 배포 DB와 동일한 MariaDB 방언 차이를 조기에 발견하기 위해 H2가 아닌 **Testcontainers MariaDB 모듈**을 사용한다. `test` 프로파일은 고정된 datasource 값을 갖지 않고 Testcontainers가 기동 시 동적으로 주입하는 접속정보(`spring.datasource.url` 등)를 `@DynamicPropertySource` 또는 `@ServiceConnection`으로 연결한다. 이후 모든 Phase의 "통합 테스트" DoD는 이 프로파일을 기준으로 한다.
+- DoD: `./gradlew test` 실행 시 로그에 MariaDB 컨테이너 기동/종료가 확인되고, `AbstractIntegrationTest`를 상속한 샘플 테스트 1건이 통과함. 로컬 Docker 데몬이 없는 환경(CI 러너 포함)에서도 GitHub Actions 기본 러너(Docker 내장)에서 정상 동작함을 P12-T3에서 재확인한다.
+
 ---
 
 ## Phase 2. 공통 기능
@@ -89,8 +95,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P2-T4. File 도메인 + 파일 업로드 (Local Storage)
 - 의존성: P2-T1, P2-T2
 - 산출물: `file/entity/File.java`, `file/repository/FileRepository.java`, `file/service/FileService.java`, `file/controller/FileController.java`, `file/controller/AdminFileController.java`
-- 작업 내용: ERD.md File 테이블 기준 Entity 생성(BaseEntity 상속). UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증(CODING_RULES.md ALLOWED_IMAGE_EXTENSIONS/ALLOWED_ATTACHMENT_EXTENSIONS 기준), 파일 크기 검증(MAX_UPLOAD_SIZE=10MB, MAX_IMAGE_SIZE=5MB). 업로드 시 File 레코드 저장 후 id 반환(`POST /api/admin/files`), `GET /api/files/{id}`로 다운로드, `DELETE /api/admin/files/{id}`로 레코드 및 실파일 삭제(API.md 기준)
-- DoD: 업로드 후 File 레코드가 DB에 저장되고 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 `INVALID_FILE_TYPE`(400), 용량 초과 시 `FILE_SIZE_EXCEEDED`(400), `GET /api/files/{id}` 200 + 파일 스트림 반환, `DELETE` 후 재조회 시 404
+- 작업 내용: ERD.md File 테이블 기준 Entity 생성(BaseEntity 상속). UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증(CODING_RULES.md ALLOWED_IMAGE_EXTENSIONS/ALLOWED_ATTACHMENT_EXTENSIONS 기준), `fileType=IMAGE`는 확장자 검증 통과 후 CODING_RULES.md "콘텐츠 검증" 기준 매직바이트 검증을 추가로 수행, 파일 크기 검증(MAX_UPLOAD_SIZE=10MB, MAX_IMAGE_SIZE=5MB). 업로드 시 File 레코드 저장 후 id 반환(`POST /api/admin/files`), `GET /api/files/{id}`로 다운로드, `DELETE /api/admin/files/{id}`로 레코드 및 실파일 삭제(API.md 기준)
+- DoD: 업로드 후 File 레코드가 DB에 저장되고 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 `INVALID_FILE_TYPE`(400), 확장자는 `png`이나 실제 콘텐츠가 이미지가 아닌 파일(예: 텍스트 파일을 `.png`로 위장)은 `INVALID_FILE_TYPE`(400), 용량 초과 시 `FILE_SIZE_EXCEEDED`(400), `GET /api/files/{id}` 200 + 파일 스트림 반환, `DELETE` 후 재조회 시 404
 
 ### P2-T5. HtmlSanitizer 공통 유틸 (XSS 방지)
 - 의존성: P1-T5
@@ -102,9 +108,9 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ## Phase 3. 관리자 인증
 
-### P3-T1. Admin 도메인 (Entity/Repository/Service/Controller) + 초기 계정
+### P3-T1. Admin 도메인 (Entity/Repository/Service) + 초기 계정
 - 의존성: P2-T1
-- 산출물: `admin/entity/Admin.java`, `admin/repository/AdminRepository.java`, `admin/service/AdminService.java`, `admin/controller/AdminController.java`, `resources/data.sql`(또는 `ApplicationRunner` 기반 초기 계정 생성)
+- 산출물: `admin/entity/Admin.java`, `admin/repository/AdminRepository.java`, `admin/service/AdminService.java`, `resources/data.sql`(또는 `ApplicationRunner` 기반 초기 계정 생성)
 - 작업 내용: `login_id`(unique), `password`(BCrypt 해시 저장), `name`, `role`(ERD.md 기준). 비밀번호는 CODING_RULES.md 정책(최소 8자, 영문/숫자/특수문자 중 2종 이상) 충족 값으로 초기 계정 1건 생성(회원가입 화면 없음, PRD.md 원칙 준수)
 - DoD: Repository 통합 테스트에서 중복 login_id 저장 시 `DataIntegrityViolationException`, 애플리케이션 기동 후 `AdminRepository.findByLoginId()`로 초기 관리자 계정 조회 성공 및 `PasswordEncoder.matches(평문비밀번호, 저장된 해시)`가 `true`를 반환함을 단위 테스트로 검증(HTTP 로그인 플로우 자체는 P3-T3에서 별도 검증)
 
@@ -114,11 +120,11 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: `PasswordEncoder` = `BCryptPasswordEncoder`, `SecurityFilterChain` 정의. `/admin/login`(GET, 로그인 화면)과 `POST /api/admin/login`은 인증 대상에서 제외(permitAll)하고, 그 외 `/admin/**`, `/api/admin/**`는 세션 기반 ROLE_ADMIN 인증을 요구한다(ARCHITECTURE.md Security 섹션 기준). ARCHITECTURE.md "CSRF 정책" 기준 `CookieCsrfTokenRepository.withHttpOnlyFalse()`를 적용해 `XSRF-TOKEN` 쿠키를 발급하고, `POST /api/admin/login`은 CSRF 토큰 없이도 호출 가능하도록 예외 처리한다.
 - DoD: 평문 비밀번호로 로그인 시도 시 실패, BCrypt 해시 비교 성공 시 인증 통과 (테스트 코드). 미인증 상태로 `GET /admin/login` 접근 시 200(리다이렉트 루프 없음). CSRF 토큰 없이 `POST /api/admin/programs` 호출 시 403, `POST /api/admin/login`은 CSRF 토큰 없이도 200/401 정상 응답.
 
-### P3-T3. 로그인/로그아웃 구현
+### P3-T3. 로그인/로그아웃 구현 + 관리자 정보 조회
 - 의존성: P3-T2
-- 산출물: `admin/controller/AdminViewController.java`(GET `/admin/login` 화면만 렌더링), `admin/controller/AdminAuthController.java`(API.md 기준 `POST /api/admin/login`, `POST /api/admin/logout`), `templates/admin/login.html`
-- 작업 내용: `/admin/login`은 로그인 폼 화면(GET)만 제공하고, 폼 제출은 JS(fetch)로 API.md의 `POST /api/admin/login`을 호출한다. 인증 성공 시 세션 생성 후 `ApiResponse.success` 반환, 프론트엔드에서 `/admin/dashboard`로 이동한다. 로그아웃은 `POST /api/admin/logout` 호출 후 세션 무효화, 프론트엔드에서 `/admin/login`으로 이동한다. `/admin/**` 화면 경로와 `/api/admin/**` API 경로는 ARCHITECTURE.md 기준 동일한 세션 인증(ROLE_ADMIN)을 공유한다.
-- DoD: `POST /api/admin/login` 성공 시 200 + `ApiResponse.success` + 세션 쿠키 발급, 실패 시 401 + `ApiResponse.fail`. `POST /api/admin/logout` 후 인증 필요 API(`/api/admin/**`) 호출 시 401. 미인증 상태로 `/admin/dashboard` 접근 시 302로 `/admin/login` 리다이렉트
+- 산출물: `admin/controller/AdminViewController.java`(GET `/admin/login` 화면만 렌더링), `admin/controller/AdminAuthController.java`(API.md 기준 `POST /api/admin/login`, `POST /api/admin/logout`), `admin/controller/AdminController.java`(API.md 기준 `GET /api/admin/me`), `templates/admin/login.html`
+- 작업 내용: `/admin/login`은 로그인 폼 화면(GET)만 제공하고, 폼 제출은 JS(fetch)로 API.md의 `POST /api/admin/login`을 호출한다. 인증 성공 시 세션 생성 후 `ApiResponse.success` 반환, 프론트엔드에서 `/admin/dashboard`로 이동한다. 로그아웃은 `POST /api/admin/logout` 호출 후 세션 무효화, 프론트엔드에서 `/admin/login`으로 이동한다. `/admin/**` 화면 경로와 `/api/admin/**` API 경로는 ARCHITECTURE.md 기준 동일한 세션 인증(ROLE_ADMIN)을 공유한다. `AdminController`는 API.md 기준 `GET /api/admin/me` 하나만 제공하며, 세션의 인증 주체(`Authentication`)에서 `Admin.id`를 조회해 `AdminService`를 통해 `id`/`loginId`/`name`/`role`을 반환한다(타 관리자 계정 조회/등록/수정 API는 두지 않는다).
+- DoD: `POST /api/admin/login` 성공 시 200 + `ApiResponse.success` + 세션 쿠키 발급, 실패 시 401 + `ApiResponse.fail`. `POST /api/admin/logout` 후 인증 필요 API(`/api/admin/**`) 호출 시 401. 미인증 상태로 `/admin/dashboard` 접근 시 302로 `/admin/login` 리다이렉트. 로그인 성공 세션으로 `GET /api/admin/me` 호출 시 200 + 로그인한 관리자 정보 반환, 미인증 상태 호출 시 401
 
 ### P3-T4. 인증 실패 처리 및 접근 권한 설정
 - 의존성: P3-T3
@@ -167,8 +173,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P5-T2. 프로그램 CRUD + 공개여부/모집상태
 - 의존성: P5-T1, P2-T5
 - 산출물: `program/controller/AdminProgramController.java`(수정)
-- 작업 내용: 등록/수정/삭제, `isPublic=false`인 프로그램은 공개 API에서 제외. `recruitStatus`는 자동 전환 없이 `PATCH /api/admin/programs/{id}/status`를 통한 관리자 수동 변경만 지원(ERD.md 기준). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다.
-- DoD: 비공개 프로그램이 공개 목록 API 응답에 포함되지 않음(테스트), `PATCH .../status` 호출 없이는 recruitStatus가 변경되지 않음(테스트), `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
+- 작업 내용: 등록/수정/삭제, `isPublic=false`인 프로그램은 공개 API에서 제외. `recruitStatus`는 자동 전환 없이 `PATCH /api/admin/programs/{id}/status`를 통한 관리자 수동 변경만 지원(ERD.md 기준). 등록 요청 DTO에 `recruitStatus`/`isPublic`이 없으면 ERD.md 기준 기본값(`OPEN`/`false`)으로 저장한다. `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다.
+- DoD: 비공개 프로그램이 공개 목록 API 응답에 포함되지 않음(테스트), `PATCH .../status` 호출 없이는 recruitStatus가 변경되지 않음(테스트), 값 생략 등록 시 `recruitStatus=OPEN`, `isPublic=false`로 저장됨을 검증, `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
 ### P5-T3. Google Form URL 관리
 - 의존성: P5-T1
@@ -291,9 +297,9 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: `GET /api/admin/dashboard` 응답에 세 영역의 데이터가 모두 포함됨. 미인증 상태로 `GET /admin/dashboard` 접근 시 302 리다이렉트(인증 후 200)
 
 ### P9-T2a. 관리자 공통 레이아웃
-- 의존성: P3-T4, P3-T5
+- 의존성: P3-T3, P3-T4, P3-T5
 - 산출물: `templates/admin/layout/*.html`(공통 헤더/사이드바/푸터 레이아웃, 각 도메인 화면이 상속)
-- 작업 내용: P3-T5 common-fetch.js를 사용하는 공통 레이아웃 뼈대 생성. 이후 P9-T2b~T2g는 이 레이아웃을 상속만 한다.
+- 작업 내용: P3-T5 common-fetch.js를 사용하는 공통 레이아웃 뼈대 생성. 헤더는 `GET /api/admin/me`(P3-T3)를 호출해 로그인한 관리자명을 표시한다. 이후 P9-T2b~T2g는 이 레이아웃을 상속만 한다.
 - DoD: 레이아웃 템플릿이 하위 도메인 화면 1개 이상에서 정상 렌더링됨(통합 테스트)
 
 ### P9-T2b. Program 관리자 화면
@@ -337,8 +343,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ## Phase 10. 테스트
 
 ### P10-T1. 기능 테스트 스위트
-- 의존성: Phase 1~9 전체
-- 산출물: `src/test/java/**` (로그인, 권한, CRUD, 검색, 파일 업로드, Google Form 연결)
+- 의존성: Phase 1~9 전체, P1-T6
+- 산출물: `src/test/java/**` (로그인, 권한, CRUD, 검색, 파일 업로드, Google Form 연결). 모든 통합 테스트는 P1-T6의 `AbstractIntegrationTest`(Testcontainers MariaDB)를 상속한다.
 - DoD: `./gradlew test` 전체 통과, 커버리지 리포트 생성(jacoco 등)
 
 ### P10-T2. 예외 처리 테스트
@@ -378,7 +384,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P12-T3. GitHub Actions CI/CD
 - 의존성: P12-T1
 - 산출물: `.github/workflows/ci.yml`, `.github/workflows/cd.yml`
-- DoD: PR 생성 시 CI 워크플로우 자동 실행 및 `./gradlew test` 결과가 PR 상태 체크에 반영
+- 작업 내용: `ci.yml`은 `ubuntu-latest` 러너(Docker 내장, P1-T6 Testcontainers 실행 조건 충족)에서 `./gradlew test`를 실행한다. 별도의 MariaDB 서비스 컨테이너(`services:`)를 구성하지 않고 P1-T6의 Testcontainers가 테스트 실행 중 자체적으로 컨테이너를 기동/정리하도록 한다.
+- DoD: PR 생성 시 CI 워크플로우 자동 실행 및 `./gradlew test` 결과가 PR 상태 체크에 반영, CI 로그에서 Testcontainers MariaDB 컨테이너의 기동/종료가 확인됨
 
 ---
 
@@ -418,8 +425,10 @@ Phase1 → Phase2 → Phase3 ─┼→ Phase6 ─┼→ Phase8 → Phase9 → Ph
 > P5-T1·P6-T1·P7-T1·P7-T2의 `의존성`에는 P3-T4(관리자 인가 완료)가 명시되어 있다.
 > Phase4(Page)·Phase5(Program)·Phase6(Board)·Phase7(Banner/Popup)는 서로 직접적인 선행 관계가
 > 없으므로 Phase3 완료 후 **병렬로 진행 가능**하다(각 Phase의 첫 태스크가 P3-T4에만 의존).
-> 네 Phase가 모두 수렴하는 지점은 Phase8(홈페이지)이며, P8-T1은 P4-T3·P5-T5·P6-T2·P7-T1·P7-T2를
-> 모두 필요로 한다. 위 다이어그램은 각 태스크의 `의존성` 필드와 항상 동기화되어야 한다.
+> 네 Phase가 모두 수렴하는 지점은 Phase8(홈페이지)이며, P8-T1은 P4-T3·P5-T2·P6-T2·P7-T1·P7-T2를
+> 모두 필요로 한다(HomeController는 ARCHITECTURE.md "Home" 섹션 기준으로 각 도메인의 공개 Controller가
+> 아니라 Service를 직접 조합하므로, Program은 공개 Controller가 완성되는 P5-T5가 아니라 Service/공개여부
+> 로직이 완성되는 P5-T2까지만 필요하다). 위 다이어그램은 각 태스크의 `의존성` 필드와 항상 동기화되어야 한다.
 
 에이전트는 각 Phase 내 태스크를 ID 순서대로 실행하되, `의존성` 필드에 명시된
 태스크가 완료(DoD 통과)되지 않으면 다음 태스크로 진행하지 않습니다.

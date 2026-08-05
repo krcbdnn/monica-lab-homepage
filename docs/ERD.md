@@ -61,6 +61,8 @@ Admin (1)
 
 `recruit_status`는 마감일 컬럼이 없으므로 시스템에 의한 자동 전환을 수행하지 않는다. 관리자가 API.md `PATCH /api/admin/programs/{id}/status`를 통해 수동으로 OPEN/CLOSED를 변경한다.
 
+신규 등록(`POST /api/admin/programs`) 시 요청 DTO에 값이 없어도 되도록 기본값을 다음과 같이 둔다: `recruit_status` 기본값 `OPEN`(등록 직후 바로 모집 시작이 일반적인 운영 흐름이므로), `is_public` 기본값 `false`(콘텐츠 작성이 끝나기 전 공개되는 것을 방지하기 위해 관리자가 명시적으로 공개 처리하도록 함). 두 값 모두 요청 DTO에서 명시적으로 지정하면 그 값을 우선한다.
+
 ---
 
 # 3. Board
