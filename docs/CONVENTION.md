@@ -24,7 +24,10 @@ develop
 feature/{feature-name}
 fix/{issue-name}
 hotfix/{issue-name}
+docs/{doc-task-name}
 ```
+
+`docs/*`는 코드 변경 없이 `docs/*.md` 문서만 수정하는 작업에 한해 사용한다(커밋 타입은 `docs:`). 그 외 문서를 포함한 모든 코드 작업은 `feature/*`, `fix/*`, `hotfix/*`를 사용한다(GIT_WORKFLOW.md 판단표 기준).
 
 ---
 

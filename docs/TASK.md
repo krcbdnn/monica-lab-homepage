@@ -94,9 +94,9 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P2-T4. File 도메인 + 파일 업로드 (Local Storage)
 - 의존성: P2-T1, P2-T2
-- 산출물: `file/entity/File.java`, `file/repository/FileRepository.java`, `file/service/FileService.java`, `file/controller/FileController.java`, `file/controller/AdminFileController.java`
-- 작업 내용: ERD.md File 테이블 기준 Entity 생성(BaseEntity 상속). UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증(CODING_RULES.md ALLOWED_IMAGE_EXTENSIONS/ALLOWED_ATTACHMENT_EXTENSIONS 기준), `fileType=IMAGE`는 확장자 검증 통과 후 CODING_RULES.md "콘텐츠 검증" 기준 매직바이트 검증을 추가로 수행, 파일 크기 검증(MAX_UPLOAD_SIZE=10MB, MAX_IMAGE_SIZE=5MB). 업로드 시 File 레코드 저장 후 id 반환(`POST /api/admin/files`), `GET /api/files/{id}`로 다운로드, `DELETE /api/admin/files/{id}`로 레코드 및 실파일 삭제(API.md 기준)
-- DoD: 업로드 후 File 레코드가 DB에 저장되고 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 `INVALID_FILE_TYPE`(400), 확장자는 `png`이나 실제 콘텐츠가 이미지가 아닌 파일(예: 텍스트 파일을 `.png`로 위장)은 `INVALID_FILE_TYPE`(400), 용량 초과 시 `FILE_SIZE_EXCEEDED`(400), `GET /api/files/{id}` 200 + 파일 스트림 반환, `DELETE` 후 재조회 시 404
+- 산출물: `file/entity/UploadFile.java`, `file/repository/FileRepository.java`, `file/service/FileService.java`, `file/controller/FileController.java`, `file/controller/AdminFileController.java`
+- 작업 내용: ERD.md File 테이블(`@Table(name = "file")`) 기준 Entity 생성(BaseEntity 상속). **Entity 클래스명은 `UploadFile`을 사용한다(`java.io.File`과의 이름 충돌 방지 목적. 테이블명/패키지명/API 경로는 영향 없음, CODING_RULES.md "Naming" 섹션 기준).** UUID 파일명 생성, `yyyy/MM/dd` 날짜별 디렉토리 자동 생성, 이미지/첨부파일 확장자 화이트리스트 검증(CODING_RULES.md ALLOWED_IMAGE_EXTENSIONS/ALLOWED_ATTACHMENT_EXTENSIONS 기준), `fileType=IMAGE`는 확장자 검증 통과 후 CODING_RULES.md "콘텐츠 검증" 기준 매직바이트 검증을 추가로 수행, 파일 크기 검증(MAX_UPLOAD_SIZE=10MB, MAX_IMAGE_SIZE=5MB). 업로드 시 UploadFile 레코드 저장 후 id 반환(`POST /api/admin/files`), `GET /api/files/{id}`로 다운로드, `DELETE /api/admin/files/{id}`로 레코드 및 실파일 삭제(API.md 기준)
+- DoD: 업로드 후 UploadFile 레코드가 DB에 저장되고 파일 시스템에 `업로드루트/yyyy/MM/dd/{uuid}.{ext}` 경로 존재 확인, 화이트리스트 외 확장자는 `INVALID_FILE_TYPE`(400), 확장자는 `png`이나 실제 콘텐츠가 이미지가 아닌 파일(예: 텍스트 파일을 `.png`로 위장)은 `INVALID_FILE_TYPE`(400), 용량 초과 시 `FILE_SIZE_EXCEEDED`(400), `GET /api/files/{id}` 200 + 파일 스트림 반환, `DELETE` 후 재조회 시 404
 
 ### P2-T5. HtmlSanitizer 공통 유틸 (XSS 방지)
 - 의존성: P1-T5
@@ -144,8 +144,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P4-T1. Page Entity/CRUD
 - 의존성: P2-T1, P2-T2, P2-T5, P3-T4
-- 산출물: `page/entity/Page.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`, `page/dto/PageRequest.java`, `page/dto/PageResponse.java`
-- 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. 공개 조회 Controller(`PageController`)는 이 Task에서 만들지 않고 P4-T3에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
+- 산출물: `page/entity/CmsPage.java`, `page/repository/PageRepository.java`, `page/service/PageService.java`, `page/controller/AdminPageController.java`, `page/dto/PageRequest.java`, `page/dto/PageResponse.java`
+- 작업 내용: 페이지 타입(`GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION`)을 enum으로 관리(ERD.md 기준). 타입별 단일 레코드 정책 사용(페이지당 최신 1건만 유지). `content` 저장 시 `HtmlSanitizer`(P2-T5)를 통해 정제한다. **Entity 클래스명은 `CmsPage`를 사용한다(`org.springframework.data.domain.Page<T>`와의 이름 충돌 방지 목적. 테이블명(`page`)/패키지명/API 경로는 영향 없음, CODING_RULES.md "Naming" 섹션 기준). Repository/Service/Controller의 목록 조회 메서드가 `Pageable`/`Page<T>`를 반환하는 경우 반드시 FQCN 또는 명시적 import로 구분한다.** 공개 조회 Controller(`PageController`)는 이 Task에서 만들지 않고 P4-T3에서 별도로 생성한다(공개 API/화면과 관리자 CRUD의 책임 분리).
 - DoD: 4개 타입 각각에 대해 생성→조회→수정→삭제 통합 테스트 통과. `<script>` 포함 content 저장 시 정제되어 저장됨을 검증
 
 ### P4-T2. CKEditor5 적용 및 이미지 업로드 연동

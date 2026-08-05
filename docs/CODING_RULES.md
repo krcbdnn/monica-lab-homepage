@@ -263,6 +263,15 @@ Package
 lowercase
 ```
 
+예약 충돌 회피
+
+```
+Entity 클래스명은 JDK/Spring 핵심 타입명과 동일하게 짓지 않는다.
+예: Page(→ CmsPage, org.springframework.data.domain.Page<T>와 충돌),
+    File(→ UploadFile, java.io.File과 충돌)
+구체적 매핑은 ERD.md "Entity 클래스명 주의" 참고. 테이블명/패키지명은 영향 없음.
+```
+
 Table / Column
 
 ```
