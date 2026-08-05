@@ -227,11 +227,17 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: 제목/내용 검색, `Pageable` 지원
 - DoD: 검색 조건에 맞는 결과만 반환되는지 QueryDSL 테스트로 검증
 
-### P6-T4. 조회수, 공개여부, 이미지/파일 업로드
-- 의존성: P6-T2, P2-T4
-- 산출물: `board/entity/Board.java`(필드 추가), `board/service/BoardService.java`
-- 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락). (content sanitize는 P6-T2에서 이미 처리하므로 이 Task는 중복 적용하지 않는다)
+### P6-T4. 조회수 증가 처리
+- 의존성: P6-T2
+- 산출물: `board/service/BoardService.java`(조회수 증가 로직)
+- 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락). (content sanitize와 공개여부 제어는 P6-T2에서, 대표이미지/첨부파일 연동은 P6-T4A에서 각각 이미 처리하므로 이 Task는 조회수 증가에만 집중한다)
 - DoD: 동시 요청 100회 시 조회수 정확히 100 증가(부하 테스트 또는 동시성 단위 테스트)
+
+### P6-T4A. Board 썸네일/첨부파일 연동
+- 의존성: P6-T1, P2-T4
+- 산출물: `templates/admin/board/form.html`(대표이미지/첨부파일 업로드 UI), `board/dto/BoardRequest.java`(수정, 도메인 검증 반영)
+- 작업 내용: Board 전용 업로드 엔드포인트를 별도로 생성하지 않는다(API.md "용도별 별도 엔드포인트를 두지 않는다" 원칙 준수). 화면 JS가 기존 `POST /api/admin/files`를 대표이미지(갤러리 `thumbnail`)는 `fileType=IMAGE`, 첨부파일(자료실 `attachment`)은 `fileType=ATTACHMENT`로 호출하여 File 업로드 후 반환된 `url`을 Board 등록/수정 폼에 담아 `AdminBoardController`(P6-T2)의 `POST`/`PUT`으로 전달한다. 이미지 전용/문서 확장자 허용 검증은 P2-T4 FileService가 `fileType` 기준으로 이미 수행하므로 이 Task에서 중복 검증 로직을 만들지 않는다(P5-T4와 동일한 패턴).
+- DoD: `fileType=IMAGE`로 이미지 아닌 파일 업로드 시 `INVALID_FILE_TYPE`(400, P2-T4 기준 검증 재사용 확인), 등록/수정 화면에서 업로드된 File의 `url`이 Board의 `thumbnail`/`attachment` 필드에 정상 저장됨을 통합 테스트로 검증
 
 ### P6-T5. Board CKEditor5 이미지 업로드 연동
 - 의존성: P6-T2, P2-T4
@@ -243,11 +249,11 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ## Phase 7. 메인 관리
 
-### P7-T1. Banner CRUD + 정렬 + 공개여부
+### P7-T1. Banner CRUD + 정렬 + 공개여부 + 이미지 업로드 연동
 - 의존성: P2-T1, P2-T2, P2-T4, P3-T4
-- 산출물: `banner/entity/Banner.java`, `BannerRepository`, `BannerService`, `BannerController`, `AdminBannerController`(ARCHITECTURE.md 명명 기준), `banner/dto/BannerRequest.java`, `banner/dto/BannerResponse.java`
-- 작업 내용: `sortOrder` 필드, 관리자 화면에서 순서 변경 API
-- DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트), `PATCH /api/admin/banners/{id}/visibility` 호출로 `is_visible=false` 전환 시 해당 배너가 공개 목록 API(`GET /api/banners`) 응답에서 제외됨을 통합 테스트로 검증
+- 산출물: `banner/entity/Banner.java`, `BannerRepository`, `BannerService`, `BannerController`, `AdminBannerController`(ARCHITECTURE.md 명명 기준), `banner/dto/BannerRequest.java`, `banner/dto/BannerResponse.java`, `templates/admin/banner/form.html`(이미지 업로드 UI)
+- 작업 내용: `sortOrder` 필드, 관리자 화면에서 순서 변경 API. Banner 전용 업로드 엔드포인트를 별도로 생성하지 않는다(API.md "용도별 별도 엔드포인트를 두지 않는다" 원칙 준수). 화면 JS가 기존 `POST /api/admin/files`를 `fileType=IMAGE`로 호출하여 File 업로드 후 반환된 `url`을 Banner 등록/수정 폼의 `image` 필드에 담아 `AdminBannerController`의 `POST`/`PUT`으로 전달한다(P5-T4/P6-T4A와 동일한 패턴).
+- DoD: 정렬 변경 API 호출 후 조회 순서가 반영됨(테스트), `PATCH /api/admin/banners/{id}/visibility` 호출로 `is_visible=false` 전환 시 해당 배너가 공개 목록 API(`GET /api/banners`) 응답에서 제외됨을 통합 테스트로 검증, `fileType=IMAGE`로 이미지 아닌 파일 업로드 시 `INVALID_FILE_TYPE`(400) 확인, 업로드된 File의 `url`이 Banner의 `image` 필드에 정상 저장됨을 통합 테스트로 검증
 
 ### P7-T2. Popup CRUD + 기간설정 + 공개여부
 - 의존성: P2-T1, P2-T2, P2-T5, P3-T4
@@ -284,7 +290,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P8-T4. 게시판 (공지/갤러리/자료실) 공개 화면
 - 의존성: P6-T3
 - 산출물: `templates/home/board/*.html`
-- DoD: 비공개 게시글이 목록/상세에서 접근 불가(403 또는 404)
+- DoD: 비공개 게시글은 목록 조회 응답에 포함되지 않고, 상세 조회 시 `BOARD_NOT_FOUND`(404)를 반환한다(Program의 P5-T5 패턴과 동일. 익명 사용자에게는 `ACCESS_DENIED`가 트리거되는 경로가 없으므로 403은 사용하지 않는다, CODING_RULES.md ErrorCode 카탈로그 비고 기준)
 
 ---
 
@@ -309,26 +315,26 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - DoD: `/admin/programs`, `/admin/programs/new`, `/admin/programs/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2c. Board 관리자 화면
-- 의존성: P9-T2a, P6-T2, P6-T3, P6-T5
-- 산출물: `board/controller/AdminBoardViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/boards`, `/admin/boards/new`, `/admin/boards/{id}/edit` 화면 렌더링), `templates/admin/board/list.html`, `templates/admin/board/form.html`(P6-T5 기존 form.html과 통합)
+- 의존성: P9-T2a, P6-T2, P6-T3, P6-T4A, P6-T5
+- 산출물: `board/controller/AdminBoardViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/boards`, `/admin/boards/new`, `/admin/boards/{id}/edit` 화면 렌더링), `templates/admin/board/list.html`, `templates/admin/board/form.html`(P6-T4A/P6-T5 기존 form.html과 통합)
 - 작업 내용: `AdminBoardViewController`는 화면 렌더링만 담당하며, 실제 CRUD/검색은 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminBoardController`(P6-T2)의 API를 호출해 처리한다.
 - DoD: `/admin/boards`, `/admin/boards/new`, `/admin/boards/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2d. Page 관리자 화면
 - 의존성: P9-T2a, P4-T1, P4-T2
-- 산출물: `page/controller/AdminPageViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/pages`, `/admin/pages/{pageType}/edit` 화면 렌더링), `templates/admin/page/list.html`(P4-T2 기존 form.html과 통합)
+- 산출물: `page/controller/AdminPageViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/pages`, `/admin/pages/{pageType}/edit` 화면 렌더링), `templates/admin/page/list.html`, `templates/admin/page/form.html`(P4-T2 기존 form.html과 통합)
 - 작업 내용: `AdminPageViewController`는 화면 렌더링만 담당하며, 실제 조회/수정은 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminPageController`(P4-T1)의 API를 호출해 처리한다. Page는 타입별 단일 레코드이므로 `/new` 라우트는 두지 않는다.
 - DoD: `/admin/pages`, `/admin/pages/{pageType}/edit`(4개 타입) 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2e. Banner 관리자 화면
 - 의존성: P9-T2a, P7-T1
-- 산출물: `banner/controller/AdminBannerViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/banners`, `/admin/banners/new`, `/admin/banners/{id}/edit` 화면 렌더링), `templates/admin/banner/list.html`, `templates/admin/banner/form.html`
+- 산출물: `banner/controller/AdminBannerViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/banners`, `/admin/banners/new`, `/admin/banners/{id}/edit` 화면 렌더링), `templates/admin/banner/list.html`, `templates/admin/banner/form.html`(P7-T1 기존 form.html과 통합)
 - 작업 내용: `AdminBannerViewController`는 화면 렌더링만 담당하며, 실제 CRUD/정렬은 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminBannerController`(P7-T1)의 API를 호출해 처리한다.
 - DoD: `/admin/banners`, `/admin/banners/new`, `/admin/banners/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
 ### P9-T2f. Popup 관리자 화면
 - 의존성: P9-T2a, P7-T2, P7-T3
-- 산출물: `popup/controller/AdminPopupViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/popups`, `/admin/popups/new`, `/admin/popups/{id}/edit` 화면 렌더링), `templates/admin/popup/list.html`(P7-T3 기존 form.html과 통합)
+- 산출물: `popup/controller/AdminPopupViewController.java`(ARCHITECTURE.md 명명 규칙 기준, `GET /admin/popups`, `/admin/popups/new`, `/admin/popups/{id}/edit` 화면 렌더링), `templates/admin/popup/list.html`, `templates/admin/popup/form.html`(P7-T3 기존 form.html과 통합)
 - 작업 내용: `AdminPopupViewController`는 화면 렌더링만 담당하며, 실제 CRUD는 화면의 JS가 P3-T5 공통 fetch 유틸로 `AdminPopupController`(P7-T2)의 API를 호출해 처리한다.
 - DoD: `/admin/popups`, `/admin/popups/new`, `/admin/popups/{id}/edit` 화면 200 응답, 인가되지 않은 사용자는 401/302로 차단
 
@@ -350,8 +356,8 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P10-T2. 예외 처리 테스트
 - 의존성: P10-T1
 - 산출물: `src/test/java/**exception**`
-- 작업 내용: Validation 실패, 인증 실패, 파일 오류, 잘못된 요청 각각에 대한 케이스
-- DoD: 정의된 `ErrorCode` 별로 최소 1개 이상의 테스트 존재, 전부 통과
+- 작업 내용: Validation 실패, 인증 실패, 파일 오류, 잘못된 요청 각각에 대한 케이스. `ACCESS_DENIED`, `DUPLICATE_LOGIN_ID`는 API 레벨 요청 흐름이 존재하지 않으므로 CODING_RULES.md ErrorCode 카탈로그의 각 비고에 명시된 대체 검증 방식(전자는 `AccessDeniedHandler` 단위 테스트, 후자는 `AdminRepository` unique 제약 통합 테스트)을 그대로 사용한다.
+- DoD: 정의된 `ErrorCode` 별로 최소 1개 이상의 테스트 존재, 전부 통과(단 `ACCESS_DENIED`, `DUPLICATE_LOGIN_ID`는 위 대체 검증 방식으로 충족)
 
 ---
 
@@ -402,7 +408,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 | 관리자 로그인 가능 | 관리자 로그인 가능 | P3-T3 통합 테스트 통과 |
 | 기관소개 CMS 수정 가능 | 기관소개 CMS 수정 가능 | P4-T1 CRUD 테스트 통과 |
 | 프로그램 관리 가능 | 프로그램 관리 가능 | P5-T2 테스트 통과 |
-| 게시판 관리 가능 | 게시판 관리 가능 | P6-T2, P6-T3 테스트 통과 |
+| 게시판 관리 가능 | 게시판 관리 가능 | P6-T2, P6-T3, P6-T4A 테스트 통과 |
 | 배너 관리 가능 | 배너 관리 가능 | P7-T1 테스트 통과 |
 | 팝업 관리 가능 | 팝업 관리 가능 | P7-T2 테스트 통과 |
 | Google Form 정상 연결 | Google Form 정상 연결 | P8-T3 링크 검증 테스트 통과 |

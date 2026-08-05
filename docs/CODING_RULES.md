@@ -172,6 +172,8 @@ Controller에서 try-catch를 작성하지 않는다.
 
 **`ACCESS_DENIED`(403)에 대한 비고**: 본 프로젝트는 `ROLE_ADMIN` 단일 권한만 존재하므로(FEATURES.md/PRD.md 기준 일반 회원 없음), "인증은 되었으나 권한이 부족한" 사용자가 구조적으로 존재하지 않는다. 따라서 `ACCESS_DENIED`는 실제 요청 흐름에서 트리거되는 경로가 없으며, `SecurityConfig`의 `AccessDeniedHandler`가 이 코드를 반환하도록 구현만 해두고(향후 관리자 권한 분리 확장 대비, README.md "향후 확장" 참고), P10-T2의 검증은 실제 HTTP 시나리오가 아니라 `AccessDeniedHandler` 단위 테스트(임의의 `AccessDeniedException`을 주입해 응답 포맷 확인)로 대체한다.
 
+**`DUPLICATE_LOGIN_ID`(409)에 대한 비고**: 본 프로젝트 범위에는 관리자 계정 등록 API가 없으므로(위 표 참고), `CustomException`/`GlobalExceptionHandler`를 거쳐 이 코드가 API 응답으로 반환되는 실제 요청 흐름이 없다. 따라서 P10-T2의 "ErrorCode 전수 테스트" 대상에는 포함하되, `AdminRepository` 통합 테스트에서 동일 `login_id`로 저장 시 DB unique 제약에 의한 `DataIntegrityViolationException`이 발생함을 확인하는 것으로 대체한다(P3-T1 DoD와 동일한 검증 방식 재사용). 향후 관리자 계정 관리 API가 추가되면 그때 `CustomException(ErrorCode.DUPLICATE_LOGIN_ID)`을 던지는 정식 API 레벨 테스트로 전환한다.
+
 ---
 
 # Security
