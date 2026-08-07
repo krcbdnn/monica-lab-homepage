@@ -34,7 +34,7 @@ MariaDB
 
 ```
 src/main/java
-└── com.project.cms
+└── com.monicalab
     │
     ├── config
     ├── security
