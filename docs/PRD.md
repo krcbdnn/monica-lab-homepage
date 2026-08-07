@@ -421,3 +421,13 @@ CMS에서 수정
 - 홈페이지의 모든 콘텐츠는 CMS에서 수정 가능하도록 구현한다.
 - 프로그램 및 특강은 Google Form URL을 등록하여 신청 버튼과 연동한다.
 - 관리자 인증은 Spring Security 기반 세션 인증을 사용한다.
+
+---
+
+# 구현 확정 사항
+
+- 기관소개 Page는 4개 고정 리소스로 운영하며 CMS에서는 조회/수정만 제공한다.
+- 관리자 CMS의 데이터 조회는 관리자 전용 API를 사용하여 비공개/비노출 콘텐츠도 관리 가능해야 한다.
+- 운영 DB 스키마는 Flyway migration으로 관리한다.
+- 업로드 파일은 Docker 컨테이너 외부 bind mount에 영속화한다.
+- GitHub Actions 자동화 범위는 CI(test/build)이며 운영 배포는 Docker Compose 수동 배포를 기본으로 한다.

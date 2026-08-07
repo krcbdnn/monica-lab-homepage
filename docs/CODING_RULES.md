@@ -186,7 +186,7 @@ Controller에서 try-catch를 작성하지 않는다.
 
 - 최소 8자 이상, 영문/숫자/특수문자 중 2종 이상 조합
 - Request DTO에 `@Pattern` 또는 커스텀 Validator로 적용
-- 관리자 계정은 초기 데이터(seed) 또는 최초 로그인 시 등록으로 생성하며, 본 프로젝트 범위에서 별도 회원가입 화면은 제공하지 않는다(PRD.md 원칙 준수)
+- 초기 관리자 계정은 ARCHITECTURE.md 기준 `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수를 읽어 미존재 시에만 생성한다. 비밀번호는 BCrypt 해시로 저장하며 `data.sql`/소스에 운영 비밀번호를 두지 않는다. 별도 회원가입 화면/API는 제공하지 않는다.
 
 ---
 
@@ -304,3 +304,13 @@ AI는 반드시 다음 문서를 기준으로 구현한다.
 - CONVENTION.md
 
 구현 전 기존 구조를 먼저 확인하고 재사용한다.
+
+---
+
+# Runtime / Persistence Rules
+
+- 운영 DB schema 변경은 Flyway migration으로만 수행한다. prod의 JPA `ddl-auto`는 `validate`를 사용한다.
+- 관리자 초기 비밀번호/DB 비밀번호 등 secret을 소스, `data.sql`, Git 추적 설정 파일에 기록하지 않는다.
+- 초기 관리자 값은 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수로 전달한다.
+- 파일 저장 루트는 `UPLOAD_ROOT` 환경변수로 주입하며 Docker 운영에서는 영속 volume/bind mount를 사용한다.
+- health check는 `/actuator/health`만 사용하며 민감한 상세 health 정보는 공개하지 않는다.

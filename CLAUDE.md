@@ -33,7 +33,8 @@ Spring Boot 기반 교육기관 홈페이지 및 관리자 CMS 프로젝트입�
 - Frontend: Bootstrap 5, JavaScript (ES6), CKEditor 5
 - DB: MariaDB
 - Build Tool: Gradle
-- Deploy: Docker, Nginx, GitHub Actions
+- Deploy: Docker, Nginx (운영 배포는 수동 Docker Compose)
+- CI: GitHub Actions (`test`/`build` only, 자동 CD 금지)
 
 ---
 
@@ -80,6 +81,24 @@ MVC + Layered Architecture: `Controller → Service → Repository → MariaDB`
 
 ---
 
+
+## Source of Truth / 문서 우선순위
+
+문서는 역할별로 다음 Source of Truth를 사용한다. 서로 충돌하면 아래 역할별 문서를 우선하고 임의로 절충하지 않는다.
+
+1. **범위/요구사항**: `PRD.md` → `FEATURES.md`
+2. **DB/Entity 구조**: `ERD.md`
+3. **HTTP API 계약**: `API.md`
+4. **레이어/패키지/보안/배포 구조**: `ARCHITECTURE.md`
+5. **코딩/보안 세부 규칙**: `CODING_RULES.md`
+6. **현재 작업 단위·의존성·DoD**: `TASK.md`
+7. **Git 규칙**: `GIT_WORKFLOW.md` → `CONVENTION.md`
+8. `PROMPTS.md`, `README.md`는 보조 문서이며 위 Source of Truth를 덮어쓰지 않는다.
+
+같은 역할의 Source of Truth 내부에서 모순을 발견하거나, 상위 요구사항과 하위 구현 계약이 양립할 수 없으면 **코드를 수정하지 말고 사용자에게 불일치를 보고한다.** 에이전트는 설계 문서를 임의 수정하여 충돌을 해결하지 않는다.
+
+---
+
 ## Before You Code
 
 문서 전체를 항상 다 읽지 말고, 작업 범위에 맞춰 조건부로 확인합니다.
@@ -96,6 +115,7 @@ MVC + Layered Architecture: `Controller → Service → Repository → MariaDB`
 | Entity/DB 컬럼 관련 작업 | docs/ERD.md |
 | API 스펙(요청/응답) 관련 작업 | docs/API.md |
 | 패키지 구조/레이어 관련 작업 | docs/ARCHITECTURE.md |
+| 운영 설정/Flyway/Docker 관련 작업 | docs/ARCHITECTURE.md, docs/TASK.md |
 
 문서와 구현 내용이 다르면 항상 문서를 우선합니다.
 
