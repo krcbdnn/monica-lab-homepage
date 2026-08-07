@@ -58,7 +58,7 @@ Spring Boot 기반 교육기관 홈페이지 및 관리자 CMS 프로젝트입�
 ## Directory Structure
 
 ```
-src/main/java/com/project/cms/
+src/main/java/com/monicalab/
 ├── admin/      (관리자 로그인)
 ├── page/       (기관소개: 인사말, 연혁, 오시는 길 등)
 ├── program/    (Program Entity, ProgramType: COURSE / SPECIAL)

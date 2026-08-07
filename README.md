@@ -96,7 +96,7 @@ Spring Boot 기반으로 구축되는 CMS이며,
 src
 └── main
     ├── java
-    │   └── com.project.cms
+    │   └── com.monicalab
     │       ├── admin
     │       ├── page
     │       ├── program
