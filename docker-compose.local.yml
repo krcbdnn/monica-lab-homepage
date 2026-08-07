@@ -1,0 +1,17 @@
+services:
+  mariadb:
+    image: mariadb:11.4.12
+    container_name: monica-lab-mariadb-local
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: monica_lab
+      MARIADB_USER: monica
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - monica_lab_mariadb_data:/var/lib/mysql
+
+volumes:
+  monica_lab_mariadb_data:

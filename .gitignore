@@ -39,3 +39,4 @@ out/
 
 ### Local Configuration ###
 src/main/resources/application-local.yml
+.env
