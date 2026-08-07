@@ -268,13 +268,9 @@ id
 
 Foreign Key
 
-```
-admin_id
+현재 프로젝트 ERD에는 실제 Foreign Key가 없다. 따라서 `admin_id`, `program_id`, `board_id` 등의 FK 컬럼을 관례만으로 생성하지 않는다.
 
-program_id
-
-board_id
-```
+향후 ERD에 FK가 명시적으로 추가되는 경우에만 `{referenced_table}_id` 형식의 `snake_case` 이름을 사용한다.
 
 ---
 
@@ -287,11 +283,11 @@ RESTful API를 사용한다.
 ```
 GET /api/programs
 
-POST /api/programs
+POST /api/admin/programs
 
-PUT /api/programs/{id}
+PUT /api/admin/programs/{id}
 
-DELETE /api/programs/{id}
+DELETE /api/admin/programs/{id}
 ```
 
 URL에는 동사를 사용하지 않는다.

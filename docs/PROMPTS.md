@@ -12,15 +12,18 @@ Version 2.0
 
 모든 구현은 반드시 프로젝트 문서를 기준으로 진행한다.
 
-기준 문서
+기준 문서 / Source of Truth 우선순위
 
-- PRD.md
-- FEATURES.md
-- ERD.md
-- API.md
-- ARCHITECTURE.md
-- CODING_RULES.md
-- CONVENTION.md
+1. 요구사항: PRD.md → FEATURES.md
+2. Entity/DB: ERD.md
+3. HTTP API: API.md
+4. Architecture/Security/Deployment: ARCHITECTURE.md
+5. Coding/Security Rules: CODING_RULES.md
+6. Task/Dependency/DoD: TASK.md
+7. Git: GIT_WORKFLOW.md → CONVENTION.md
+8. README.md, PROMPTS.md는 보조 문서
+
+충돌이나 누락된 결정이 있으면 구현으로 추측하지 않고 중단하여 보고한다.
 
 ---
 
@@ -144,15 +147,16 @@ Spring Security를 사용하여
 ## CMS 페이지 관리
 
 ```
-Page Entity를 이용하여
+CmsPage Entity를 이용하여
 
-CMS 페이지 관리 기능을 구현해줘.
+CMS 고정 페이지 조회/수정 기능을 구현해줘.
 
 조건
 
 - CKEditor5 사용
-- CRUD 구현
-- 이미지 업로드 지원
+- GREETING / INTRODUCTION / HISTORY / LOCATION 4개 고정 리소스 조회/수정
+- POST/DELETE API 생성 금지
+- 공통 File API를 통한 이미지 업로드 지원
 ```
 
 ---
@@ -232,7 +236,6 @@ Board CRUD를 구현해줘.
 - UUID 파일명
 - 날짜별 디렉토리
 - Local Storage
-- 이미지 미리보기 지원
 ```
 
 ---
@@ -443,3 +446,19 @@ ARCHITECTURE.md를 기준으로
 
 문제가 있으면 수정안을 제안해줘.
 ```
+
+---
+
+# 9. Claude Code Harness 전체 실행
+
+```
+docs/TASK.md를 읽고 의존성을 확인한 뒤 P1-T1부터 순서대로 구현해.
+각 Task마다 관련 Source of Truth를 확인하고 구현·테스트·build·DoD 검증 후 다음 Task로 이동해.
+문서 충돌이나 누락된 결정이 있으면 추측하지 말고 중단해서 보고해.
+설계 문서는 임의 수정하지 마.
+```
+
+추가 규칙:
+- 관리자 화면 데이터는 공개 API가 아니라 API.md의 `/api/admin/**` GET을 사용한다.
+- 운영 런타임은 TASK.md P1-T7/P12-T1의 Flyway, prod `ddl-auto=validate`, Actuator health, 환경변수, DB/upload 영속성 계약을 따른다.
+- 자동 배포(CD)는 만들지 않는다. GitHub Actions는 test/build CI만 수행한다.

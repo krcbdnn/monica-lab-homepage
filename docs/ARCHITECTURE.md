@@ -295,6 +295,7 @@ HomeController
 - 기관소개(인사말, GREETING) 요약 조회
 - 최신 공지/갤러리 조회
 - 프로그램 바로가기
+- 바로가기 메뉴: 기존 공개 화면으로 이동하는 고정 링크 3개(`기관소개` → `/pages/GREETING`, `프로그램` → `/programs`, `게시판` → `/boards`). 별도 Entity/API를 만들지 않는다.
 
 자체 Entity/Repository 없이 Banner, Popup, Board, Program, Page Service를 조합하여 사용한다.
 
@@ -305,16 +306,19 @@ HomeController
 ```
 FileController        (공개: GET /api/files/{id} 다운로드)
 
-AdminFileController    (관리자: POST /api/admin/files, DELETE /api/admin/files/{id})
+AdminFileController    (관리자: GET /api/admin/files, POST /api/admin/files, DELETE /api/admin/files/{id})
 AdminFileViewController (GET /admin/files 업로드 이력 목록 화면 렌더링, Thymeleaf)
 
 FileService
+
+FileRepository
 
 UploadFile              (Entity. 클래스명은 File이 아닌 UploadFile 사용 — ERD.md "Entity 클래스명 주의" 참고)
 ```
 
 기능
 
+- 업로드 이력 목록 조회(페이징/정렬, 비공개 개념 없이 전체 UploadFile)
 - 이미지 업로드
 - 첨부파일 업로드
 - 삭제
@@ -519,10 +523,6 @@ Spring Security 사용
 
 /boards/**
 
-/banners
-
-/popups
-
 /api/files/{id}
 ```
 
@@ -619,19 +619,21 @@ BaseEntity
 
 # File Storage
 
-기본
+저장 루트는 `UPLOAD_ROOT` 환경변수로 주입한다. 파일은 저장 루트 아래 날짜별 디렉토리에 저장한다.
 
 ```
-/upload/yyyy/MM/dd
+${UPLOAD_ROOT}/yyyy/MM/dd/{uuid}.{ext}
 ```
 
-파일명
+Docker 운영 기본값:
 
 ```
-UUID
+UPLOAD_ROOT=/app/uploads
 ```
 
-DB에는 경로만 저장한다.
+파일명은 UUID를 사용한다.
+
+DB의 `UploadFile.path`에는 `UPLOAD_ROOT`를 제외한 상대경로(`yyyy/MM/dd/{uuid}.{ext}`)만 저장하고, 실제 파일 조회/삭제 시 `FileService`가 `UPLOAD_ROOT`와 결합한다.
 
 ---
 
@@ -660,10 +662,6 @@ Public
 /boards
 
 /boards/{id}
-
-/banners
-
-/popups
 ```
 
 Admin
@@ -713,3 +711,28 @@ Admin
 - BaseEntity 공통 사용
 
 도메인 설계 원칙(Program/Board 통합, Google Form 연동 등)은 ERD.md의 "설계 원칙"을 따른다.
+
+---
+
+# 구현 전 확정 운영 계약
+
+## 관리자 조회 API
+관리자 Thymeleaf 화면은 공개 API를 데이터 소스로 사용하지 않는다. `API.md`에 정의된 `/api/admin/{domain}` 조회 API를 사용하여 비공개/비노출 리소스도 조회한다. ViewController는 화면 진입만 담당하고 데이터는 공통 fetch 유틸로 조회한다.
+
+## Page 생명주기
+`CmsPage`는 `GREETING`, `INTRODUCTION`, `HISTORY`, `LOCATION` 4개 고정 리소스다. 초기화 시 누락 레코드만 생성하며 중복 생성하지 않는다. CMS에서는 조회/수정만 지원하고 생성/삭제 API와 `/new` 화면은 두지 않는다.
+
+## Nginx 정적 리소스 공급
+운영 Docker Compose에서 Nginx가 직접 서빙하는 프로젝트 정적 리소스는 배포 checkout의 `./src/main/resources/static`을 Nginx 기본 정적 루트 `/usr/share/nginx/html`에 read-only bind mount(`./src/main/resources/static:/usr/share/nginx/html:ro`)하여 공급한다. `/css/**`, `/js/**`, `/images/**`, `/vendor/**` 등 해당 정적 경로는 Nginx가 직접 처리하고, 그 외 애플리케이션 요청은 Spring Boot 컨테이너로 reverse proxy한다. P12-T2에서는 이 계약을 그대로 사용하며 별도 static copy/shared-volume 방식을 임의 선택하지 않는다.
+
+## DB 스키마 관리
+운영 재현성을 위해 Flyway migration을 사용한다. `ddl-auto`는 local/test에서 검증 목적 설정을 명시하고 prod에서는 `validate`를 사용한다. 스키마 변경은 migration 파일로 관리하며 운영에서 `update/create`로 자동 변경하지 않는다.
+
+## 초기 관리자 계정
+`ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수를 읽어 계정이 없을 때만 BCrypt 해시로 초기 관리자 1건을 생성한다. `PasswordEncoder` BCrypt Bean은 Admin 초기화 Task에서 함께 정의하고 SecurityConfig는 이를 주입받아 사용하여 초기화가 미래 Security Task에 의존하지 않게 한다. 운영용 기본 비밀번호를 소스/data.sql에 저장하지 않는다. 필수 환경변수가 없으면 운영 프로파일에서는 초기 계정을 생성하지 않고 명확한 오류 로그를 남긴다.
+
+## 업로드 영속성
+업로드 루트는 `UPLOAD_ROOT` 환경변수로 설정하며 기본 Docker 경로는 `/app/uploads`다. `docker-compose.yml`은 `./data/uploads:/app/uploads` bind mount를 사용하여 컨테이너 재생성 후에도 파일을 유지한다. MariaDB는 `db_data:/var/lib/mysql` named volume을 사용하여 컨테이너 재생성 후에도 DB 데이터와 Flyway 적용 이력을 유지한다.
+
+## Health / 배포 자동화 범위
+헬스체크는 Spring Boot Actuator `/actuator/health`를 사용한다. GitHub Actions는 CI(test/build)까지만 자동화하고 실제 운영 배포는 Docker Compose 수동 배포를 기본 범위로 한다.
