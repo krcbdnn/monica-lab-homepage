@@ -321,6 +321,7 @@ DELETE /api/admin/files/{id}
 - 401 Unauthorized
 - 403 Forbidden
 - 404 Not Found
+- 409 Conflict (CODING_RULES.md ErrorCode 카탈로그의 `DUPLICATE_LOGIN_ID` 기준. 본 프로젝트 범위에는 관리자 계정 등록 API가 없어 실제 API 응답으로 노출되는 흐름은 없으며, 향후 관리자 계정 관리 API 추가 시를 대비한 예약 코드다)
 - 500 Internal Server Error
 
 ---

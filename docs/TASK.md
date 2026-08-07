@@ -299,14 +299,14 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P9-T1. Dashboard
 - 의존성: P6-T2, P5-T2, P3-T5
 - 산출물: `admin/controller/DashboardController.java`(API, `GET /api/admin/dashboard`), `admin/controller/AdminViewController.java`(수정, `GET /admin/dashboard` 화면 렌더링 추가), `templates/admin/dashboard.html`
-- 작업 내용: 최근 게시글 N건, 프로그램 현황(모집중/마감 카운트), 빠른 메뉴 링크. ARCHITECTURE.md "Admin 화면(View) / API 컨트롤러 명명 규칙" 기준, `DashboardController`는 JSON 데이터만 반환하고 화면 렌더링은 P3-T3에서 생성된 `AdminViewController`가 담당한다(로그인 화면과 동일 클래스). `dashboard.html`은 P3-T5 공통 fetch 유틸로 `GET /api/admin/dashboard`를 호출해 데이터를 채운다.
+- 작업 내용: 최근 게시글 N건, 프로그램 현황(모집중/마감 카운트), 빠른 메뉴 링크. ARCHITECTURE.md "Admin 화면(View) / API 컨트롤러 명명 규칙" 기준, `DashboardController`는 JSON 데이터만 반환하고 화면 렌더링은 P3-T3에서 생성된 `AdminViewController`가 담당한다(로그인 화면과 동일 클래스). `dashboard.html`은 P3-T5 공통 fetch 유틸로 `GET /api/admin/dashboard`를 호출해 데이터를 채운다. 이 시점의 `dashboard.html`은 공통 헤더/사이드바 레이아웃 없이 콘텐츠 영역만 우선 구현하며, 공통 레이아웃 상속은 P9-T2a에서 일괄 적용한다(ARCHITECTURE.md "Admin(Dashboard 포함)" 기준, Dashboard도 공통 레이아웃 적용 대상에 포함됨).
 - DoD: `GET /api/admin/dashboard` 응답에 세 영역의 데이터가 모두 포함됨. 미인증 상태로 `GET /admin/dashboard` 접근 시 302 리다이렉트(인증 후 200)
 
 ### P9-T2a. 관리자 공통 레이아웃
-- 의존성: P3-T3, P3-T4, P3-T5
-- 산출물: `templates/admin/layout/*.html`(공통 헤더/사이드바/푸터 레이아웃, 각 도메인 화면이 상속)
-- 작업 내용: P3-T5 common-fetch.js를 사용하는 공통 레이아웃 뼈대 생성. 헤더는 `GET /api/admin/me`(P3-T3)를 호출해 로그인한 관리자명을 표시한다. 이후 P9-T2b~T2g는 이 레이아웃을 상속만 한다.
-- DoD: 레이아웃 템플릿이 하위 도메인 화면 1개 이상에서 정상 렌더링됨(통합 테스트)
+- 의존성: P3-T3, P3-T4, P3-T5, P9-T1
+- 산출물: `templates/admin/layout/*.html`(공통 헤더/사이드바/푸터 레이아웃, 각 도메인 화면이 상속), `templates/admin/dashboard.html`(수정, 공통 레이아웃 상속 적용)
+- 작업 내용: P3-T5 common-fetch.js를 사용하는 공통 레이아웃 뼈대 생성. 헤더는 `GET /api/admin/me`(P3-T3)를 호출해 로그인한 관리자명을 표시한다. ARCHITECTURE.md "Admin 화면(View) / API 컨트롤러 명명 규칙" 기준 이 규칙은 Admin(Dashboard 포함) 전 도메인에 적용되므로, P9-T1에서 레이아웃 없이 먼저 만들어진 `dashboard.html`을 이 시점에 공통 레이아웃을 상속하도록 수정한다. 이후 P9-T2b~T2g는 처음부터 이 레이아웃을 상속하여 신규 작성한다.
+- DoD: 레이아웃 템플릿이 하위 도메인 화면 1개 이상에서 정상 렌더링됨(통합 테스트). `dashboard.html` 수정 후 `GET /admin/dashboard` 응답 HTML에 공통 헤더(로그인한 관리자명 포함)/사이드바 영역이 포함됨을 확인(통합 테스트)
 
 ### P9-T2b. Program 관리자 화면
 - 의존성: P9-T2a, P5-T2, P5-T3, P5-T4, P5-T4A, P5-T6
