@@ -3,6 +3,7 @@ package com.monicalab.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.monicalab.support.AbstractIntegrationTest;
@@ -26,6 +27,14 @@ class SecurityConfigTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void unauthenticatedGetToAdminMeReturns401WithUnauthorizedBody() throws Exception {
+        mockMvc.perform(get("/api/admin/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void postWithoutCsrfTokenToAdminApiReturns403() throws Exception {
         mockMvc.perform(post("/api/admin/files"))
                 .andExpect(status().isForbidden());
@@ -39,12 +48,15 @@ class SecurityConfigTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void unauthenticatedAccessToOtherAdminPathsReturns401() throws Exception {
-        mockMvc.perform(get("/admin/not-yet-built"))
-                .andExpect(status().isUnauthorized());
-
+    void unauthenticatedAccessToOtherAdminApiPathReturns401() throws Exception {
         mockMvc.perform(get("/api/admin/not-yet-built"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void unauthenticatedAccessToOtherAdminScreenPathRedirectsToLoginScreen() throws Exception {
+        mockMvc.perform(get("/admin/not-yet-built"))
+                .andExpect(status().is3xxRedirection());
     }
 
     @Test
