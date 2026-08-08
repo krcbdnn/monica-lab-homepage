@@ -24,6 +24,10 @@ Version 2.0
 - Program / Board의 파일 연결도 `file_id` FK가 아니라 File API가 반환한 URL 문자열을 저장한다.
 - 아래 테이블 정의에 명시되지 않은 FK를 Flyway migration이나 JPA Entity에 임의 추가하지 않는다.
 
+### 열거형(Enum) 컬럼 표기 규칙
+
+아래 테이블 정의에서 `program_type`, `recruit_status`, `board_type`, `page_type`, `file_type`처럼 고정된 값 집합을 갖는 컬럼은 **Java/도메인 관점의 논리적 enum**을 의미하며, DB 물리 컬럼 타입은 `VARCHAR(20)`을 사용한다(MariaDB 네이티브 `ENUM(...)` 타입은 사용하지 않는다). `Admin.role`과 동일한 표기 방식이다. JPA Entity에서는 `@Enumerated(EnumType.STRING)`으로 매핑하며, 허용 값 목록은 각 컬럼의 `제약/설명` 열에 기술한다. Flyway `V1__baseline_schema.sql`도 이 규칙을 따른다.
+
 ---
 
 # 1. Admin
@@ -47,13 +51,13 @@ Version 2.0
 | 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
 |-------|------|------|------------|-------------|
 | id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
-| program_type | ENUM | NOT NULL | 없음 | COURSE / SPECIAL |
+| program_type | VARCHAR(20) | NOT NULL | 없음 | COURSE / SPECIAL |
 | title | VARCHAR(200) | NOT NULL | 없음 | 제목 |
 | content | LONGTEXT | NULL | 없음 | 내용 |
 | thumbnail | VARCHAR(255) | NULL | 없음 | File API가 반환한 썸네일 URL 문자열 |
 | attachment | VARCHAR(255) | NULL | 없음 | File API가 반환한 첨부파일 URL 문자열 |
 | google_form_url | VARCHAR(500) | NULL | 없음 | Google Form URL |
-| recruit_status | ENUM | NOT NULL | 없음 | OPEN / CLOSED; POST 생략 시 application-level 기본값 `OPEN` |
+| recruit_status | VARCHAR(20) | NOT NULL | 없음 | OPEN / CLOSED; POST 생략 시 application-level 기본값 `OPEN` |
 | is_public | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
@@ -71,7 +75,7 @@ Version 2.0
 | 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
 |-------|------|------|------------|-------------|
 | id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
-| board_type | ENUM | NOT NULL | 없음 | NOTICE / GALLERY / ARCHIVE |
+| board_type | VARCHAR(20) | NOT NULL | 없음 | NOTICE / GALLERY / ARCHIVE |
 | title | VARCHAR(200) | NOT NULL | 없음 | 제목 |
 | content | LONGTEXT | NULL | 없음 | 내용 |
 | thumbnail | VARCHAR(255) | NULL | 없음 | 대표 이미지(갤러리), File API URL 문자열 |
@@ -122,7 +126,7 @@ Version 2.0
 | 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
 |-------|------|------|------------|-------------|
 | id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
-| page_type | ENUM | NOT NULL | 없음 | GREETING / INTRODUCTION / HISTORY / LOCATION, UNIQUE |
+| page_type | VARCHAR(20) | NOT NULL | 없음 | GREETING / INTRODUCTION / HISTORY / LOCATION, UNIQUE |
 | title | VARCHAR(200) | NOT NULL | 없음 | 제목 |
 | content | LONGTEXT | NULL | 없음 | 내용 |
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
@@ -150,7 +154,7 @@ Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드
 | path | VARCHAR(500) | NOT NULL | 없음 | `UPLOAD_ROOT` 기준 상대 저장 경로(`yyyy/MM/dd/{uuid}.{ext}`) |
 | content_type | VARCHAR(100) | NOT NULL | 없음 | MIME 타입 |
 | size | BIGINT | NOT NULL | 없음 | 파일 크기(byte) |
-| file_type | ENUM | NOT NULL | 없음 | IMAGE / ATTACHMENT |
+| file_type | VARCHAR(20) | NOT NULL | 없음 | IMAGE / ATTACHMENT |
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 
