@@ -33,7 +33,7 @@ public class UploadFile extends BaseEntity {
     @Column(name = "path", nullable = false, length = 500)
     private String path;
 
-    @Column(name = "content_type", nullable = false)
+    @Column(name = "content_type", nullable = false, length = 100)
     private String contentType;
 
     @Column(name = "size", nullable = false)
