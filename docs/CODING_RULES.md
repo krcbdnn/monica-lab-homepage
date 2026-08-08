@@ -162,6 +162,7 @@ Controller에서 try-catch를 작성하지 않는다.
 | BANNER_NOT_FOUND | 404 | Banner 리소스 없음 |
 | POPUP_NOT_FOUND | 404 | Popup 리소스 없음 |
 | FILE_NOT_FOUND | 404 | File 리소스 없음 |
+| RESOURCE_NOT_FOUND | 404 | 매핑된 컨트롤러가 없는 요청(정의되지 않은 엔드포인트) 등 특정 도메인 리소스에 속하지 않는 404 공통 fallback |
 | DUPLICATE_LOGIN_ID | 409 | login_id 중복 (본 프로젝트 범위에는 관리자 계정 등록 API가 없어 seed 데이터 검증 등 내부 용도로만 예약됨. 향후 관리자 계정 관리 API가 추가되기 전까지는 API 응답으로 노출되지 않는다) |
 | INVALID_FILE_TYPE | 400 | 허용되지 않은 확장자 업로드 |
 | FILE_SIZE_EXCEEDED | 400 | 파일 업로드 용량 초과(File Upload 섹션 기준값 참고) |
