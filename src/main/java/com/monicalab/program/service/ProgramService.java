@@ -6,9 +6,11 @@ import com.monicalab.common.exception.ErrorCode;
 import com.monicalab.common.util.HtmlSanitizer;
 import com.monicalab.program.dto.ProgramRequest;
 import com.monicalab.program.dto.ProgramResponse;
+import com.monicalab.program.dto.ProgramSearchCondition;
 import com.monicalab.program.dto.ProgramStatusRequest;
 import com.monicalab.program.dto.ProgramVisibilityRequest;
 import com.monicalab.program.entity.Program;
+import com.monicalab.program.entity.ProgramType;
 import com.monicalab.program.entity.RecruitStatus;
 import com.monicalab.program.repository.ProgramRepository;
 import java.util.Set;
@@ -56,9 +58,10 @@ public class ProgramService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ProgramResponse> getPublicList(Pageable pageable) {
+    public PageResponse<ProgramResponse> getPublicList(ProgramType programType, String keyword, Pageable pageable) {
         validateSort(pageable.getSort());
-        Page<Program> page = programRepository.findByIsPublicTrue(pageable);
+        ProgramSearchCondition condition = new ProgramSearchCondition(programType, keyword, true);
+        Page<Program> page = programRepository.search(condition, pageable);
         return PageResponse.of(page, ProgramResponse::from);
     }
 

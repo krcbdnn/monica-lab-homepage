@@ -50,7 +50,7 @@ class ProgramRepositoryCustomTest extends AbstractIntegrationTest {
     @Test
     void keywordOnlyMatchesTitleOrContentAcrossProgramTypes() {
         Page<Program> result = programRepository.search(
-                new ProgramSearchCondition(null, "여름"), PageRequest.of(0, 20));
+                new ProgramSearchCondition(null, "여름", null), PageRequest.of(0, 20));
 
         assertThat(result.getContent()).extracting(Program::getTitle)
                 .containsExactlyInAnyOrder("여름 정규반 모집", "특별 워크숍");
@@ -59,7 +59,7 @@ class ProgramRepositoryCustomTest extends AbstractIntegrationTest {
     @Test
     void programTypeOnlyMatchesRegardlessOfKeyword() {
         Page<Program> result = programRepository.search(
-                new ProgramSearchCondition(ProgramType.COURSE, null), PageRequest.of(0, 20));
+                new ProgramSearchCondition(ProgramType.COURSE, null, null), PageRequest.of(0, 20));
 
         assertThat(result.getContent()).extracting(Program::getTitle)
                 .containsExactlyInAnyOrder("여름 정규반 모집", "겨울 캠프");
@@ -68,9 +68,26 @@ class ProgramRepositoryCustomTest extends AbstractIntegrationTest {
     @Test
     void keywordAndProgramTypeCombinedNarrowsToMatchingItemsOnly() {
         Page<Program> result = programRepository.search(
-                new ProgramSearchCondition(ProgramType.COURSE, "여름"), PageRequest.of(0, 20));
+                new ProgramSearchCondition(ProgramType.COURSE, "여름", null), PageRequest.of(0, 20));
 
         assertThat(result.getContent()).extracting(Program::getTitle)
                 .containsExactly("여름 정규반 모집");
+    }
+
+    @Test
+    void isPublicFilterExcludesPrivateProgramsRegardlessOfOtherConditions() {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("여름 비공개 강좌")
+                .content("비공개 안내")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(false)
+                .build());
+
+        Page<Program> result = programRepository.search(
+                new ProgramSearchCondition(null, "여름", true), PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).extracting(Program::getTitle)
+                .containsExactlyInAnyOrder("여름 정규반 모집", "특별 워크숍");
     }
 }
