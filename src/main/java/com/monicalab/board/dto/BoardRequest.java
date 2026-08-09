@@ -11,5 +11,12 @@ public record BoardRequest(
         String content,
         @Size(max = 255) String thumbnail,
         @Size(max = 255) String attachment,
-        Boolean isPublic) {
+        @NotNull(groups = BoardRequest.OnUpdate.class) Boolean isPublic) {
+
+    /**
+     * PUT은 isPublic까지 필수(API.md 계약)이므로, POST(Default 그룹)와
+     * 구분되는 validation group. 단일 BoardRequest DTO를 POST/PUT에 재사용하기 위함.
+     */
+    public interface OnUpdate {
+    }
 }

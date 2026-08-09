@@ -57,4 +57,18 @@ public class Board extends BaseEntity {
         this.viewCount = viewCount;
         this.isPublic = isPublic;
     }
+
+    public void update(BoardType boardType, String title, String content, String thumbnail, String attachment,
+            boolean isPublic) {
+        this.boardType = boardType;
+        this.title = title;
+        this.content = content;
+        this.thumbnail = thumbnail;
+        this.attachment = attachment;
+        this.isPublic = isPublic;
+    }
+
+    public void updateVisibility(boolean isPublic) {
+        this.isPublic = isPublic;
+    }
 }
