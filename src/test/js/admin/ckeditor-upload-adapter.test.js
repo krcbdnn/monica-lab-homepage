@@ -107,3 +107,13 @@ test('templates/admin/page/form.html wires the shared upload adapter and common 
     assert.match(html, /AdminCkeditorUploadAdapter\.installUploadAdapterPlugin\(/);
     assert.match(html, /AdminFetch\.adminFetch/);
 });
+
+test('templates/admin/program/form.html wires the shared upload adapter and common fetch util', () => {
+    const templatePath = path.join(__dirname, '../../../main/resources/templates/admin/program/form.html');
+    const html = fs.readFileSync(templatePath, 'utf8');
+
+    assert.match(html, /\/js\/admin\/common-fetch\.js/);
+    assert.match(html, /\/js\/admin\/ckeditor-upload-adapter\.js/);
+    assert.match(html, /AdminCkeditorUploadAdapter\.installUploadAdapterPlugin\(/);
+    assert.match(html, /AdminFetch\.adminFetch/);
+});
