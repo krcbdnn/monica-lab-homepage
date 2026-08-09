@@ -15,6 +15,7 @@ import com.monicalab.program.entity.ProgramType;
 import com.monicalab.program.entity.RecruitStatus;
 import com.monicalab.program.repository.ProgramRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -31,6 +32,11 @@ class AdminProgramControllerTest extends AbstractIntegrationTest {
 
     @Autowired
     private ProgramRepository programRepository;
+
+    @BeforeEach
+    void setUp() {
+        programRepository.deleteAll();
+    }
 
     @Test
     void unauthenticatedAccessToAdminListReturns401() throws Exception {
@@ -132,6 +138,64 @@ class AdminProgramControllerTest extends AbstractIntegrationTest {
                         .content("{\"recruitStatus\":\"CLOSED\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.recruitStatus").value("CLOSED"));
+    }
+
+    @Test
+    void adminListProgramTypeFilterReturnsOnlyMatchingTypeIncludingPrivate() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("정규반 공개")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("정규반 비공개")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(false).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.SPECIAL).title("특강 공개")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+
+        mockMvc.perform(admin(get("/api/admin/programs")).param("programType", "COURSE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[*].programType",
+                        org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is("COURSE"))));
+    }
+
+    @Test
+    void adminListKeywordFilterMatchesTitleOrContentIncludingPrivate() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("여름 정규반")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.SPECIAL).title("비공개 특강").content("여름 특강 안내")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(false).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("겨울 캠프")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+
+        mockMvc.perform(admin(get("/api/admin/programs")).param("keyword", "여름"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[*].title", org.hamcrest.Matchers.hasItem("비공개 특강")));
+    }
+
+    @Test
+    void adminListProgramTypeAndKeywordCombinedNarrowsToMatchingItemsOnlyIncludingPrivate() throws Exception {
+        Program matching = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("여름 정규반 비공개")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(false).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.SPECIAL).title("여름 특강 공개")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("겨울 캠프")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+
+        mockMvc.perform(admin(get("/api/admin/programs"))
+                        .param("programType", "COURSE")
+                        .param("keyword", "여름"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(matching.getId()))
+                .andExpect(jsonPath("$.data.content[0].isPublic").value(false));
     }
 
     @Test

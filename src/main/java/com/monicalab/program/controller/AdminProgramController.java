@@ -6,6 +6,7 @@ import com.monicalab.program.dto.ProgramRequest;
 import com.monicalab.program.dto.ProgramResponse;
 import com.monicalab.program.dto.ProgramStatusRequest;
 import com.monicalab.program.dto.ProgramVisibilityRequest;
+import com.monicalab.program.entity.ProgramType;
 import com.monicalab.program.service.ProgramService;
 import jakarta.validation.Valid;
 import jakarta.validation.groups.Default;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,8 +37,10 @@ public class AdminProgramController {
 
     @GetMapping
     public ApiResponse<PageResponse<ProgramResponse>> list(
+            @RequestParam(required = false) ProgramType programType,
+            @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ApiResponse.success(programService.getAdminList(pageable));
+        return ApiResponse.success(programService.getAdminList(programType, keyword, pageable));
     }
 
     @GetMapping("/{id}")
