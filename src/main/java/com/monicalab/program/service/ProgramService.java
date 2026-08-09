@@ -1,17 +1,29 @@
 package com.monicalab.program.service;
 
+import com.monicalab.common.dto.PageResponse;
+import com.monicalab.common.exception.CustomException;
+import com.monicalab.common.exception.ErrorCode;
+import com.monicalab.common.util.HtmlSanitizer;
 import com.monicalab.program.dto.ProgramRequest;
 import com.monicalab.program.dto.ProgramResponse;
+import com.monicalab.program.dto.ProgramStatusRequest;
+import com.monicalab.program.dto.ProgramVisibilityRequest;
 import com.monicalab.program.entity.Program;
 import com.monicalab.program.entity.RecruitStatus;
 import com.monicalab.program.repository.ProgramRepository;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
 public class ProgramService {
+
+    private static final Set<String> ALLOWED_SORT_PROPERTIES = Set.of("createdAt", "title", "recruitStatus");
 
     private final ProgramRepository programRepository;
 
@@ -20,7 +32,7 @@ public class ProgramService {
         Program program = Program.builder()
                 .programType(request.programType())
                 .title(request.title())
-                .content(request.content())
+                .content(HtmlSanitizer.sanitize(request.content()))
                 .thumbnail(request.thumbnail())
                 .attachment(request.attachment())
                 .googleFormUrl(request.googleFormUrl())
@@ -29,5 +41,77 @@ public class ProgramService {
                 .build();
 
         return ProgramResponse.from(programRepository.save(program));
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ProgramResponse> getAdminList(Pageable pageable) {
+        validateSort(pageable.getSort());
+        Page<Program> page = programRepository.findAll(pageable);
+        return PageResponse.of(page, ProgramResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public ProgramResponse getAdminById(Long id) {
+        return ProgramResponse.from(getEntity(id));
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ProgramResponse> getPublicList(Pageable pageable) {
+        validateSort(pageable.getSort());
+        Page<Program> page = programRepository.findByIsPublicTrue(pageable);
+        return PageResponse.of(page, ProgramResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public ProgramResponse getPublicById(Long id) {
+        Program program = programRepository.findByIdAndIsPublicTrue(id)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROGRAM_NOT_FOUND));
+        return ProgramResponse.from(program);
+    }
+
+    @Transactional
+    public ProgramResponse update(Long id, ProgramRequest request) {
+        Program program = getEntity(id);
+        program.update(
+                request.programType(),
+                request.title(),
+                HtmlSanitizer.sanitize(request.content()),
+                request.thumbnail(),
+                request.attachment(),
+                request.googleFormUrl(),
+                request.recruitStatus(),
+                request.isPublic());
+        return ProgramResponse.from(program);
+    }
+
+    @Transactional
+    public ProgramResponse updateVisibility(Long id, ProgramVisibilityRequest request) {
+        Program program = getEntity(id);
+        program.updateVisibility(request.isPublic());
+        return ProgramResponse.from(program);
+    }
+
+    @Transactional
+    public ProgramResponse updateStatus(Long id, ProgramStatusRequest request) {
+        Program program = getEntity(id);
+        program.updateStatus(request.recruitStatus());
+        return ProgramResponse.from(program);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        programRepository.delete(getEntity(id));
+    }
+
+    private Program getEntity(Long id) {
+        return programRepository.findById(id)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROGRAM_NOT_FOUND));
+    }
+
+    private void validateSort(Sort sort) {
+        boolean invalid = sort.stream().anyMatch(order -> !ALLOWED_SORT_PROPERTIES.contains(order.getProperty()));
+        if (invalid) {
+            throw new CustomException(ErrorCode.INVALID_INPUT_VALUE);
+        }
     }
 }

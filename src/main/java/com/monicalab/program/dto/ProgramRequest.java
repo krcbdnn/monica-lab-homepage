@@ -15,6 +15,13 @@ public record ProgramRequest(
         @Size(max = 255) String attachment,
         @URL(regexp = "^$|^https?://.+", message = "googleFormUrl은 http 또는 https URL 형식이어야 합니다.")
         @Size(max = 500) String googleFormUrl,
-        RecruitStatus recruitStatus,
-        Boolean isPublic) {
+        @NotNull(groups = ProgramRequest.OnUpdate.class) RecruitStatus recruitStatus,
+        @NotNull(groups = ProgramRequest.OnUpdate.class) Boolean isPublic) {
+
+    /**
+     * PUT은 recruitStatus/isPublic까지 필수(API.md 계약)이므로, POST(Default 그룹)와
+     * 구분되는 validation group. 단일 ProgramRequest DTO를 POST/PUT에 재사용하기 위함.
+     */
+    public interface OnUpdate {
+    }
 }
