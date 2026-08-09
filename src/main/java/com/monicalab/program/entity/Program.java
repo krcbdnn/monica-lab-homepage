@@ -62,4 +62,24 @@ public class Program extends BaseEntity {
         this.recruitStatus = recruitStatus;
         this.isPublic = isPublic;
     }
+
+    public void update(ProgramType programType, String title, String content, String thumbnail, String attachment,
+            String googleFormUrl, RecruitStatus recruitStatus, boolean isPublic) {
+        this.programType = programType;
+        this.title = title;
+        this.content = content;
+        this.thumbnail = thumbnail;
+        this.attachment = attachment;
+        this.googleFormUrl = googleFormUrl;
+        this.recruitStatus = recruitStatus;
+        this.isPublic = isPublic;
+    }
+
+    public void updateVisibility(boolean isPublic) {
+        this.isPublic = isPublic;
+    }
+
+    public void updateStatus(RecruitStatus recruitStatus) {
+        this.recruitStatus = recruitStatus;
+    }
 }
