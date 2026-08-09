@@ -46,9 +46,10 @@ public class ProgramService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ProgramResponse> getAdminList(Pageable pageable) {
+    public PageResponse<ProgramResponse> getAdminList(ProgramType programType, String keyword, Pageable pageable) {
         validateSort(pageable.getSort());
-        Page<Program> page = programRepository.findAll(pageable);
+        ProgramSearchCondition condition = new ProgramSearchCondition(programType, keyword, null);
+        Page<Program> page = programRepository.search(condition, pageable);
         return PageResponse.of(page, ProgramResponse::from);
     }
 
