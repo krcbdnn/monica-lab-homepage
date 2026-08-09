@@ -93,7 +93,7 @@ class ProgramIntegrationTest extends AbstractIntegrationTest {
                 .recruitStatus(RecruitStatus.OPEN).isPublic(false).build());
 
         PageResponse<ProgramResponse> page = programService.getPublicList(
-                PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt")));
+                null, null, PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt")));
 
         assertThat(page.getContent()).allMatch(ProgramResponse::isPublic);
         assertThat(page.getContent()).extracting(ProgramResponse::title).contains("공개A");

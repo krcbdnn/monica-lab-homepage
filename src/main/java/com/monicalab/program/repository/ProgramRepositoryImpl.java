@@ -26,6 +26,7 @@ public class ProgramRepositoryImpl implements ProgramRepositoryCustom {
         BooleanBuilder where = new BooleanBuilder();
         where.and(programTypeEq(condition.programType()));
         where.and(keywordContains(condition.keyword()));
+        where.and(isPublicEq(condition.isPublic()));
 
         List<Program> content = queryFactory.selectFrom(program)
                 .where(where)
@@ -51,6 +52,10 @@ public class ProgramRepositoryImpl implements ProgramRepositoryCustom {
         }
         return new BooleanBuilder(program.title.containsIgnoreCase(keyword)
                 .or(program.content.containsIgnoreCase(keyword)));
+    }
+
+    private BooleanBuilder isPublicEq(Boolean isPublic) {
+        return isPublic == null ? new BooleanBuilder() : new BooleanBuilder(program.isPublic.eq(isPublic));
     }
 
     private OrderSpecifier<?>[] orderSpecifiers(Sort sort) {
