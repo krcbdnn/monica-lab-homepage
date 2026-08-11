@@ -95,6 +95,20 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void adminDetailDoesNotIncreaseViewCount() throws Exception {
+        Board board = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("관리자 조회 대상").viewCount(0).isPublic(true).build());
+
+        mockMvc.perform(admin(get("/api/admin/boards/{id}", board.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.viewCount").value(0));
+
+        mockMvc.perform(admin(get("/api/admin/boards/{id}", board.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.viewCount").value(0));
+    }
+
+    @Test
     void adminSearchAppliesBoardTypeAndKeywordAndIncludesPrivateBoards() throws Exception {
         Board matching = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("여름 공지 비공개")

@@ -63,8 +63,11 @@ public class BoardService {
         return PageResponse.of(page, BoardResponse::from);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public BoardResponse getPublicById(Long id) {
+        boardRepository.findByIdAndIsPublicTrue(id)
+                .orElseThrow(() -> new CustomException(ErrorCode.BOARD_NOT_FOUND));
+        boardRepository.increaseViewCount(id);
         Board board = boardRepository.findByIdAndIsPublicTrue(id)
                 .orElseThrow(() -> new CustomException(ErrorCode.BOARD_NOT_FOUND));
         return BoardResponse.from(board);

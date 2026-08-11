@@ -59,6 +59,20 @@ class BoardControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void publicDetailIncreasesViewCountAndReturnsLatestValue() throws Exception {
+        Board board = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("조회수 대상 공지").viewCount(0).isPublic(true).build());
+
+        mockMvc.perform(get("/api/boards/{id}", board.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.viewCount").value(1));
+
+        mockMvc.perform(get("/api/boards/{id}", board.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.viewCount").value(2));
+    }
+
+    @Test
     void publicDetailReturnsNotFoundForPrivateBoard() throws Exception {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.ARCHIVE).title("비공개 자료").viewCount(0).isPublic(false).build());
