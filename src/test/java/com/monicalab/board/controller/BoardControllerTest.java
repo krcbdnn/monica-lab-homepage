@@ -76,6 +76,29 @@ class BoardControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void publicSearchAppliesBoardTypeAndKeywordAndExcludesPrivateBoards() throws Exception {
+        Board matching = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("여름 공지 공개")
+                .viewCount(0).isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("여름 공지 비공개")
+                .viewCount(0).isPublic(false).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("여름 갤러리 공개")
+                .viewCount(0).isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("겨울 공지 공개")
+                .viewCount(0).isPublic(true).build());
+
+        mockMvc.perform(get("/api/boards")
+                        .param("boardType", "NOTICE")
+                        .param("keyword", "여름"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(matching.getId()));
+    }
+
+    @Test
     void visibilityFalseTransitionExcludesBoardFromPublicListAndDetail() throws Exception {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("공개였던 공지").viewCount(0).isPublic(true).build());

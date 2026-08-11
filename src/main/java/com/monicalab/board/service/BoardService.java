@@ -2,8 +2,10 @@ package com.monicalab.board.service;
 
 import com.monicalab.board.dto.BoardRequest;
 import com.monicalab.board.dto.BoardResponse;
+import com.monicalab.board.dto.BoardSearchCondition;
 import com.monicalab.board.dto.BoardVisibilityRequest;
 import com.monicalab.board.entity.Board;
+import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
 import com.monicalab.common.dto.PageResponse;
 import com.monicalab.common.exception.CustomException;
@@ -41,9 +43,10 @@ public class BoardService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<BoardResponse> getAdminList(Pageable pageable) {
+    public PageResponse<BoardResponse> getAdminList(BoardType boardType, String keyword, Pageable pageable) {
         validateSort(pageable.getSort());
-        Page<Board> page = boardRepository.findAll(pageable);
+        BoardSearchCondition condition = new BoardSearchCondition(boardType, keyword, null);
+        Page<Board> page = boardRepository.search(condition, pageable);
         return PageResponse.of(page, BoardResponse::from);
     }
 
@@ -53,9 +56,10 @@ public class BoardService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<BoardResponse> getPublicList(Pageable pageable) {
+    public PageResponse<BoardResponse> getPublicList(BoardType boardType, String keyword, Pageable pageable) {
         validateSort(pageable.getSort());
-        Page<Board> page = boardRepository.findByIsPublicTrue(pageable);
+        BoardSearchCondition condition = new BoardSearchCondition(boardType, keyword, true);
+        Page<Board> page = boardRepository.search(condition, pageable);
         return PageResponse.of(page, BoardResponse::from);
     }
 

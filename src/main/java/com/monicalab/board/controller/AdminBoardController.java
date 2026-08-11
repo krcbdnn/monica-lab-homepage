@@ -3,6 +3,7 @@ package com.monicalab.board.controller;
 import com.monicalab.board.dto.BoardRequest;
 import com.monicalab.board.dto.BoardResponse;
 import com.monicalab.board.dto.BoardVisibilityRequest;
+import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
 import com.monicalab.common.dto.PageResponse;
 import com.monicalab.common.response.ApiResponse;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,8 +36,10 @@ public class AdminBoardController {
 
     @GetMapping
     public ApiResponse<PageResponse<BoardResponse>> list(
+            @RequestParam(required = false) BoardType boardType,
+            @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ApiResponse.success(boardService.getAdminList(pageable));
+        return ApiResponse.success(boardService.getAdminList(boardType, keyword, pageable));
     }
 
     @GetMapping("/{id}")
