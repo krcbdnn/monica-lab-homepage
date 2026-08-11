@@ -44,9 +44,22 @@
     </form>
 </div>
 
+<script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
 <script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script src="/js/admin/board-file-upload.js"></script>
 <script>
+    var contentEditor = null;
+
+    ClassicEditor.create(document.querySelector('#content'))
+        .then(function (editor) {
+            contentEditor = editor;
+            AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
+        })
+        .catch(function (error) {
+            console.error(error);
+        });
+
     document.querySelector('#thumbnailInput').addEventListener('change', function (event) {
         var file = event.target.files[0];
         if (!file) {
@@ -82,7 +95,7 @@
         var payload = {
             boardType: document.querySelector('#boardType').value,
             title: document.querySelector('#title').value,
-            content: document.querySelector('#content').value,
+            content: contentEditor ? contentEditor.getData() : document.querySelector('#content').value,
             thumbnail: document.querySelector('#thumbnail').value || null,
             attachment: document.querySelector('#attachment').value || null,
             isPublic: document.querySelector('#isPublic').checked
