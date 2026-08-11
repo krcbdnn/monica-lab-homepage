@@ -95,6 +95,27 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void adminSearchAppliesBoardTypeAndKeywordAndIncludesPrivateBoards() throws Exception {
+        Board matching = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("여름 공지 비공개")
+                .viewCount(0).isPublic(false).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("여름 갤러리 공개")
+                .viewCount(0).isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("겨울 공지 공개")
+                .viewCount(0).isPublic(true).build());
+
+        mockMvc.perform(admin(get("/api/admin/boards"))
+                        .param("boardType", "NOTICE")
+                        .param("keyword", "여름"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(matching.getId()))
+                .andExpect(jsonPath("$.data.content[0].isPublic").value(false));
+    }
+
+    @Test
     void putUpdatesBoardAndRequiresIsPublic() throws Exception {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE)
