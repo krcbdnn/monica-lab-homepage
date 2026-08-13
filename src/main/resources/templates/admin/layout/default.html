@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html th:fragment="layout(content)" lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="${title != null} ? ${title} : '관리자'">관리자</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div th:replace="~{admin/layout/header :: header}"></div>
+<div class="d-flex">
+    <div th:replace="~{admin/layout/sidebar :: sidebar}"></div>
+    <main class="flex-grow-1 p-4">
+        <th:block th:replace="${content}"></th:block>
+    </main>
+</div>
+<footer id="admin-footer" class="text-center text-muted p-3 border-top">
+    &copy; Monika Research Institute
+</footer>
+
+<script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/admin-header.js"></script>
+<script>
+    AdminHeader.bootstrap(AdminFetch.adminFetch, document);
+</script>
+</body>
+</html>
