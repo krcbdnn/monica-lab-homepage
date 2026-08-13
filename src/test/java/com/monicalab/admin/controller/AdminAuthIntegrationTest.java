@@ -82,6 +82,7 @@ class AdminAuthIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/admin/me").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.loginId").value(TEST_LOGIN_ID))
+                .andExpect(jsonPath("$.data.name").value("테스트관리자"))
                 .andExpect(jsonPath("$.data.role").value("ROLE_ADMIN"));
     }
 
