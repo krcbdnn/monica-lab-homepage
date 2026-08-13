@@ -10,4 +10,9 @@ public class AdminViewController {
     public String loginPage() {
         return "admin/login";
     }
+
+    @GetMapping("/admin/dashboard")
+    public String dashboard() {
+        return "admin/dashboard";
+    }
 }

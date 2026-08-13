@@ -13,6 +13,8 @@ import com.monicalab.program.entity.Program;
 import com.monicalab.program.entity.ProgramType;
 import com.monicalab.program.entity.RecruitStatus;
 import com.monicalab.program.repository.ProgramRepository;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -105,6 +107,15 @@ public class ProgramService {
     @Transactional
     public void delete(Long id) {
         programRepository.delete(getEntity(id));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<RecruitStatus, Long> getRecruitStatusCounts() {
+        Map<RecruitStatus, Long> counts = new EnumMap<>(RecruitStatus.class);
+        for (RecruitStatus status : RecruitStatus.values()) {
+            counts.put(status, programRepository.countByRecruitStatus(status));
+        }
+        return counts;
     }
 
     private Program getEntity(Long id) {
