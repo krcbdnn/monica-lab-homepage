@@ -1,41 +1,171 @@
 package com.monicalab.board.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
+import com.monicalab.board.entity.Board;
+import com.monicalab.board.entity.BoardType;
+import com.monicalab.board.repository.BoardRepository;
+import com.monicalab.support.AbstractIntegrationTest;
+import java.nio.charset.StandardCharsets;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * P8-T4에서 templates/home/board/*.html이 생성되기 전이므로, 실제 렌더링을 시도하는
- * MockMvc 통합 테스트 대신 컨트롤러 메서드를 직접 호출하는 단위/정적 테스트로 검증한다
- * (TASK.md P6-T2 DoD 기준, ProgramViewControllerTest와 동일한 패턴).
- */
-class BoardViewControllerTest {
+@AutoConfigureMockMvc
+class BoardViewControllerTest extends AbstractIntegrationTest {
 
-    private final BoardViewController controller = new BoardViewController();
+    @Autowired
+    private MockMvc mockMvc;
 
-    @Test
-    void listResolvesToTheHomeBoardListView() {
-        assertThat(controller.list()).isEqualTo("home/board/list");
+    @Autowired
+    private BoardRepository boardRepository;
+
+    @BeforeEach
+    void setUp() {
+        boardRepository.deleteAll();
     }
 
     @Test
-    void detailResolvesToTheHomeBoardDetailView() {
-        assertThat(controller.detail(1L)).isEqualTo("home/board/detail");
+    void listMapsToBoardsPathAndResolvesToHomeBoardListView() throws Exception {
+        mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/board/list"));
     }
 
     @Test
-    void listMappingTargetsBoardsPath() throws NoSuchMethodException {
-        GetMapping mapping = BoardViewController.class.getMethod("list").getAnnotation(GetMapping.class);
+    void detailMapsToBoardsIdPathAndResolvesToHomeBoardDetailView() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("상세보기 테스트")
+                .content("내용")
+                .viewCount(0)
+                .isPublic(true)
+                .build()).getId();
 
-        assertThat(mapping.value()).containsExactly("/boards");
+        mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/board/detail"));
     }
 
     @Test
-    void detailMappingTargetsBoardsIdPath() throws NoSuchMethodException {
-        GetMapping mapping = BoardViewController.class.getMethod("detail", Long.class)
-                .getAnnotation(GetMapping.class);
+    void listExcludesPrivateBoards() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공개 공지").viewCount(0).isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("비공개 공지").viewCount(0).isPublic(false).build());
 
-        assertThat(mapping.value()).containsExactly("/boards/{id}");
+        String body = mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#board-list li").text()).contains("공개 공지");
+        assertThat(document.select("#board-list li").text()).doesNotContain("비공개 공지");
+    }
+
+    @Test
+    void detailReturnsNotFoundForPrivateBoard() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.ARCHIVE).title("비공개 자료").viewCount(0).isPublic(false).build()).getId();
+
+        mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
+    }
+
+    @Test
+    void detailShowsAttachmentLinkWhenPresent() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.ARCHIVE)
+                .title("자료실 첨부")
+                .content("내용")
+                .attachment("/api/files/1")
+                .viewCount(0)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#attachment-link")).isNotEmpty();
+        assertThat(document.select("#attachment-link").attr("href")).isEqualTo("/api/files/1");
+    }
+
+    @Test
+    void detailHidesAttachmentLinkWhenNull() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("첨부 없는 공지")
+                .content("내용")
+                .viewCount(0)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#attachment-link")).isEmpty();
+    }
+
+    @Test
+    void nextPageLinkPreservesBoardTypeAndKeywordOnFirstPage() throws Exception {
+        seedTwoSummerNoticeBoards();
+
+        String body = mockMvc.perform(get("/boards")
+                        .param("boardType", "NOTICE")
+                        .param("keyword", "summer")
+                        .param("size", "1")
+                        .param("page", "0"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#prev-page")).isEmpty();
+        String nextHref = document.select("#next-page").attr("href");
+        assertThat(nextHref).contains("page=1", "size=1", "boardType=NOTICE", "keyword=summer");
+    }
+
+    @Test
+    void prevPageLinkPreservesBoardTypeAndKeywordOnSecondPage() throws Exception {
+        seedTwoSummerNoticeBoards();
+
+        String body = mockMvc.perform(get("/boards")
+                        .param("boardType", "NOTICE")
+                        .param("keyword", "summer")
+                        .param("size", "1")
+                        .param("page", "1"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#next-page")).isEmpty();
+        String prevHref = document.select("#prev-page").attr("href");
+        assertThat(prevHref).contains("page=0", "size=1", "boardType=NOTICE", "keyword=summer");
+    }
+
+    private void seedTwoSummerNoticeBoards() {
+        for (int i = 0; i < 2; i++) {
+            boardRepository.saveAndFlush(Board.builder()
+                    .boardType(BoardType.NOTICE)
+                    .title("summer notice " + i)
+                    .content("summer content")
+                    .viewCount(0)
+                    .isPublic(true)
+                    .build());
+        }
     }
 }
