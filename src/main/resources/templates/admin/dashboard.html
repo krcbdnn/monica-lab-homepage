@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>관리자 대시보드</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container" style="margin-top: 40px;">
+    <h2 class="mb-4">대시보드</h2>
+
+    <section id="recent-boards" class="mb-4">
+        <h4>최근 게시글</h4>
+        <ul id="recent-boards-list" class="list-group"></ul>
+    </section>
+
+    <section id="program-status" class="mb-4">
+        <h4>프로그램 현황</h4>
+        <p>모집중: <span id="program-status-open">-</span></p>
+        <p>마감: <span id="program-status-closed">-</span></p>
+    </section>
+
+    <nav id="quick-menus" class="mb-4"></nav>
+</div>
+
+<script src="/js/admin/common-fetch.js"></script>
+<script>
+    AdminFetch.adminFetch('/api/admin/dashboard')
+        .then(function (response) {
+            return response.json();
+        })
+        .then(function (body) {
+            var data = body.data;
+
+            var recentBoardsList = document.getElementById('recent-boards-list');
+            data.recentBoards.forEach(function (board) {
+                var li = document.createElement('li');
+                li.className = 'list-group-item';
+                li.textContent = '[' + board.boardType + '] ' + board.title;
+                recentBoardsList.appendChild(li);
+            });
+
+            document.getElementById('program-status-open').textContent = data.programStatus.OPEN;
+            document.getElementById('program-status-closed').textContent = data.programStatus.CLOSED;
+
+            var quickMenus = document.getElementById('quick-menus');
+            data.quickMenus.forEach(function (menu) {
+                var a = document.createElement('a');
+                a.href = menu.url;
+                a.textContent = menu.label;
+                a.className = 'me-3';
+                quickMenus.appendChild(a);
+            });
+        });
+</script>
+</body>
+</html>
