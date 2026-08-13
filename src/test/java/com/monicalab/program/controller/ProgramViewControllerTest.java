@@ -1,41 +1,145 @@
 package com.monicalab.program.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
+import com.monicalab.program.entity.Program;
+import com.monicalab.program.entity.ProgramType;
+import com.monicalab.program.entity.RecruitStatus;
+import com.monicalab.program.repository.ProgramRepository;
+import com.monicalab.support.AbstractIntegrationTest;
+import java.nio.charset.StandardCharsets;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * P8-T3에서 templates/home/program/*.html이 생성되기 전이므로, 실제 렌더링을 시도하는
- * MockMvc 통합 테스트 대신 컨트롤러 메서드를 직접 호출하는 단위/정적 테스트로 검증한다
- * (TASK.md P5-T5 DoD 기준, PageViewControllerTest와 동일한 패턴).
- */
-class ProgramViewControllerTest {
+@AutoConfigureMockMvc
+class ProgramViewControllerTest extends AbstractIntegrationTest {
 
-    private final ProgramViewController controller = new ProgramViewController();
+    @Autowired
+    private MockMvc mockMvc;
 
-    @Test
-    void listResolvesToTheHomeProgramListView() {
-        assertThat(controller.list()).isEqualTo("home/program/list");
+    @Autowired
+    private ProgramRepository programRepository;
+
+    @BeforeEach
+    void setUp() {
+        programRepository.deleteAll();
     }
 
     @Test
-    void detailResolvesToTheHomeProgramDetailView() {
-        assertThat(controller.detail(1L)).isEqualTo("home/program/detail");
+    void listMapsToProgramsPathAndResolvesToHomeProgramListView() throws Exception {
+        mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/program/list"));
     }
 
     @Test
-    void listMappingTargetsProgramsPath() throws NoSuchMethodException {
-        GetMapping mapping = ProgramViewController.class.getMethod("list").getAnnotation(GetMapping.class);
+    void detailMapsToProgramsIdPathAndResolvesToHomeProgramDetailView() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("상세보기 테스트")
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
 
-        assertThat(mapping.value()).containsExactly("/programs");
+        mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/program/detail"));
     }
 
     @Test
-    void detailMappingTargetsProgramsIdPath() throws NoSuchMethodException {
-        GetMapping mapping = ProgramViewController.class.getMethod("detail", Long.class)
-                .getAnnotation(GetMapping.class);
+    void detailShowsApplyLinkWhenGoogleFormUrlIsPresent() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("여름 정규반")
+                .content("내용")
+                .googleFormUrl("https://forms.gle/abc123")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
 
-        assertThat(mapping.value()).containsExactly("/programs/{id}");
+        String body = mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#apply-link")).isNotEmpty();
+        assertThat(document.select("#apply-link").attr("href")).isEqualTo("https://forms.gle/abc123");
+    }
+
+    @Test
+    void detailHidesApplyLinkWhenGoogleFormUrlIsNull() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("구글폼 없는 프로그램")
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#apply-link")).isEmpty();
+    }
+
+    @Test
+    void nextPageLinkPreservesProgramTypeAndKeywordOnFirstPage() throws Exception {
+        seedTwoSummerCoursePrograms();
+
+        String body = mockMvc.perform(get("/programs")
+                        .param("programType", "COURSE")
+                        .param("keyword", "summer")
+                        .param("size", "1")
+                        .param("page", "0"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#prev-page")).isEmpty();
+        String nextHref = document.select("#next-page").attr("href");
+        assertThat(nextHref).contains("page=1", "size=1", "programType=COURSE", "keyword=summer");
+    }
+
+    @Test
+    void prevPageLinkPreservesProgramTypeAndKeywordOnSecondPage() throws Exception {
+        seedTwoSummerCoursePrograms();
+
+        String body = mockMvc.perform(get("/programs")
+                        .param("programType", "COURSE")
+                        .param("keyword", "summer")
+                        .param("size", "1")
+                        .param("page", "1"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#next-page")).isEmpty();
+        String prevHref = document.select("#prev-page").attr("href");
+        assertThat(prevHref).contains("page=0", "size=1", "programType=COURSE", "keyword=summer");
+    }
+
+    private void seedTwoSummerCoursePrograms() {
+        for (int i = 0; i < 2; i++) {
+            programRepository.saveAndFlush(Program.builder()
+                    .programType(ProgramType.COURSE)
+                    .title("summer program " + i)
+                    .content("summer content")
+                    .recruitStatus(RecruitStatus.OPEN)
+                    .isPublic(true)
+                    .build());
+        }
     }
 }
