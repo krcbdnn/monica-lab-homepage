@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html th:replace="~{admin/layout/default :: layout(~{::#banner-form-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
     <title>배너 등록/수정</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
-<div class="container" style="max-width: 800px; margin-top: 40px;">
+<div id="banner-form-content" style="max-width: 800px;">
     <h3 class="mb-4">배너 등록/수정</h3>
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
     <form id="bannerForm">
         <input type="hidden" id="bannerId" name="bannerId">
         <div class="mb-3">
@@ -38,6 +38,38 @@
 <script src="/js/admin/common-fetch.js"></script>
 <script src="/js/admin/banner-file-upload.js"></script>
 <script>
+    var errorMessage = document.querySelector('#errorMessage');
+
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    }
+
+    function extractBannerIdFromPath() {
+        var match = window.location.pathname.match(/^\/admin\/banners\/(\d+)\/edit$/);
+        return match ? match[1] : null;
+    }
+
+    var editingBannerId = extractBannerIdFromPath();
+
+    if (editingBannerId) {
+        document.querySelector('#bannerId').value = editingBannerId;
+
+        AdminFetch.adminFetch('/api/admin/banners/' + editingBannerId)
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (body) {
+                var banner = body.data;
+
+                document.querySelector('#title').value = banner.title;
+                document.querySelector('#image').value = banner.image || '';
+                document.querySelector('#linkUrl').value = banner.linkUrl || '';
+                document.querySelector('#sortOrder').value = banner.sortOrder;
+                document.querySelector('#isVisible').checked = banner.isVisible;
+            });
+    }
+
     document.querySelector('#imageInput').addEventListener('change', function (event) {
         var file = event.target.files[0];
         if (!file) {
@@ -55,6 +87,8 @@
     document.querySelector('#bannerForm').addEventListener('submit', function (event) {
         event.preventDefault();
 
+        errorMessage.style.display = 'none';
+
         var bannerId = document.querySelector('#bannerId').value;
         var payload = {
             title: document.querySelector('#title').value,
@@ -71,7 +105,23 @@
             method: method,
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        });
+        })
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    return {ok: response.ok, body: body};
+                });
+            })
+            .then(function (result) {
+                if (result.ok && result.body.success) {
+                    window.location.href = '/admin/banners';
+                } else {
+                    showError((result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.');
+                }
+            })
+            .catch(function () {
+                showError('저장 중 오류가 발생했습니다.');
+            });
     });
 </script>
 </body>
