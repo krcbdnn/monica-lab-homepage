@@ -40,3 +40,8 @@ out/
 ### Local Configuration ###
 src/main/resources/application-local.yml
 .env
+
+### Node / Frontend Tests (P11-T0) ###
+node_modules/
+playwright-report/
+test-results/

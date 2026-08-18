@@ -1,0 +1,28 @@
+{
+  "name": "monica-lab-homepage",
+  "version": "1.0.0",
+  "description": "Frontend test tooling (Playwright / Lighthouse CI) for monica-lab-homepage",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/krcbdnn/monica-lab-homepage.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/krcbdnn/monica-lab-homepage/issues"
+  },
+  "homepage": "https://github.com/krcbdnn/monica-lab-homepage#readme",
+  "devDependencies": {
+    "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.62.1"
+  }
+}
