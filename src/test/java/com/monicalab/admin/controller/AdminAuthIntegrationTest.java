@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.monicalab.admin.entity.Admin;
+import com.monicalab.admin.repository.AdminRepository;
 import com.monicalab.admin.service.AdminService;
 import com.monicalab.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +31,9 @@ class AdminAuthIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private AdminService adminService;
+
+    @Autowired
+    private AdminRepository adminRepository;
 
     @BeforeEach
     void seedTestAdmin() {
@@ -90,6 +95,25 @@ class AdminAuthIntegrationTest extends AbstractIntegrationTest {
     void meWithoutAuthenticationReturns401() throws Exception {
         mockMvc.perform(get("/api/admin/me"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void meWithSessionOfDeletedAdminReturnsAdminNotFound() throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/admin/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(TEST_LOGIN_ID, TEST_PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        MockHttpSession session = (MockHttpSession) loginResult.getRequest().getSession(false);
+
+        Admin admin = adminRepository.findByLoginId(TEST_LOGIN_ID).orElseThrow();
+        adminRepository.delete(admin);
+
+        mockMvc.perform(get("/api/admin/me").session(session))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("ADMIN_NOT_FOUND"));
     }
 
     @Test
