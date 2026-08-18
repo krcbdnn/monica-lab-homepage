@@ -1,5 +1,6 @@
 package com.monicalab.config;
 
+import com.monicalab.common.exception.CustomAccessDeniedHandler;
 import com.monicalab.common.exception.CustomAuthenticationEntryPoint;
 import java.util.LinkedHashMap;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class SecurityConfig {
     // 실제 인증(로그인) 로직에서의 사용은 P3-T3 범위.
     private final PasswordEncoder passwordEncoder;
     private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
+    private final CustomAccessDeniedHandler customAccessDeniedHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -38,7 +40,8 @@ public class SecurityConfig {
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .ignoringRequestMatchers("/api/admin/login"))
                 .exceptionHandling(exception -> exception
-                        .authenticationEntryPoint(authenticationEntryPoint()))
+                        .authenticationEntryPoint(authenticationEntryPoint())
+                        .accessDeniedHandler(customAccessDeniedHandler))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
 

@@ -12,6 +12,7 @@ import com.monicalab.page.config.PageInitializer;
 import com.monicalab.page.entity.PageType;
 import com.monicalab.page.repository.PageRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
@@ -31,6 +32,14 @@ class PageIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private PageInitializer pageInitializer;
+
+    @AfterEach
+    void restoreFixedPages() {
+        // 이 클래스의 다른 테스트(fixedPagesAreInitializedExactlyOncePerType 등)가 항상 4개 고정 페이지가
+        // 존재한다고 가정하므로, adminGetForDeletedFixedPageReturnsPageNotFound가 삭제한 행을 실행 순서와
+        // 무관하게 복구한다. PageInitializer는 존재하지 않는 타입만 재생성하므로 다른 테스트에는 영향 없음.
+        pageInitializer.run(new DefaultApplicationArguments());
+    }
 
     @Test
     void fixedPagesAreInitializedExactlyOncePerType() {
@@ -95,5 +104,17 @@ class PageIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.title").value("새 인사말"))
                 .andExpect(jsonPath("$.data.content", org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<script"))));
+    }
+
+    @Test
+    void adminGetForDeletedFixedPageReturnsPageNotFound() throws Exception {
+        // HISTORY는 이 클래스의 다른 테스트가 참조하지 않는 타입이므로 격리 목적으로 선택했다.
+        pageRepository.findByPageType(PageType.HISTORY).ifPresent(pageRepository::delete);
+
+        mockMvc.perform(get("/api/admin/pages/HISTORY")
+                        .with(user("admin").authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("PAGE_NOT_FOUND"));
     }
 }
