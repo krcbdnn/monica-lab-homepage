@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#board-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>게시판 관리</title>
+</head>
+<body>
+<div id="board-list-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>게시판 관리</h2>
+        <a href="/admin/boards/new" class="btn btn-primary">새 게시글 등록</a>
+    </div>
+
+    <form id="searchForm" class="row g-2 mb-4">
+        <div class="col-auto">
+            <select id="searchBoardType" class="form-select">
+                <option value="">전체</option>
+                <option value="NOTICE">공지사항</option>
+                <option value="GALLERY">갤러리</option>
+                <option value="ARCHIVE">자료실</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <input type="text" id="searchKeyword" class="form-control" placeholder="검색어">
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-outline-primary">검색</button>
+        </div>
+    </form>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>제목</th>
+            <th>구분</th>
+            <th>조회수</th>
+            <th>공개 여부</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody id="board-list-body"></tbody>
+    </table>
+
+    <nav id="pagination" class="d-flex gap-2">
+        <button id="prev-page" type="button" class="btn btn-outline-secondary" disabled>이전</button>
+        <button id="next-page" type="button" class="btn btn-outline-secondary" disabled>다음</button>
+    </nav>
+
+    <script>
+        var state = {page: 0, size: 20, boardType: '', keyword: ''};
+
+        function buildQuery() {
+            var params = new URLSearchParams();
+            params.set('page', state.page);
+            params.set('size', state.size);
+            if (state.boardType) {
+                params.set('boardType', state.boardType);
+            }
+            if (state.keyword) {
+                params.set('keyword', state.keyword);
+            }
+            return params.toString();
+        }
+
+        function renderRow(board) {
+            var tr = document.createElement('tr');
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = board.title;
+            tr.appendChild(titleTd);
+
+            var typeTd = document.createElement('td');
+            typeTd.textContent = board.boardType;
+            tr.appendChild(typeTd);
+
+            var viewCountTd = document.createElement('td');
+            viewCountTd.textContent = board.viewCount;
+            tr.appendChild(viewCountTd);
+
+            var publicTd = document.createElement('td');
+            publicTd.textContent = board.isPublic ? '공개' : '비공개';
+            tr.appendChild(publicTd);
+
+            var actionTd = document.createElement('td');
+
+            var editLink = document.createElement('a');
+            editLink.href = '/admin/boards/' + board.id + '/edit';
+            editLink.className = 'btn btn-sm btn-outline-secondary me-1';
+            editLink.textContent = '수정';
+            actionTd.appendChild(editLink);
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = board.isPublic ? '비공개로 전환' : '공개로 전환';
+            visibilityButton.addEventListener('click', function () {
+                AdminFetch.adminFetch('/api/admin/boards/' + board.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({isPublic: !board.isPublic})
+                }).then(loadBoards);
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '삭제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('삭제하시겠습니까?')) {
+                    return;
+                }
+                AdminFetch.adminFetch('/api/admin/boards/' + board.id, {method: 'DELETE'})
+                    .then(loadBoards);
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        function loadBoards() {
+            AdminFetch.adminFetch('/api/admin/boards?' + buildQuery())
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var data = body.data;
+                    var tbody = document.getElementById('board-list-body');
+                    tbody.innerHTML = '';
+                    data.content.forEach(function (board) {
+                        tbody.appendChild(renderRow(board));
+                    });
+
+                    document.getElementById('prev-page').disabled = data.page <= 0;
+                    document.getElementById('next-page').disabled = data.last;
+                });
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            state.page = 0;
+            state.boardType = document.getElementById('searchBoardType').value;
+            state.keyword = document.getElementById('searchKeyword').value;
+            loadBoards();
+        });
+
+        document.getElementById('prev-page').addEventListener('click', function () {
+            if (state.page > 0) {
+                state.page -= 1;
+                loadBoards();
+            }
+        });
+
+        document.getElementById('next-page').addEventListener('click', function () {
+            state.page += 1;
+            loadBoards();
+        });
+
+        loadBoards();
+    </script>
+</div>
+</body>
+</html>

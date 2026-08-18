@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html th:replace="~{admin/layout/default :: layout(~{::#board-form-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
     <title>게시글 등록/수정</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
-<div class="container" style="max-width: 800px; margin-top: 40px;">
+<div id="board-form-content" style="max-width: 800px;">
     <h3 class="mb-4">게시글 등록/수정</h3>
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
     <form id="boardForm">
         <input type="hidden" id="boardId" name="boardId">
         <div class="mb-3">
@@ -51,14 +51,47 @@
 <script>
     var contentEditor = null;
 
-    ClassicEditor.create(document.querySelector('#content'))
+    var editorReady = ClassicEditor.create(document.querySelector('#content'))
         .then(function (editor) {
             contentEditor = editor;
             AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
+            return editor;
         })
         .catch(function (error) {
             console.error(error);
         });
+
+    function extractBoardIdFromPath() {
+        var match = window.location.pathname.match(/^\/admin\/boards\/(\d+)\/edit$/);
+        return match ? match[1] : null;
+    }
+
+    var editingBoardId = extractBoardIdFromPath();
+
+    if (editingBoardId) {
+        document.querySelector('#boardId').value = editingBoardId;
+
+        Promise.all([
+            AdminFetch.adminFetch('/api/admin/boards/' + editingBoardId)
+                .then(function (response) {
+                    return response.json();
+                }),
+            editorReady
+        ]).then(function (results) {
+            var body = results[0];
+            var editor = results[1];
+            var board = body.data;
+
+            document.querySelector('#boardType').value = board.boardType;
+            document.querySelector('#title').value = board.title;
+            if (editor) {
+                editor.setData(board.content || '');
+            }
+            document.querySelector('#thumbnail').value = board.thumbnail || '';
+            document.querySelector('#attachment').value = board.attachment || '';
+            document.querySelector('#isPublic').checked = board.isPublic;
+        });
+    }
 
     document.querySelector('#thumbnailInput').addEventListener('change', function (event) {
         var file = event.target.files[0];
@@ -91,6 +124,9 @@
     document.querySelector('#boardForm').addEventListener('submit', function (event) {
         event.preventDefault();
 
+        var errorMessage = document.querySelector('#errorMessage');
+        errorMessage.style.display = 'none';
+
         var boardId = document.querySelector('#boardId').value;
         var payload = {
             boardType: document.querySelector('#boardType').value,
@@ -108,7 +144,25 @@
             method: method,
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        });
+        })
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    return {ok: response.ok, body: body};
+                });
+            })
+            .then(function (result) {
+                if (result.ok && result.body.success) {
+                    window.location.href = '/admin/boards';
+                } else {
+                    errorMessage.textContent = (result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.';
+                    errorMessage.style.display = 'block';
+                }
+            })
+            .catch(function () {
+                errorMessage.textContent = '저장 중 오류가 발생했습니다.';
+                errorMessage.style.display = 'block';
+            });
     });
 </script>
 </body>
