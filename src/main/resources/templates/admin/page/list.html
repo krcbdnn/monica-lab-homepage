@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#page-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>기관소개 관리</title>
+</head>
+<body>
+<div id="page-list-content">
+    <h2 class="mb-4">기관소개 관리</h2>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>페이지</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td>인사말</td>
+            <td><a href="/admin/pages/GREETING/edit" class="btn btn-sm btn-outline-secondary">수정</a></td>
+        </tr>
+        <tr>
+            <td>기관소개</td>
+            <td><a href="/admin/pages/INTRODUCTION/edit" class="btn btn-sm btn-outline-secondary">수정</a></td>
+        </tr>
+        <tr>
+            <td>연혁</td>
+            <td><a href="/admin/pages/HISTORY/edit" class="btn btn-sm btn-outline-secondary">수정</a></td>
+        </tr>
+        <tr>
+            <td>오시는 길</td>
+            <td><a href="/admin/pages/LOCATION/edit" class="btn btn-sm btn-outline-secondary">수정</a></td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+</body>
+</html>
