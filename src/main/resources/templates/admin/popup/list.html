@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#popup-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>팝업 관리</title>
+</head>
+<body>
+<div id="popup-list-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>팝업 관리</h2>
+        <a href="/admin/popups/new" class="btn btn-primary">새 팝업 등록</a>
+    </div>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>제목</th>
+            <th>시작일</th>
+            <th>종료일</th>
+            <th>노출 여부</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody id="popup-list-body"></tbody>
+    </table>
+
+    <script>
+        function renderRow(popup) {
+            var tr = document.createElement('tr');
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = popup.title;
+            tr.appendChild(titleTd);
+
+            var startDateTd = document.createElement('td');
+            startDateTd.textContent = popup.startDate;
+            tr.appendChild(startDateTd);
+
+            var endDateTd = document.createElement('td');
+            endDateTd.textContent = popup.endDate;
+            tr.appendChild(endDateTd);
+
+            var visibleTd = document.createElement('td');
+            visibleTd.textContent = popup.isVisible ? '노출' : '비노출';
+            tr.appendChild(visibleTd);
+
+            var actionTd = document.createElement('td');
+
+            var editLink = document.createElement('a');
+            editLink.href = '/admin/popups/' + popup.id + '/edit';
+            editLink.className = 'btn btn-sm btn-outline-secondary me-1';
+            editLink.textContent = '수정';
+            actionTd.appendChild(editLink);
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = popup.isVisible ? '비노출로 전환' : '노출로 전환';
+            visibilityButton.addEventListener('click', function () {
+                AdminFetch.adminFetch('/api/admin/popups/' + popup.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({isVisible: !popup.isVisible})
+                }).then(loadPopups);
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '삭제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('삭제하시겠습니까?')) {
+                    return;
+                }
+                AdminFetch.adminFetch('/api/admin/popups/' + popup.id, {method: 'DELETE'})
+                    .then(loadPopups);
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        function loadPopups() {
+            AdminFetch.adminFetch('/api/admin/popups')
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var popups = body.data;
+                    var tbody = document.getElementById('popup-list-body');
+                    tbody.innerHTML = '';
+                    popups.forEach(function (popup) {
+                        tbody.appendChild(renderRow(popup));
+                    });
+                });
+        }
+
+        loadPopups();
+    </script>
+</div>
+</body>
+</html>
