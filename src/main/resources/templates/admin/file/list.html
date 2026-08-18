@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#file-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>파일 관리</title>
+</head>
+<body>
+<div id="file-list-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>파일 관리</h2>
+    </div>
+
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>파일명</th>
+            <th>유형</th>
+            <th>콘텐츠 타입</th>
+            <th>크기</th>
+            <th>업로드일</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody id="file-list-body"></tbody>
+    </table>
+
+    <nav id="pagination" class="d-flex gap-2">
+        <button id="prev-page" type="button" class="btn btn-outline-secondary" disabled>이전</button>
+        <button id="next-page" type="button" class="btn btn-outline-secondary" disabled>다음</button>
+    </nav>
+
+    <script>
+        var errorMessage = document.querySelector('#errorMessage');
+        var state = {page: 0, size: 20};
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) {
+                return bytes + ' B';
+            }
+            if (bytes < 1024 * 1024) {
+                return (bytes / 1024).toFixed(1) + ' KB';
+            }
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function buildQuery() {
+            var params = new URLSearchParams();
+            params.set('page', state.page);
+            params.set('size', state.size);
+            return params.toString();
+        }
+
+        function renderRow(file) {
+            var tr = document.createElement('tr');
+
+            var nameTd = document.createElement('td');
+            var nameLink = document.createElement('a');
+            nameLink.href = file.url;
+            nameLink.target = '_blank';
+            nameLink.textContent = file.originalName;
+            nameTd.appendChild(nameLink);
+            tr.appendChild(nameTd);
+
+            var typeTd = document.createElement('td');
+            typeTd.textContent = file.fileType;
+            tr.appendChild(typeTd);
+
+            var contentTypeTd = document.createElement('td');
+            contentTypeTd.textContent = file.contentType;
+            tr.appendChild(contentTypeTd);
+
+            var sizeTd = document.createElement('td');
+            sizeTd.textContent = formatFileSize(file.size);
+            tr.appendChild(sizeTd);
+
+            var createdAtTd = document.createElement('td');
+            createdAtTd.textContent = file.createdAt;
+            tr.appendChild(createdAtTd);
+
+            var actionTd = document.createElement('td');
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '삭제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('삭제하시겠습니까?')) {
+                    return;
+                }
+                errorMessage.style.display = 'none';
+                AdminFetch.adminFetch('/api/admin/files/' + file.id, {method: 'DELETE'})
+                    .then(function (response) {
+                        if (response.ok) {
+                            loadFiles();
+                            return;
+                        }
+                        return response.json().then(function (body) {
+                            showError((body.error && body.error.message)
+                                || '삭제 중 오류가 발생했습니다.');
+                        });
+                    })
+                    .catch(function () {
+                        showError('삭제 중 오류가 발생했습니다.');
+                    });
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        function loadFiles() {
+            AdminFetch.adminFetch('/api/admin/files?' + buildQuery())
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var data = body.data;
+                    var tbody = document.getElementById('file-list-body');
+                    tbody.innerHTML = '';
+                    data.content.forEach(function (file) {
+                        tbody.appendChild(renderRow(file));
+                    });
+
+                    document.getElementById('prev-page').disabled = data.page <= 0;
+                    document.getElementById('next-page').disabled = data.last;
+                });
+        }
+
+        document.getElementById('prev-page').addEventListener('click', function () {
+            if (state.page > 0) {
+                state.page -= 1;
+                loadFiles();
+            }
+        });
+
+        document.getElementById('next-page').addEventListener('click', function () {
+            state.page += 1;
+            loadFiles();
+        });
+
+        loadFiles();
+    </script>
+</div>
+</body>
+</html>
