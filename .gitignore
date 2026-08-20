@@ -45,3 +45,6 @@ src/main/resources/application-local.yml
 node_modules/
 playwright-report/
 test-results/
+
+### Docker Deploy (P12-T1) ###
+data/
