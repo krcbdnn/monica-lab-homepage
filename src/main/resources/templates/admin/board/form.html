@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#board-form-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>게시글 등록/수정</title>
+</head>
+<body>
+<div id="board-form-content" style="max-width: 800px;">
+    <h3 class="mb-4">게시글 등록/수정</h3>
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+    <form id="boardForm">
+        <input type="hidden" id="boardId" name="boardId">
+        <div class="mb-3">
+            <label for="boardType" class="form-label">게시판 구분</label>
+            <select class="form-select" id="boardType" name="boardType" required>
+                <option value="NOTICE">공지사항</option>
+                <option value="GALLERY">갤러리</option>
+                <option value="ARCHIVE">자료실</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="title" class="form-label">제목</label>
+            <input type="text" class="form-control" id="title" name="title" required maxlength="200">
+        </div>
+        <div class="mb-3">
+            <label for="content" class="form-label">내용</label>
+            <textarea class="form-control" id="content" name="content" rows="8"></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="thumbnailInput" class="form-label">대표 이미지</label>
+            <input type="file" class="form-control" id="thumbnailInput" accept="image/*">
+            <input type="hidden" id="thumbnail" name="thumbnail">
+        </div>
+        <div class="mb-3">
+            <label for="attachmentInput" class="form-label">첨부파일</label>
+            <input type="file" class="form-control" id="attachmentInput">
+            <input type="hidden" id="attachment" name="attachment">
+        </div>
+        <div class="form-check mb-3">
+            <input type="checkbox" class="form-check-input" id="isPublic" name="isPublic">
+            <label for="isPublic" class="form-check-label">공개</label>
+        </div>
+        <button type="submit" class="btn btn-primary">저장</button>
+    </form>
+</div>
+
+<script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
+<script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-upload-adapter.js"></script>
+<script src="/js/admin/board-file-upload.js"></script>
+<script>
+    var contentEditor = null;
+
+    var editorReady = ClassicEditor.create(document.querySelector('#content'))
+        .then(function (editor) {
+            contentEditor = editor;
+            AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
+            return editor;
+        })
+        .catch(function (error) {
+            console.error(error);
+        });
+
+    function extractBoardIdFromPath() {
+        var match = window.location.pathname.match(/^\/admin\/boards\/(\d+)\/edit$/);
+        return match ? match[1] : null;
+    }
+
+    var editingBoardId = extractBoardIdFromPath();
+
+    if (editingBoardId) {
+        document.querySelector('#boardId').value = editingBoardId;
+
+        Promise.all([
+            AdminFetch.adminFetch('/api/admin/boards/' + editingBoardId)
+                .then(function (response) {
+                    return response.json();
+                }),
+            editorReady
+        ]).then(function (results) {
+            var body = results[0];
+            var editor = results[1];
+            var board = body.data;
+
+            document.querySelector('#boardType').value = board.boardType;
+            document.querySelector('#title').value = board.title;
+            if (editor) {
+                editor.setData(board.content || '');
+            }
+            document.querySelector('#thumbnail').value = board.thumbnail || '';
+            document.querySelector('#attachment').value = board.attachment || '';
+            document.querySelector('#isPublic').checked = board.isPublic;
+        });
+    }
+
+    document.querySelector('#thumbnailInput').addEventListener('change', function (event) {
+        var file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+        AdminBoardFileUpload.uploadFile(file, AdminBoardFileUpload.THUMBNAIL_FILE_TYPE, AdminFetch.adminFetch)
+            .then(function (url) {
+                document.querySelector('#thumbnail').value = url;
+            })
+            .catch(function (error) {
+                alert(error.message);
+            });
+    });
+
+    document.querySelector('#attachmentInput').addEventListener('change', function (event) {
+        var file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+        AdminBoardFileUpload.uploadFile(file, AdminBoardFileUpload.ATTACHMENT_FILE_TYPE, AdminFetch.adminFetch)
+            .then(function (url) {
+                document.querySelector('#attachment').value = url;
+            })
+            .catch(function (error) {
+                alert(error.message);
+            });
+    });
+
+    document.querySelector('#boardForm').addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        var errorMessage = document.querySelector('#errorMessage');
+        errorMessage.style.display = 'none';
+
+        var boardId = document.querySelector('#boardId').value;
+        var payload = {
+            boardType: document.querySelector('#boardType').value,
+            title: document.querySelector('#title').value,
+            content: contentEditor ? contentEditor.getData() : document.querySelector('#content').value,
+            thumbnail: document.querySelector('#thumbnail').value || null,
+            attachment: document.querySelector('#attachment').value || null,
+            isPublic: document.querySelector('#isPublic').checked
+        };
+
+        var url = boardId ? '/api/admin/boards/' + boardId : '/api/admin/boards';
+        var method = boardId ? 'PUT' : 'POST';
+
+        AdminFetch.adminFetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    return {ok: response.ok, body: body};
+                });
+            })
+            .then(function (result) {
+                if (result.ok && result.body.success) {
+                    window.location.href = '/admin/boards';
+                } else {
+                    errorMessage.textContent = (result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.';
+                    errorMessage.style.display = 'block';
+                }
+            })
+            .catch(function () {
+                errorMessage.textContent = '저장 중 오류가 발생했습니다.';
+                errorMessage.style.display = 'block';
+            });
+    });
+</script>
+</body>
+</html>

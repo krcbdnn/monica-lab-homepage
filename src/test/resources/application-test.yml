@@ -1,4 +1,10 @@
 spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/testmigration
   jpa:
     hibernate:
       ddl-auto: validate
+
+app:
+  upload:
+    root: build/test-uploads

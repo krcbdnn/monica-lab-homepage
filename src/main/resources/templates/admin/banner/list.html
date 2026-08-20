@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#banner-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>배너 관리</title>
+</head>
+<body>
+<div id="banner-list-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>배너 관리</h2>
+        <a href="/admin/banners/new" class="btn btn-primary">새 배너 등록</a>
+    </div>
+
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>이미지</th>
+            <th>제목</th>
+            <th>정렬 순서</th>
+            <th>노출 여부</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody id="banner-list-body"></tbody>
+    </table>
+
+    <script>
+        var errorMessage = document.querySelector('#errorMessage');
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        function renderRow(banner) {
+            var tr = document.createElement('tr');
+
+            var imageTd = document.createElement('td');
+            var img = document.createElement('img');
+            img.src = banner.image;
+            img.alt = banner.title;
+            img.style.maxWidth = '80px';
+            img.style.maxHeight = '60px';
+            imageTd.appendChild(img);
+            tr.appendChild(imageTd);
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = banner.title;
+            tr.appendChild(titleTd);
+
+            var sortOrderTd = document.createElement('td');
+            var sortOrderInput = document.createElement('input');
+            sortOrderInput.type = 'number';
+            sortOrderInput.min = '0';
+            sortOrderInput.value = banner.sortOrder;
+            sortOrderInput.className = 'form-control form-control-sm d-inline-block me-1';
+            sortOrderInput.style.width = '80px';
+            sortOrderTd.appendChild(sortOrderInput);
+
+            var orderButton = document.createElement('button');
+            orderButton.type = 'button';
+            orderButton.className = 'btn btn-sm btn-outline-secondary';
+            orderButton.textContent = '순서 변경';
+            orderButton.addEventListener('click', function () {
+                errorMessage.style.display = 'none';
+                AdminFetch.adminFetch('/api/admin/banners/' + banner.id + '/order', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({sortOrder: Number(sortOrderInput.value)})
+                })
+                    .then(function (response) {
+                        return response.json().then(function (body) {
+                            return {ok: response.ok, body: body};
+                        });
+                    })
+                    .then(function (result) {
+                        if (result.ok && result.body.success) {
+                            loadBanners();
+                        } else {
+                            showError((result.body.error && result.body.error.message)
+                                || '순서 변경 중 오류가 발생했습니다.');
+                        }
+                    })
+                    .catch(function () {
+                        showError('순서 변경 중 오류가 발생했습니다.');
+                    });
+            });
+            sortOrderTd.appendChild(orderButton);
+            tr.appendChild(sortOrderTd);
+
+            var visibleTd = document.createElement('td');
+            visibleTd.textContent = banner.isVisible ? '노출' : '비노출';
+            tr.appendChild(visibleTd);
+
+            var actionTd = document.createElement('td');
+
+            var editLink = document.createElement('a');
+            editLink.href = '/admin/banners/' + banner.id + '/edit';
+            editLink.className = 'btn btn-sm btn-outline-secondary me-1';
+            editLink.textContent = '수정';
+            actionTd.appendChild(editLink);
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = banner.isVisible ? '비노출로 전환' : '노출로 전환';
+            visibilityButton.addEventListener('click', function () {
+                errorMessage.style.display = 'none';
+                AdminFetch.adminFetch('/api/admin/banners/' + banner.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({isVisible: !banner.isVisible})
+                }).then(loadBanners);
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '삭제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('삭제하시겠습니까?')) {
+                    return;
+                }
+                AdminFetch.adminFetch('/api/admin/banners/' + banner.id, {method: 'DELETE'})
+                    .then(loadBanners);
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        function loadBanners() {
+            AdminFetch.adminFetch('/api/admin/banners')
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var banners = body.data;
+                    var tbody = document.getElementById('banner-list-body');
+                    tbody.innerHTML = '';
+                    banners.forEach(function (banner) {
+                        tbody.appendChild(renderRow(banner));
+                    });
+                });
+        }
+
+        loadBanners();
+    </script>
+</div>
+</body>
+</html>

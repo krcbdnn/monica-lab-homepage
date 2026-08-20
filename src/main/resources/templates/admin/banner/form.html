@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#banner-form-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>배너 등록/수정</title>
+</head>
+<body>
+<div id="banner-form-content" style="max-width: 800px;">
+    <h3 class="mb-4">배너 등록/수정</h3>
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+    <form id="bannerForm">
+        <input type="hidden" id="bannerId" name="bannerId">
+        <div class="mb-3">
+            <label for="title" class="form-label">제목</label>
+            <input type="text" class="form-control" id="title" name="title" required maxlength="100">
+        </div>
+        <div class="mb-3">
+            <label for="imageInput" class="form-label">배너 이미지</label>
+            <input type="file" class="form-control" id="imageInput" accept="image/*">
+            <input type="hidden" id="image" name="image">
+        </div>
+        <div class="mb-3">
+            <label for="linkUrl" class="form-label">링크 URL</label>
+            <input type="text" class="form-control" id="linkUrl" name="linkUrl" maxlength="500">
+        </div>
+        <div class="mb-3">
+            <label for="sortOrder" class="form-label">정렬 순서</label>
+            <input type="number" class="form-control" id="sortOrder" name="sortOrder" min="0" required>
+        </div>
+        <div class="form-check mb-3">
+            <input type="checkbox" class="form-check-input" id="isVisible" name="isVisible">
+            <label for="isVisible" class="form-check-label">노출</label>
+        </div>
+        <button type="submit" class="btn btn-primary">저장</button>
+    </form>
+</div>
+
+<script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/banner-file-upload.js"></script>
+<script>
+    var errorMessage = document.querySelector('#errorMessage');
+
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    }
+
+    function extractBannerIdFromPath() {
+        var match = window.location.pathname.match(/^\/admin\/banners\/(\d+)\/edit$/);
+        return match ? match[1] : null;
+    }
+
+    var editingBannerId = extractBannerIdFromPath();
+
+    if (editingBannerId) {
+        document.querySelector('#bannerId').value = editingBannerId;
+
+        AdminFetch.adminFetch('/api/admin/banners/' + editingBannerId)
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (body) {
+                var banner = body.data;
+
+                document.querySelector('#title').value = banner.title;
+                document.querySelector('#image').value = banner.image || '';
+                document.querySelector('#linkUrl').value = banner.linkUrl || '';
+                document.querySelector('#sortOrder').value = banner.sortOrder;
+                document.querySelector('#isVisible').checked = banner.isVisible;
+            });
+    }
+
+    document.querySelector('#imageInput').addEventListener('change', function (event) {
+        var file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+        AdminBannerFileUpload.uploadFile(file, AdminBannerFileUpload.IMAGE_FILE_TYPE, AdminFetch.adminFetch)
+            .then(function (url) {
+                document.querySelector('#image').value = url;
+            })
+            .catch(function (error) {
+                alert(error.message);
+            });
+    });
+
+    document.querySelector('#bannerForm').addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        errorMessage.style.display = 'none';
+
+        var bannerId = document.querySelector('#bannerId').value;
+        var payload = {
+            title: document.querySelector('#title').value,
+            image: document.querySelector('#image').value || null,
+            linkUrl: document.querySelector('#linkUrl').value || null,
+            sortOrder: Number(document.querySelector('#sortOrder').value),
+            isVisible: document.querySelector('#isVisible').checked
+        };
+
+        var url = bannerId ? '/api/admin/banners/' + bannerId : '/api/admin/banners';
+        var method = bannerId ? 'PUT' : 'POST';
+
+        AdminFetch.adminFetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    return {ok: response.ok, body: body};
+                });
+            })
+            .then(function (result) {
+                if (result.ok && result.body.success) {
+                    window.location.href = '/admin/banners';
+                } else {
+                    showError((result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.');
+                }
+            })
+            .catch(function () {
+                showError('저장 중 오류가 발생했습니다.');
+            });
+    });
+</script>
+</body>
+</html>

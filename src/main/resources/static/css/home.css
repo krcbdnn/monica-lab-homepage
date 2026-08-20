@@ -1,0 +1,8 @@
+/* P11-T1: 반응형 레이아웃 최소 대응 */
+
+/* 메인 배너 이미지: 실제 overflow 위험이 확인된 영역으로 범위를 좁혀 적용한다.
+   Program/Board 상세의 img-fluid 이미지는 별도 처리이므로 건드리지 않는다. */
+#banners img {
+    max-width: 100%;
+    height: auto;
+}

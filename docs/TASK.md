@@ -202,6 +202,12 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: API.md에 정의된 `GET /api/programs`, `GET /api/programs/{id}`를 구현한다. `isPublic=false`인 프로그램은 공개 목록에서 제외하고 공개 상세는 404 처리한다. `programType`, `keyword`(P5-T4A 기준) 쿼리 파라미터로 필터링한다. 관리자 조회 API(`GET /api/admin/programs`, `GET /api/admin/programs/{id}`)는 공개 여부와 관계없이 반환한다.
 - DoD: 인증 없이 목록/상세 조회 200, 비공개 프로그램 상세 조회 시 404, `programType` 필터 적용 시 해당 타입만 반환, `keyword` 검색 시 제목/내용에 일치하는 항목만 반환
 
+### P5-T5A. 관리자 Program 검색 계약 보완
+- 의존성: P5-T2, P5-T4A
+- 산출물: `program/controller/AdminProgramController.java`(수정), `program/service/ProgramService.java`(수정), `src/test/java/**/program/**`(관리자 검색 테스트 추가)
+- 작업 내용: API.md `GET /api/admin/programs`의 `programType`/`keyword` 쿼리 파라미터 계약을 실제 구현에 연결한다. P5-T4A에서 구현한 `ProgramSearchCondition`/`ProgramRepositoryCustom.search()`(QueryDSL)를 그대로 재사용하며 별도 검색 로직을 새로 만들지 않는다. `AdminProgramController.list()`가 `programType`/`keyword`를 `@RequestParam`으로 받아 `ProgramService`에 전달하고, `ProgramService`는 `ProgramSearchCondition`의 `isPublic`을 `null`(필터 미강제)로 구성해 `programRepository.search(...)`를 호출하도록 `findAll(pageable)` 호출을 대체한다. `GET /api/programs`(P5-T5)의 공개 목록 `isPublic=true` 강제 정책과 그 구현은 변경하지 않는다.
+- DoD: 인증된 관리자 HTTP 테스트에서 `programType`만 적용, `keyword`만 적용, 두 조건 동시 적용의 3가지 케이스 각각 조건에 맞는 항목만 반환됨을 검증하고, 3가지 케이스 모두에서 비공개(`isPublic=false`) Program도 결과에 포함됨을 검증한다. 공개 `GET /api/programs`는 기존과 동일하게 `isPublic=true`만 반환함을 회귀 테스트로 재확인한다.
+
 ### P5-T6. Program CKEditor5 이미지 업로드 연동
 - 의존성: P5-T2, P2-T4
 - 산출물: `templates/admin/program/form.html`
@@ -226,9 +232,9 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ### P6-T3. 검색/페이징
 - 의존성: P6-T2
-- 산출물: `board/repository/BoardRepositoryCustom.java`(QueryDSL), `board/dto/BoardSearchCondition.java`
-- 작업 내용: 제목/내용 검색, `Pageable` 지원
-- DoD: 검색 조건에 맞는 결과만 반환되는지 QueryDSL 테스트로 검증
+- 산출물: `board/repository/BoardRepositoryCustom.java`(QueryDSL), `board/dto/BoardSearchCondition.java`, `board/repository/BoardRepository.java`(수정), `board/service/BoardService.java`(수정), `board/controller/AdminBoardController.java`(수정), `board/controller/BoardController.java`(수정)
+- 작업 내용: API.md `GET /api/boards`, `GET /api/admin/boards`의 `boardType`/`keyword` 쿼리 파라미터를 QueryDSL 동적 조건으로 구현한다. `boardType`과 `keyword`(제목/내용 대상)는 동시 조합 가능해야 하며(BooleanBuilder 또는 BooleanExpression 조합), `Pageable`을 지원한다. 공개 `BoardController`는 `isPublic=true`를 강제하고, 관리자 `AdminBoardController`는 공개 여부를 강제하지 않는다(API.md 계약). Program의 `ProgramRepositoryCustom`/`ProgramSearchCondition` 최종 패턴을 재사용하며, 이번 Task에서 admin/public 목록 Controller까지 연결해 API.md 계약을 완성한다.
+- DoD: `BoardRepositoryCustom`은 QueryDSL 테스트로 `keyword`만 적용, `boardType`만 적용, 둘을 동시 적용한 조건 각각 조건에 맞는 항목만 반환됨과, `isPublic` 조건이 결합될 때도 조건에 맞는 항목만 반환됨을 검증한다. HTTP 레벨에서는 인증된 관리자 검색 결과에 `boardType`/`keyword` 필터가 실제로 적용되며 비공개 Board도 포함됨을 통합 테스트로 검증하고, 공개 검색 결과에는 동일한 필터가 적용되며 비공개 Board는 제외됨을 검증한다.
 
 ### P6-T4. 조회수 증가 처리
 - 의존성: P6-T2

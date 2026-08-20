@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#page-form-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>기관소개 페이지 편집</title>
+</head>
+<body>
+<div id="page-form-content" style="max-width: 800px;">
+    <h3 class="mb-4">기관소개 페이지 편집</h3>
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+    <form id="pageForm">
+        <div class="mb-3">
+            <label for="title" class="form-label">제목</label>
+            <input type="text" class="form-control" id="title" name="title" required maxlength="200">
+        </div>
+        <div class="mb-3">
+            <label for="editor" class="form-label">내용</label>
+            <textarea id="editor" name="content"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">저장</button>
+    </form>
+</div>
+
+<script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
+<script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-upload-adapter.js"></script>
+<script>
+    var contentEditor = null;
+    var errorMessage = document.querySelector('#errorMessage');
+
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    }
+
+    var editorReady = ClassicEditor.create(document.querySelector('#editor'))
+        .then(function (editor) {
+            contentEditor = editor;
+            AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
+            return editor;
+        })
+        .catch(function (error) {
+            console.error(error);
+        });
+
+    function extractPageTypeFromPath() {
+        var match = window.location.pathname.match(/^\/admin\/pages\/([A-Z]+)\/edit$/);
+        return match ? match[1] : null;
+    }
+
+    var editingPageType = extractPageTypeFromPath();
+
+    if (editingPageType) {
+        Promise.all([
+            AdminFetch.adminFetch('/api/admin/pages/' + editingPageType)
+                .then(function (response) {
+                    return response.json();
+                }),
+            editorReady
+        ]).then(function (results) {
+            var body = results[0];
+            var editor = results[1];
+            var page = body.data;
+
+            document.querySelector('#title').value = page.title;
+            if (editor) {
+                editor.setData(page.content || '');
+            }
+        });
+    } else {
+        showError('페이지 정보를 확인할 수 없습니다.');
+    }
+
+    document.querySelector('#pageForm').addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        errorMessage.style.display = 'none';
+
+        if (!editingPageType) {
+            showError('페이지 정보를 확인할 수 없어 저장할 수 없습니다.');
+            return;
+        }
+
+        var payload = {
+            title: document.querySelector('#title').value,
+            content: contentEditor ? contentEditor.getData() : document.querySelector('#editor').value
+        };
+
+        AdminFetch.adminFetch('/api/admin/pages/' + editingPageType, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    return {ok: response.ok, body: body};
+                });
+            })
+            .then(function (result) {
+                if (result.ok && result.body.success) {
+                    window.location.href = '/admin/pages';
+                } else {
+                    showError((result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.');
+                }
+            })
+            .catch(function () {
+                showError('저장 중 오류가 발생했습니다.');
+            });
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#program-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>프로그램 관리</title>
+</head>
+<body>
+<div id="program-list-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>프로그램 관리</h2>
+        <a href="/admin/programs/new" class="btn btn-primary">새 프로그램 등록</a>
+    </div>
+
+    <form id="searchForm" class="row g-2 mb-4">
+        <div class="col-auto">
+            <select id="searchProgramType" class="form-select">
+                <option value="">전체</option>
+                <option value="COURSE">정규 강좌</option>
+                <option value="SPECIAL">특강</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <input type="text" id="searchKeyword" class="form-control" placeholder="검색어">
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-outline-primary">검색</button>
+        </div>
+    </form>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>제목</th>
+            <th>구분</th>
+            <th>모집 상태</th>
+            <th>공개 여부</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody id="program-list-body"></tbody>
+    </table>
+
+    <nav id="pagination" class="d-flex gap-2">
+        <button id="prev-page" type="button" class="btn btn-outline-secondary" disabled>이전</button>
+        <button id="next-page" type="button" class="btn btn-outline-secondary" disabled>다음</button>
+    </nav>
+
+    <script>
+        var state = {page: 0, size: 20, programType: '', keyword: ''};
+
+        function buildQuery() {
+            var params = new URLSearchParams();
+            params.set('page', state.page);
+            params.set('size', state.size);
+            if (state.programType) {
+                params.set('programType', state.programType);
+            }
+            if (state.keyword) {
+                params.set('keyword', state.keyword);
+            }
+            return params.toString();
+        }
+
+        function renderRow(program) {
+            var tr = document.createElement('tr');
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = program.title;
+            tr.appendChild(titleTd);
+
+            var typeTd = document.createElement('td');
+            typeTd.textContent = program.programType;
+            tr.appendChild(typeTd);
+
+            var statusTd = document.createElement('td');
+            statusTd.textContent = program.recruitStatus;
+            tr.appendChild(statusTd);
+
+            var publicTd = document.createElement('td');
+            publicTd.textContent = program.isPublic ? '공개' : '비공개';
+            tr.appendChild(publicTd);
+
+            var actionTd = document.createElement('td');
+
+            var editLink = document.createElement('a');
+            editLink.href = '/admin/programs/' + program.id + '/edit';
+            editLink.className = 'btn btn-sm btn-outline-secondary me-1';
+            editLink.textContent = '수정';
+            actionTd.appendChild(editLink);
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = program.isPublic ? '비공개로 전환' : '공개로 전환';
+            visibilityButton.addEventListener('click', function () {
+                AdminFetch.adminFetch('/api/admin/programs/' + program.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({isPublic: !program.isPublic})
+                }).then(loadPrograms);
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var statusButton = document.createElement('button');
+            statusButton.type = 'button';
+            statusButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            var nextStatus = program.recruitStatus === 'OPEN' ? 'CLOSED' : 'OPEN';
+            statusButton.textContent = nextStatus === 'CLOSED' ? '마감으로 전환' : '모집중으로 전환';
+            statusButton.addEventListener('click', function () {
+                AdminFetch.adminFetch('/api/admin/programs/' + program.id + '/status', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({recruitStatus: nextStatus})
+                }).then(loadPrograms);
+            });
+            actionTd.appendChild(statusButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '삭제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('삭제하시겠습니까?')) {
+                    return;
+                }
+                AdminFetch.adminFetch('/api/admin/programs/' + program.id, {method: 'DELETE'})
+                    .then(loadPrograms);
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        function loadPrograms() {
+            AdminFetch.adminFetch('/api/admin/programs?' + buildQuery())
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var data = body.data;
+                    var tbody = document.getElementById('program-list-body');
+                    tbody.innerHTML = '';
+                    data.content.forEach(function (program) {
+                        tbody.appendChild(renderRow(program));
+                    });
+
+                    document.getElementById('prev-page').disabled = data.page <= 0;
+                    document.getElementById('next-page').disabled = data.last;
+                });
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            state.page = 0;
+            state.programType = document.getElementById('searchProgramType').value;
+            state.keyword = document.getElementById('searchKeyword').value;
+            loadPrograms();
+        });
+
+        document.getElementById('prev-page').addEventListener('click', function () {
+            if (state.page > 0) {
+                state.page -= 1;
+                loadPrograms();
+            }
+        });
+
+        document.getElementById('next-page').addEventListener('click', function () {
+            state.page += 1;
+            loadPrograms();
+        });
+
+        loadPrograms();
+    </script>
+</div>
+</body>
+</html>

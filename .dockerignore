@@ -1,0 +1,11 @@
+.git
+.gradle
+build/
+node_modules/
+frontend-tests/
+.idea
+*.iml
+.vscode
+data/
+local-uploads-tmp/
+.env
