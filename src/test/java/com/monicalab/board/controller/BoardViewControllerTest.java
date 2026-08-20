@@ -82,6 +82,26 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void detailAppliesLazyLoadingToThumbnailImage() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY)
+                .title("썸네일 있는 게시글")
+                .content("내용")
+                .thumbnail("/api/files/1")
+                .viewCount(0)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("img").attr("src")).isEqualTo("/api/files/1");
+        assertThat(document.select("img").attr("loading")).isEqualTo("lazy");
+    }
+
+    @Test
     void detailShowsAttachmentLinkWhenPresent() throws Exception {
         Long id = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.ARCHIVE)

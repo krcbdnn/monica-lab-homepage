@@ -102,6 +102,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#greeting p").text()).isEqualTo("안녕하세요");
         assertThat(body).doesNotContain("<script>alert(1)</script>");
         assertThat(document.select("#banners img").attr("src")).isEqualTo("/api/files/1");
+        assertThat(document.select("#banners img").attr("loading")).isEqualTo("lazy");
         assertThat(document.select("#popups").text()).contains("공지 팝업");
         assertThat(document.select("#latest-notices a").text()).contains("최신 공지 제목");
         assertThat(document.select("#latest-notices a").attr("href")).isEqualTo("/boards/" + notice.getId());

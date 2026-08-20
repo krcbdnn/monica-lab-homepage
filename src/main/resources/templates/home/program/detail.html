@@ -15,7 +15,7 @@
     <h2 th:text="${program.title()}"></h2>
 
     <img th:if="${program.thumbnail() != null}" th:src="${program.thumbnail()}" th:alt="${program.title()}"
-         class="img-fluid mb-3">
+         class="img-fluid mb-3" loading="lazy">
 
     <div th:if="${program.content() != null}" th:utext="${program.content()}"></div>
     <p th:unless="${program.content() != null}" class="text-muted">등록된 내용이 없습니다.</p>
