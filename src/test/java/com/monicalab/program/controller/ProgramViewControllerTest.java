@@ -94,6 +94,26 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void detailAppliesLazyLoadingToThumbnailImage() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("썸네일 있는 프로그램")
+                .content("내용")
+                .thumbnail("/api/files/1")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("img").attr("src")).isEqualTo("/api/files/1");
+        assertThat(document.select("img").attr("loading")).isEqualTo("lazy");
+    }
+
+    @Test
     void nextPageLinkPreservesProgramTypeAndKeywordOnFirstPage() throws Exception {
         seedTwoSummerCoursePrograms();
 

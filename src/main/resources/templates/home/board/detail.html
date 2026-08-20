@@ -15,7 +15,7 @@
     <h2 th:text="${board.title()}"></h2>
 
     <img th:if="${board.thumbnail() != null}" th:src="${board.thumbnail()}" th:alt="${board.title()}"
-         class="img-fluid mb-3">
+         class="img-fluid mb-3" loading="lazy">
 
     <div th:if="${board.content() != null}" th:utext="${board.content()}"></div>
     <p th:unless="${board.content() != null}" class="text-muted">등록된 내용이 없습니다.</p>

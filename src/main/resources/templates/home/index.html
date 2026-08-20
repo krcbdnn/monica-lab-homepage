@@ -19,9 +19,9 @@
     <section id="banners" class="mb-4">
         <div th:each="banner : ${banners}" class="banner-item">
             <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}">
-                <img th:src="${banner.image()}" th:alt="${banner.title()}">
+                <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy">
             </a>
-            <img th:unless="${banner.linkUrl() != null}" th:src="${banner.image()}" th:alt="${banner.title()}">
+            <img th:unless="${banner.linkUrl() != null}" th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy">
         </div>
     </section>
 
