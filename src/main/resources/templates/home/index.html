@@ -7,12 +7,18 @@
 <body>
 <div id="index-content" class="container" style="margin-top: 40px;">
 
-    <section id="banners" class="mb-4">
-        <div th:each="banner : ${banners}" class="banner-item">
-            <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}">
-                <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy">
+    <section id="banners" class="hero">
+        <div th:if="${!#lists.isEmpty(banners)}" class="hero__slide" th:with="banner=${banners[0]}">
+            <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}" class="hero__link">
+                <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy" class="hero__image">
             </a>
-            <img th:unless="${banner.linkUrl() != null}" th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy">
+            <div th:unless="${banner.linkUrl() != null}" class="hero__link">
+                <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy" class="hero__image">
+            </div>
+            <p class="hero__caption" th:text="${banner.title()}"></p>
+        </div>
+        <div th:if="${#lists.isEmpty(banners)}" class="hero__empty">
+            <p>등록된 배너가 없습니다.</p>
         </div>
     </section>
 
@@ -22,10 +28,36 @@
         </div>
     </section>
 
-    <section id="greeting" class="mb-4">
-        <h3 th:text="${greeting.title()}"></h3>
-        <div th:if="${greeting.content() != null}" th:utext="${greeting.content()}"></div>
+    <section id="greeting" class="institute-intro">
+        <h2 class="section-title" th:text="${greeting.title()}"></h2>
+        <div class="institute-intro__body" th:if="${greeting.content() != null}" th:utext="${greeting.content()}"></div>
         <p th:unless="${greeting.content() != null}" class="text-muted">등록된 인사말이 없습니다.</p>
+        <a th:if="${greeting.content() != null}" href="/pages/GREETING" class="institute-intro__more">자세히 보기</a>
+    </section>
+
+    <section id="latest-programs" class="section">
+        <h2 class="section-title">최신 프로그램</h2>
+
+        <div th:if="${!latestPrograms.isEmpty()}" class="program-cards">
+            <article th:each="program : ${latestPrograms}" class="program-card">
+                <a th:href="@{/programs/{id}(id=${program.id()})}" class="program-card__link">
+                    <div class="program-card__thumb">
+                        <img th:if="${program.thumbnail() != null}" th:src="${program.thumbnail()}"
+                             th:alt="${program.title()}" loading="lazy">
+                        <div th:unless="${program.thumbnail() != null}" class="program-card__thumb-placeholder"
+                             aria-hidden="true"></div>
+                        <span class="program-card__status"
+                              th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
+                    </div>
+                    <div class="program-card__body">
+                        <span class="program-card__type" th:text="${program.programType()}"></span>
+                        <h3 class="program-card__title" th:text="${program.title()}"></h3>
+                    </div>
+                </a>
+            </article>
+        </div>
+
+        <p th:if="${latestPrograms.isEmpty()}" class="empty-state">등록된 프로그램이 없습니다.</p>
     </section>
 
     <section id="latest-notices" class="mb-4">
@@ -46,8 +78,11 @@
         </ul>
     </section>
 
-    <section id="program-shortcut" class="mb-4">
-        <a href="/programs" class="btn btn-primary">프로그램 살펴보기</a>
+    <section id="program-shortcut" class="cta">
+        <div class="cta__inner">
+            <h2 class="cta__title">지금 프로그램을 확인해보세요</h2>
+            <a href="/programs" class="btn cta__button">프로그램 살펴보기</a>
+        </div>
     </section>
 
 </div>
