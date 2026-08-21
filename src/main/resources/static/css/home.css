@@ -1,3 +1,20 @@
+/* P13-T2: 공개 홈페이지 디자인 토큰. 색상/여백 변경은 이 값만 수정하면 된다. */
+:root {
+    --color-bg: #ffffff;
+    --color-surface: #f8f9fa;
+    --color-text: #212529;
+    --color-text-muted: #6c757d;
+    --color-primary: #1d4ed8;
+    --color-primary-contrast: #ffffff;
+    --color-border: #dee2e6;
+    --space-1: 0.5rem;
+    --space-2: 1rem;
+    --space-3: 1.5rem;
+    --space-4: 2.5rem;
+    --space-5: 4rem;
+    --radius: 0.5rem;
+}
+
 /* P11-T1: 반응형 레이아웃 최소 대응 */
 
 /* 메인 배너 이미지: 실제 overflow 위험이 확인된 영역으로 범위를 좁혀 적용한다.
@@ -128,4 +145,206 @@
         gap: 0.75rem;
         padding: 0.75rem 1rem;
     }
+}
+
+/* P13-T2: 메인 Hero / 연구소 소개 / Program 카드 / CTA.
+   Notice/Gallery(#latest-notices, #latest-gallery) 내부 마크업/스타일은 P13-T3 범위이므로 건드리지 않는다. */
+
+.section {
+    padding: var(--space-4) 0;
+}
+
+.section-title {
+    margin: 0 0 var(--space-3);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.empty-state {
+    margin: 0;
+    padding: var(--space-3);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text-muted);
+    text-align: center;
+}
+
+/* Hero */
+.hero {
+    margin: 0 0 var(--space-4);
+}
+
+.hero__slide {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--color-surface);
+}
+
+.hero__link {
+    display: block;
+}
+
+.hero__image {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 480px;
+    object-fit: cover;
+}
+
+.hero__caption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: var(--space-3);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
+    color: #ffffff;
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.hero__empty {
+    padding: var(--space-4);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    text-align: center;
+    color: var(--color-text-muted);
+}
+
+.hero__empty p {
+    margin: 0;
+}
+
+/* 연구소 소개 */
+.institute-intro {
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.institute-intro__body {
+    color: var(--color-text);
+    line-height: 1.75;
+}
+
+.institute-intro__body img {
+    max-width: 100%;
+    height: auto;
+}
+
+.institute-intro__body p {
+    margin: 0 0 var(--space-2);
+}
+
+.institute-intro__more {
+    display: inline-block;
+    margin-top: var(--space-2);
+    color: var(--color-primary);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+/* Program 카드 */
+.program-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-3);
+}
+
+.program-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--color-bg);
+}
+
+.program-card__link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+
+.program-card__thumb {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    background: var(--color-surface);
+}
+
+.program-card__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.program-card__thumb-placeholder {
+    width: 100%;
+    height: 100%;
+    background: var(--color-surface);
+}
+
+.program-card__status {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: var(--color-primary-contrast);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.program-card__body {
+    padding: var(--space-2);
+}
+
+.program-card__type {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+}
+
+.program-card__title {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+/* 하단 CTA (#program-shortcut) */
+.cta {
+    margin-top: var(--space-4);
+    padding: var(--space-5) var(--space-3);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    text-align: center;
+}
+
+.cta__inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.cta__title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.cta__button {
+    display: inline-block;
+    padding: 0.625rem 1.5rem;
+    border-radius: var(--radius);
+    background: var(--color-primary);
+    color: var(--color-primary-contrast);
+    font-weight: 600;
+    text-decoration: none;
 }
