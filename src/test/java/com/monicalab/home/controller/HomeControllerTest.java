@@ -214,6 +214,86 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#banners .hero__empty")).isNotEmpty();
     }
 
+    @Test
+    void latestNoticesRendersTitleAndDateAndLinksToBoardDetail() throws Exception {
+        Board notice = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지 목록 확인용 제목")
+                .viewCount(0).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-notices .notice-list__item")).hasSize(1);
+        assertThat(document.select("#latest-notices .notice-list__title").text()).isEqualTo("공지 목록 확인용 제목");
+        assertThat(document.select("#latest-notices .notice-list__date").text()).isNotBlank();
+        assertThat(document.select("#latest-notices .notice-list__link").attr("href"))
+                .isEqualTo("/boards/" + notice.getId());
+    }
+
+    @Test
+    void latestNoticesShowsEmptyStateWhenNoNoticesExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-notices .notice-list")).isEmpty();
+        assertThat(document.select("#latest-notices .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestGalleryRendersThumbnailAndLinksToBoardDetail() throws Exception {
+        Board gallery = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("갤러리 목록 확인용 제목")
+                .thumbnail("/api/files/2")
+                .viewCount(0).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .gallery-card__thumb img").attr("src"))
+                .isEqualTo("/api/files/2");
+        assertThat(document.select("#latest-gallery .gallery-card__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#latest-gallery .gallery-card__title").text()).isEqualTo("갤러리 목록 확인용 제목");
+        assertThat(document.select("#latest-gallery .gallery-card__link").attr("href"))
+                .isEqualTo("/boards/" + gallery.getId());
+    }
+
+    @Test
+    void latestGalleryShowsPlaceholderWhenThumbnailMissing() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("썸네일 없는 갤러리")
+                .viewCount(0).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .gallery-card__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#latest-gallery .gallery-card__thumb img")).isEmpty();
+    }
+
+    @Test
+    void latestGalleryShowsEmptyStateWhenNoGalleryExists() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .gallery-grid")).isEmpty();
+        assertThat(document.select("#latest-gallery .empty-state")).isNotEmpty();
+    }
+
     private Program publicProgram(String title) {
         return Program.builder()
                 .programType(ProgramType.COURSE)
