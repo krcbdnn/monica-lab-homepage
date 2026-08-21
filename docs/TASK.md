@@ -412,6 +412,55 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+## Phase 13. 공개 UI/UX 개선
+
+### P13-T0. Phase 13 문서 계약 및 UI 기반 확정
+- 의존성: P12-T1, P12-T2, P12-T3
+- 산출물: `docs/TASK.md`(본 Phase 13 추가), `docs/PRD.md`, `docs/FEATURES.md`(메인 프로그램 최신글 노출 요구사항 반영), `docs/ARCHITECTURE.md`(Home 섹션 갱신)
+- 작업 내용: 코드/템플릿/CSS 변경 없이 문서 계약만 갱신한다. 메인 화면에 노출할 "최신 프로그램" 요구사항을 PRD.md/FEATURES.md에 기존 최신 공지/갤러리와 동일한 수준으로 명시하고, HomeController가 기존 ProgramService를 조합해 최신 3건을 모델에 제공함을 ARCHITECTURE.md에 반영한다. 이후 P13-T1~T7은 이 문서를 Source of Truth로 진행한다.
+- DoD: 변경 범위가 `docs/**`로만 한정됨(코드/템플릿/CSS diff 없음), `./gradlew build`/`./gradlew test` 결과에 영향 없음(문서 전용 변경), PR 리뷰로 4개 문서의 신규/변경 문구 확인.
+
+### P13-T1. 공개 공통 Layout/Header/Footer
+- 의존성: P13-T0
+- 산출물: `src/main/resources/templates/home/layout/default.html`, `.../home/layout/header.html`, `.../home/layout/footer.html`, 기존 `home/index.html`, `home/page/detail.html`, `home/program/list.html`, `home/program/detail.html`, `home/board/list.html`, `home/board/detail.html`(root `<html>`을 layout fragment 참조로 교체)
+- 작업 내용: `admin/layout/default.html`과 동일한 순수 Thymeleaf fragment 패턴(`th:fragment="layout(content)"` / `th:replace`, 신규 라이브러리 미사용)으로 공개 화면 공통 Header(모바일 햄버거 포함)/Footer를 구성한다. 기존 id(`#quick-menu`, `#greeting`, `#latest-notices`, `#latest-gallery`, `#program-shortcut`, `#program-type-filter`, `#program-list`, `#board-type-filter`, `#board-list`, `#apply-link`, `#attachment-link`, `#prev-page`, `#next-page`)와 태그 구조(`ul`/`li`/`a`)는 그대로 유지한다.
+- DoD: 기존 `HomeControllerTest`, `ProgramViewControllerTest`, `BoardViewControllerTest`, `PageViewControllerTest` 무변경 통과. `frontend-tests/visual-regression.spec.js` 375/768/1440 통과. 모바일 뷰포트에서 햄버거 토글 시 내비게이션이 노출되는 Playwright 케이스 신규 추가.
+
+### P13-T2. 메인 Hero/연구소 소개/Program 카드/CTA + HomeController Program 데이터 연결
+- 의존성: P13-T0, P13-T1
+- 산출물: `src/main/java/com/monicalab/home/controller/HomeController.java`(`ProgramService` 주입, `latestPrograms` model attribute 추가), `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`(케이스 추가), `home/index.html`, `static/css/home.css`
+- 작업 내용: Banner를 Hero로, 인사말(GREETING)을 연구소 소개 섹션으로 구성한다. 기존 `ProgramService.getPublicList(null, null, createdAt desc pageable)`을 재사용해 **공개 가능한 프로그램을 최신순 최대 3건**만 카드로 노출한다. `recruitStatus` 기준 서버 측 필터링은 추가하지 않고, 응답에 이미 포함된 `recruitStatus` 값으로 카드에 상태 배지만 표시한다. 프로그램이 0건이어도 완성된 레이아웃의 empty state를 표시한다. 하단 CTA 섹션을 추가한다.
+- DoD: `HomeControllerTest`에 "프로그램 최대 3건 카드 노출 / 4건 이상 등록 시에도 정확히 3건만 노출 / 0건 시 empty state" 케이스 추가 후 통과, 기존 케이스 무변경 통과. Banner/Program/Greeting 각각 0건일 때도 레이아웃 깨짐 없이 empty state 렌더 확인.
+
+### P13-T3. 메인 Notice/Gallery
+- 의존성: P13-T0, P13-T1, P13-T2
+- 산출물: `home/index.html`, `static/css/home.css`
+- DoD: `#latest-notices`/`#latest-gallery` 구조 유지, `HomeControllerTest` 무변경 통과, 0건 empty state 확인.
+
+### P13-T4. Program 목록/상세 UI
+- 의존성: P13-T0, P13-T1
+- 산출물: `home/program/list.html`, `home/program/detail.html`, `static/css/home.css`
+- 작업 내용: Sub Page 공통 Hero/Breadcrumb 적용. `program/detail.html`에 현재 누락된 viewport meta가 P13-T1 layout 적용으로 자동 해결됨을 확인한다.
+- DoD: `ProgramViewControllerTest` 무변경 통과, "등록된 프로그램이 없습니다" empty state 유지, Playwright 반응형 통과.
+
+### P13-T5. Board NOTICE/ARCHIVE 목록/상세 UI
+- 의존성: P13-T0, P13-T1
+- 산출물: `home/board/list.html`, `home/board/detail.html`, `static/css/home.css`
+- DoD: `BoardViewControllerTest` 무변경 통과, `#board-list li` 구조 유지, Sub Page Hero/Breadcrumb 적용 확인.
+
+### P13-T6. Gallery 목록/상세 UI
+- 의존성: P13-T0, P13-T1, P13-T5
+- 산출물: `home/board/list.html`, `home/board/detail.html`(`boardType == 'GALLERY'` 조건부 카드 그리드 스타일), `static/css/home.css`
+- 작업 내용: `#board-list`의 `ul`/`li` 구조를 유지한 채 GALLERY일 때만 CSS grid로 카드형 레이아웃을 적용한다(DOM 재구성 없이 스타일로만 구현).
+- DoD: `BoardViewControllerTest` 무변경 통과, thumbnail이 없는 게시물에 대한 placeholder/empty 처리 확인.
+
+### P13-T7. 전체 반응형/모바일 메뉴/접근성 및 회귀 검증
+- 의존성: P13-T1, P13-T2, P13-T3, P13-T4, P13-T5, P13-T6
+- 산출물: `frontend-tests/visual-regression.spec.js`(케이스 보강), `static/css/home.css`(최종 다듬기)
+- DoD: 6개 공개 페이지 × 375/768/1440 Playwright 전체 통과, `./gradlew build`/`./gradlew test` 전체 통과, 수동 접근성 점검(포커스 순서, 명도 대비, 이미지 alt, 폼 label) 체크리스트 통과, 기존 `frontend-tests/lighthouserc.js`(`/admin/login`) 점수 회귀 없음 확인.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
@@ -432,6 +481,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 | 코드 리뷰 완료 | 코드 리뷰 완료 | PR approve 기록 (GitHub) |
 | 테스트 완료 | 테스트 완료 | `./gradlew test` 성공 + 커버리지 리포트 |
 | 운영 런타임/배포 완료 | Flyway/prod/영속성/CI | P1-T7 + P12-T1~T3 통과, 헬스체크 200 |
+| 공개 UI 디자인 적용 완료 | 공개 UI/UX 개선 | Phase13(P13-T0~T7) 통과, 기존 뷰 통합 테스트 + Playwright 반응형 유지 |
 
 ---
 
@@ -440,7 +490,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ```
                            ┌→ Phase4 ─┐
                            ├→ Phase5 ─┤
-Phase1 → Phase2 → Phase3 ─┼→ Phase6 ─┼→ Phase8 → Phase9 → Phase10 → Phase11 → Phase12
+Phase1 → Phase2 → Phase3 ─┼→ Phase6 ─┼→ Phase8 → Phase9 → Phase10 → Phase11 → Phase12 → Phase13
                            └→ Phase7 ─┘
 ```
 
