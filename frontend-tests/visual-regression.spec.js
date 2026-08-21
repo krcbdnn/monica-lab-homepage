@@ -42,6 +42,12 @@ const PAGES = [
   },
 ];
 
+// P13-T1: 공개 공통 Header가 도입되면서 메인 페이지의 주요 내비게이션(#quick-menu)은
+// 모바일(768px 미만)에서 햄버거 토글(#nav-toggle) 뒤로 접힌다.
+// 768px 이상(태블릿/데스크톱)에서는 기존과 동일하게 내비게이션이 바로 visible해야 한다.
+const HEADER_NAV_SELECTOR = '#quick-menu';
+const MOBILE_BREAKPOINT = 768;
+
 for (const viewport of VIEWPORTS) {
   test.describe(`반응형 뷰포트 ${viewport.name}`, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
@@ -56,7 +62,10 @@ for (const viewport of VIEWPORTS) {
         });
         expect(overflow, '문서 scrollWidth가 clientWidth를 초과하면 수평 overflow가 발생한 것이다').toBeLessThanOrEqual(0);
 
-        if (target.nav) {
+        if (target.nav === HEADER_NAV_SELECTOR && viewport.width < MOBILE_BREAKPOINT) {
+          await expect(page.locator('#nav-toggle')).toBeVisible();
+          await expect(page.locator('#site-nav')).toBeHidden();
+        } else if (target.nav) {
           await expect(page.locator(target.nav).first()).toBeVisible();
         }
         await expect(page.locator(target.main).first()).toBeVisible();
@@ -67,3 +76,61 @@ for (const viewport of VIEWPORTS) {
     }
   });
 }
+
+// P13-T1: 모바일 햄버거 메뉴 동작/접근성 검증.
+test.describe('모바일 햄버거 메뉴', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test('기본 상태에서는 토글 버튼만 보이고 메뉴는 닫혀 있다', async ({ page }) => {
+    await page.goto('/');
+
+    const toggle = page.locator('#nav-toggle');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#site-nav')).toBeHidden();
+  });
+
+  test('토글 클릭 시 메뉴가 열리고 다시 클릭하면 닫힌다', async ({ page }) => {
+    await page.goto('/');
+    const toggle = page.locator('#nav-toggle');
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#site-nav')).toBeVisible();
+    await expect(page.locator('#quick-menu a')).toHaveCount(3);
+    for (const href of ['/pages/GREETING', '/programs', '/boards']) {
+      await expect(page.locator(`#quick-menu a[href="${href}"]`)).toBeVisible();
+    }
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#site-nav')).toBeHidden();
+  });
+
+  test('키보드로 토글에 포커스 후 Enter로 열고 Escape로 닫으면 포커스가 토글로 복귀한다', async ({ page }) => {
+    await page.goto('/');
+    const toggle = page.locator('#nav-toggle');
+
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#site-nav')).toBeHidden();
+    await expect(toggle).toBeFocused();
+  });
+
+  test('모바일에서 메뉴를 연 채로 데스크톱 크기로 리사이즈해도 내비게이션이 계속 보인다(CSS 우선 처리)', async ({ page }) => {
+    await page.goto('/');
+    const toggle = page.locator('#nav-toggle');
+
+    await toggle.click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator('#site-nav')).toBeVisible();
+    await expect(page.locator('#quick-menu a')).toHaveCount(3);
+  });
+});
