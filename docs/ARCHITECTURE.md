@@ -293,6 +293,7 @@ HomeController
 - 메인 배너 조회
 - 팝업 조회
 - 기관소개(인사말, GREETING) 요약 조회
+- 최신 프로그램 카드 조회: `ProgramService.getPublicList(null, null, createdAt desc pageable)` 결과 중 최신 3건을 모델에 제공한다. `recruitStatus` 기준 서버 측 필터링은 하지 않으며, 응답에 포함된 `recruitStatus` 값으로 화면에서 상태 배지만 표시한다. 0건이어도 화면은 완성된 레이아웃의 empty state로 렌더링한다.
 - 최신 공지/갤러리 조회
 - 프로그램 바로가기
 - 바로가기 메뉴: 기존 공개 화면으로 이동하는 고정 링크 3개(`기관소개` → `/pages/GREETING`, `프로그램` → `/programs`, `게시판` → `/boards`). 별도 Entity/API를 만들지 않는다.
