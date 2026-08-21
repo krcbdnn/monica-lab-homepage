@@ -60,22 +60,44 @@
         <p th:if="${latestPrograms.isEmpty()}" class="empty-state">등록된 프로그램이 없습니다.</p>
     </section>
 
-    <section id="latest-notices" class="mb-4">
-        <h4>최신 공지</h4>
-        <ul>
-            <li th:each="notice : ${latestNotices}">
-                <a th:href="@{/boards/{id}(id=${notice.id()})}" th:text="${notice.title()}"></a>
+    <section id="latest-notices" class="section">
+        <h2 class="section-title">공지사항</h2>
+
+        <ul th:if="${!latestNotices.isEmpty()}" class="notice-list">
+            <li th:each="notice : ${latestNotices}" class="notice-list__item">
+                <a th:href="@{/boards/{id}(id=${notice.id()})}" class="notice-list__link">
+                    <span class="notice-list__title" th:text="${notice.title()}"></span>
+                    <time class="notice-list__date" th:datetime="${notice.createdAt()}"
+                          th:text="${#temporals.format(notice.createdAt(), 'yyyy.MM.dd')}"></time>
+                </a>
             </li>
         </ul>
+
+        <p th:if="${latestNotices.isEmpty()}" class="empty-state">등록된 공지사항이 없습니다.</p>
+
+        <a th:href="@{/boards(boardType='NOTICE')}" class="section__more">전체보기</a>
     </section>
 
-    <section id="latest-gallery" class="mb-4">
-        <h4>최신 갤러리</h4>
-        <ul>
-            <li th:each="gallery : ${latestGallery}">
-                <a th:href="@{/boards/{id}(id=${gallery.id()})}" th:text="${gallery.title()}"></a>
+    <section id="latest-gallery" class="section">
+        <h2 class="section-title">갤러리</h2>
+
+        <ul th:if="${!latestGallery.isEmpty()}" class="gallery-grid">
+            <li th:each="gallery : ${latestGallery}" class="gallery-card">
+                <a th:href="@{/boards/{id}(id=${gallery.id()})}" class="gallery-card__link">
+                    <div class="gallery-card__thumb">
+                        <img th:if="${gallery.thumbnail() != null}" th:src="${gallery.thumbnail()}"
+                             th:alt="${gallery.title()}" loading="lazy">
+                        <div th:unless="${gallery.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                             aria-hidden="true"></div>
+                    </div>
+                    <p class="gallery-card__title" th:text="${gallery.title()}"></p>
+                </a>
             </li>
         </ul>
+
+        <p th:if="${latestGallery.isEmpty()}" class="empty-state">등록된 갤러리가 없습니다.</p>
+
+        <a th:href="@{/boards(boardType='GALLERY')}" class="section__more">전체보기</a>
     </section>
 
     <section id="program-shortcut" class="cta">
