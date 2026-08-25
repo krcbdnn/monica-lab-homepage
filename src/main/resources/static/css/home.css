@@ -172,7 +172,12 @@
 
 /* Hero */
 .hero {
+    position: relative;
     margin: 0 0 var(--space-4);
+}
+
+.hero__viewport {
+    position: relative;
 }
 
 .hero__slide {
@@ -205,6 +210,95 @@
     color: #ffffff;
     font-size: 1.125rem;
     font-weight: 600;
+}
+
+/* Hero 캐러셀 컨트롤. .hero__controls 자체는 위치를 갖지 않는 순수 래퍼이고,
+   이전/다음 버튼과 하단 바(재생-일시정지+인디케이터)가 각각 .hero를 기준으로 절대 배치된다
+   (컨트롤 래퍼에 position을 주면 자식의 top:50%가 전체 이미지가 아니라 래퍼 높이 기준으로 계산되므로 피한다). */
+.hero__nav,
+.hero__play-pause,
+.hero__indicator {
+    border: none;
+    background: rgba(0, 0, 0, 0.5);
+    color: #ffffff;
+    cursor: pointer;
+}
+
+.hero__nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    font-size: 1.25rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hero__nav--prev {
+    left: var(--space-2);
+}
+
+.hero__nav--next {
+    right: var(--space-2);
+}
+
+.hero__bottom-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: var(--space-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+}
+
+.hero__play-pause {
+    border-radius: var(--radius);
+    padding: 0.375rem var(--space-2);
+    font-size: 0.875rem;
+}
+
+.hero__indicators {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.hero__indicator {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    line-height: 1;
+    padding: 0;
+}
+
+.hero__indicator.is-active {
+    background: var(--color-primary);
+}
+
+@media (max-width: 767.98px) {
+    .hero__nav {
+        width: 2rem;
+        height: 2rem;
+        font-size: 1rem;
+    }
+
+    .hero__bottom-bar {
+        bottom: var(--space-1);
+        gap: 0.5rem;
+    }
+
+    .hero__play-pause {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
 }
 
 .hero__empty {
