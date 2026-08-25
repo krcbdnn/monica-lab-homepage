@@ -95,7 +95,7 @@ Version 2.0
 | title | VARCHAR(100) | NOT NULL | 없음 | 제목 |
 | image | VARCHAR(255) | NOT NULL | 없음 | File API가 반환한 이미지 URL 문자열 |
 | link_url | VARCHAR(500) | NULL | 없음 | 링크 |
-| sort_order | INT | NOT NULL | 없음 | 정렬 순서 |
+| sort_order | INT | NOT NULL | 없음 | 정렬 순서. 공개 메인 캐러셀 노출 순서를 의미하며 값이 작을수록 먼저 노출됨 |
 | is_visible | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
