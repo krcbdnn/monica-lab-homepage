@@ -290,7 +290,7 @@ HomeController
 
 기능
 
-- 메인 배너 조회
+- 메인 배너 조회: `HomeController`는 `BannerService.getPublicList()`가 반환하는 `isVisible=true` 배너 전체(`sortOrder ASC, createdAt DESC`)를 자르지 않고 `banners` 모델 속성으로 그대로 전달한다. 슬라이드 표시 상태(현재 슬라이드, 자동 전환, 일시정지/재생, 키보드 조작, ARIA 등 접근성 처리)는 서버가 관여하지 않고 프론트 `static/js/home/hero-carousel.js`가 전담한다. 캐러셀 동작의 상세 계약은 `docs/TASK.md` P13-T8/P13-T9를 따른다.
 - 팝업 조회
 - 기관소개(인사말, GREETING) 요약 조회
 - 최신 프로그램 카드 조회: `ProgramService.getPublicList(null, null, createdAt desc pageable)` 결과 중 최신 3건을 모델에 제공한다. `recruitStatus` 기준 서버 측 필터링은 하지 않으며, 응답에 포함된 `recruitStatus` 값으로 화면에서 상태 배지만 표시한다. 0건이어도 화면은 완성된 레이아웃의 empty state로 렌더링한다.

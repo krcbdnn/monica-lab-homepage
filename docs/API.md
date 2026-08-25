@@ -324,7 +324,7 @@ Response 204.
 | title | String | Y | Y | `@NotBlank`, max 100 |
 | image | String | Y | Y | `@NotBlank`, max 255 |
 | linkUrl | String | N | N | max 500; 값이 있으면 http/https URL 형식 |
-| sortOrder | Integer | Y | Y | `>= 0` |
+| sortOrder | Integer | Y | Y | `>= 0`; 공개 메인 캐러셀 노출 순서를 의미하며 값이 작을수록 먼저 노출됨 |
 | isVisible | Boolean | N | Y | POST 생략 시 `false` |
 
 `BannerResponse`: `id`, 위 필드 전체, `createdAt`, `updatedAt`.

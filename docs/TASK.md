@@ -459,6 +459,38 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 산출물: `frontend-tests/visual-regression.spec.js`(케이스 보강), `static/css/home.css`(최종 다듬기)
 - DoD: 6개 공개 페이지 × 375/768/1440 Playwright 전체 통과, `./gradlew build`/`./gradlew test` 전체 통과, 수동 접근성 점검(포커스 순서, 명도 대비, 이미지 alt, 폼 label) 체크리스트 통과, 기존 `frontend-tests/lighthouserc.js`(`/admin/login`) 점수 회귀 없음 확인.
 
+### P13-T8. Hero 배너 캐러셀 문서 계약 확정
+- 의존성: P13-T2, P13-T7
+- 산출물: `docs/PRD.md`, `docs/FEATURES.md`, `docs/TASK.md`(본 항목), `docs/ARCHITECTURE.md`(Home 섹션), `docs/API.md`(Banner `sortOrder` 필드), `docs/ERD.md`(Banner `sort_order` 컬럼)
+- 작업 내용: 코드/템플릿/CSS/JS 변경 없이 문서 계약만 갱신한다. `PRD.md`에는 공개 홈페이지에서 복수 활성 배너를 Hero 캐러셀로 노출한다는 사용자 요구사항을 추가하고, `FEATURES.md` 홈페이지 메인 기능 목록에는 캐러셀 기능(복수 노출/자동전환/수동전환)을 반영한다. `ARCHITECTURE.md` Home 섹션에는 `HomeController`가 전체 `banners`를 프론트에 그대로 넘기고 `static/js/home/hero-carousel.js`가 표시 상태/자동전환/접근성을 전담하는 구조를 명시한다. `API.md`/`ERD.md`에는 `sortOrder`(=`sort_order`)가 공개 메인 캐러셀 노출 순서이며 값이 작을수록 먼저 노출됨을 명시한다.
+
+  메인 Hero 캐러셀 동작 계약을 다음과 같이 확정한다.
+  1. `isVisible=true`인 배너 전체를 `sortOrder ASC, createdAt DESC` 순으로 캐러셀에 배치한다.
+  2. 최초 진입 시 정렬 결과의 첫 번째 배너를 표시한다.
+  3. 배너가 2개 이상이면 5초 주기로 자동 전환한다.
+  4. 이전/다음 버튼을 제공한다.
+  5. 배너 위치를 나타내는 인디케이터를 제공한다.
+  6. 명시적인 자동재생 일시정지/재생 컨트롤을 제공한다.
+  7. 캐러셀에 마우스 hover 또는 키보드 focus가 있는 동안 자동 전환을 일시정지한다.
+  8. `prefers-reduced-motion: reduce` 환경에서는 자동 재생을 시작하지 않는다.
+  9. 배너가 1개면 자동전환·이전/다음 버튼·인디케이터·재생 컨트롤을 모두 숨기고 정적으로 표시한다.
+  10. 배너가 0개면 기존 `hero__empty` 상태를 그대로 유지한다.
+  11. 키보드로 이전/다음 및 각 컨트롤(재생/일시정지, 인디케이터)을 조작할 수 있어야 하며, 각 컨트롤에는 접근 가능한 이름(`aria-label` 등)을 제공한다.
+  12. 비활성 슬라이드 내부의 링크/컨트롤은 키보드 focus 대상이 되지 않도록 처리한다(예: `inert` 또는 `tabindex="-1"`).
+  13. 인디케이터는 `role="tablist"` 등 복잡한 패턴을 강제하지 않고, `button` 기반의 단순하고 접근 가능한 구현을 우선한다.
+- DoD: 변경 범위가 `docs/**`로만 한정됨(코드/템플릿/CSS/JS diff 없음), `./gradlew build`/`./gradlew test` 결과에 영향 없음(문서 전용 변경), PR 리뷰로 6개 문서의 신규/변경 문구 확인.
+
+### P13-T9. Hero 배너 캐러셀 구현
+- 의존성: P13-T8
+- 산출물: `home/index.html`, `static/css/home.css`, `static/js/home/hero-carousel.js`(신규), `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `frontend-tests/*.spec.js`
+- 작업 내용: P13-T8에서 확정한 계약대로 Hero 캐러셀을 구현한다. `Controller`/`Service`/`Repository`/API 동작은 변경하지 않는 것을 기본 원칙으로 한다(이미 전체 배너를 올바른 순서로 제공하고 있음). 기존 `heroShowsOnlyFirstPublicBannerWhenMultiplePublicBannersExist` 테스트는 "복수 배너 등록 시 첫 번째만 노출"이라는 낡은 단일 노출 계약을 고정하고 있으므로, 복수 배너 전체가 캐러셀로 렌더링됨을 검증하는 테스트로 교체한다.
+- DoD:
+  - `HomeControllerTest`: `heroShowsOnlyFirstPublicBannerWhenMultiplePublicBannersExist`를 배너 N개 등록 시 전체 슬라이드가 렌더링됨을 검증하는 테스트로 교체, 배너 1개일 때 이전/다음·인디케이터·재생 컨트롤이 렌더링되지 않음을 검증하는 케이스 추가, 기존 `heroShowsEmptyStateWhenNoBannersExist` 무변경 통과.
+  - 신규 Playwright 케이스: 배너 2개 이상 시 5초 자동전환, 이전/다음 버튼 클릭 이동, 인디케이터 클릭 이동, 재생/일시정지 컨트롤 토글, hover/focus 시 자동전환 정지, `prefers-reduced-motion` 에뮬레이션 시 자동전환 미시작, 키보드(방향키/Tab)로 컨트롤 조작 가능, 비활성 슬라이드 내부 링크가 Tab 포커스에서 제외됨을 확인.
+  - 기존 `frontend-tests/visual-regression.spec.js` 375/768/1440 전체 통과.
+  - `./gradlew build`/`./gradlew test` 전체 통과, Node 관리자 JS 테스트 무변경 통과.
+  - Docker 8088 수동 확인(배너 2개 이상 등록 후 자동전환/버튼/인디케이터/재생 컨트롤 동작 육안 확인).
+
 ---
 
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
