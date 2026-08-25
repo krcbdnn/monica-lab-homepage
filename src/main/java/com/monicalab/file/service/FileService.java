@@ -95,7 +95,8 @@ public class FileService {
             throw new CustomException(ErrorCode.FILE_NOT_FOUND);
         }
         Resource resource = new FileSystemResource(path);
-        return new FileDownload(resource, uploadFile.getOriginalName(), uploadFile.getContentType());
+        return new FileDownload(resource, uploadFile.getOriginalName(), uploadFile.getContentType(),
+                uploadFile.getFileType());
     }
 
     @Transactional

@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.monicalab.file.repository.FileRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -119,6 +121,24 @@ class FileIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void publicDownloadOfImageFileReturnsInlineDisposition() throws Exception {
+        Long id = uploadPng("배너 이미지.png");
+
+        mockMvc.perform(get("/api/files/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", "inline; filename*=UTF-8''" + encodedName("배너 이미지.png")));
+    }
+
+    @Test
+    void publicDownloadOfAttachmentFileReturnsAttachmentDisposition() throws Exception {
+        Long id = uploadZip("첨부파일.zip");
+
+        mockMvc.perform(get("/api/files/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", "attachment; filename*=UTF-8''" + encodedName("첨부파일.zip")));
+    }
+
+    @Test
     void deleteRemovesRecordAndPhysicalFileThenPublicDownloadReturns404() throws Exception {
         Long id = uploadPng("delete-me.png");
         var uploadFile = fileRepository.findById(id).orElseThrow();
@@ -151,5 +171,20 @@ class FileIntegrationTest extends AbstractIntegrationTest {
         Arrays.fill(content, (byte) 0x00);
         System.arraycopy(PNG_SIGNATURE, 0, content, 0, PNG_SIGNATURE.length);
         return content;
+    }
+
+    private Long uploadZip(String originalFilename) throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", originalFilename, "application/zip",
+                "not-a-real-zip-but-extension-is-all-that-is-validated".getBytes(StandardCharsets.UTF_8));
+        String responseBody = mockMvc.perform(multipart("/api/admin/files")
+                        .file(file)
+                        .param("fileType", "ATTACHMENT"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        return objectMapper.readTree(responseBody).path("data").path("id").asLong();
+    }
+
+    private String encodedName(String originalFilename) {
+        return URLEncoder.encode(originalFilename, StandardCharsets.UTF_8).replace("+", "%20");
     }
 }
