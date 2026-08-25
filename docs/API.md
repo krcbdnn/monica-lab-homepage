@@ -471,7 +471,7 @@ Program 썸네일/Board 대표이미지/CKEditor 이미지는 `IMAGE`, Program/B
 
 ## GET /api/files/{id}
 
-인증: 불필요. 파일 스트림 다운로드/표시. 존재하지 않으면 `FILE_NOT_FOUND`(404).
+인증: 불필요. 파일 스트림 다운로드/표시. `Content-Disposition`은 업로드 시 저장된 `fileType`에 따라 분기한다: `fileType=IMAGE`는 `inline`(배너/썸네일/CKEditor 이미지 등 `<img>` 렌더링용), `fileType=ATTACHMENT`는 `attachment`(Board/Program 첨부파일 다운로드용)이며, 두 경우 모두 `filename*=UTF-8''{원본 파일명}`을 포함한다. 존재하지 않으면 `FILE_NOT_FOUND`(404).
 
 ## DELETE /api/admin/files/{id}
 
