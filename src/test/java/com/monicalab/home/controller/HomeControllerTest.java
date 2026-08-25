@@ -110,7 +110,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#greeting p").text()).isEqualTo("안녕하세요");
         assertThat(body).doesNotContain("<script>alert(1)</script>");
         assertThat(document.select("#banners img").attr("src")).isEqualTo("/api/files/1");
-        assertThat(document.select("#banners img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#banners img").attr("loading")).isEqualTo("eager");
         assertThat(document.select("#popups").text()).contains("공지 팝업");
         assertThat(document.select("#latest-notices a").text()).contains("최신 공지 제목");
         assertThat(document.select("#latest-notices a").attr("href")).isEqualTo("/boards/" + notice.getId());
@@ -185,7 +185,37 @@ class HomeControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void heroShowsOnlyFirstPublicBannerWhenMultiplePublicBannersExist() throws Exception {
+    void heroRendersAllVisibleBannersInSortOrderWhenMultipleExist() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("첫 번째 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("두 번째 배너").image("/api/files/2").sortOrder(1).isVisible(true).build());
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("세 번째 배너").image("/api/files/3").sortOrder(2).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements slides = document.select("#banners .hero__slide");
+        Elements images = document.select("#banners .hero__slide img");
+        Elements indicators = document.select("#banners .hero__indicator");
+
+        assertThat(slides).hasSize(3);
+        assertThat(images.eachAttr("src")).containsExactly("/api/files/1", "/api/files/2", "/api/files/3");
+        assertThat(indicators).hasSize(3);
+        assertThat(slides.get(0).hasAttr("hidden")).isFalse();
+        assertThat(slides.get(1).hasAttr("hidden")).isTrue();
+        assertThat(slides.get(2).hasAttr("hidden")).isTrue();
+    }
+
+    // hidden 상태인 두 번째 이후 슬라이드는 loading="lazy"의 뷰포트 교차 트리거가 발동하지 않아
+    // 최초 전환 순간까지 이미지 요청 자체가 시작되지 않는 문제가 있었다(Docker 8088 Playwright 네트워크
+    // 추적으로 확인). 모든 슬라이드를 eager로 페이지 로드 시점에 미리 받아오되, fetchpriority="high"는
+    // LCP 후보인 첫 슬라이드에만 부여해 대역폭 경쟁을 최소화한다.
+    @Test
+    void heroAppliesEagerLoadingToAllSlidesAndFetchPriorityHighOnlyToFirst() throws Exception {
         bannerRepository.saveAndFlush(Banner.builder()
                 .title("첫 번째 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
         bannerRepository.saveAndFlush(Banner.builder()
@@ -196,10 +226,33 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
+        Elements images = document.select("#banners .hero__slide img");
 
-        assertThat(document.select("#banners img")).hasSize(1);
-        assertThat(document.select("#banners img").attr("src")).isEqualTo("/api/files/1");
-        assertThat(document.select("#banners .hero__caption").text()).isEqualTo("첫 번째 배너");
+        assertThat(images).hasSize(2);
+        assertThat(images.eachAttr("loading")).containsExactly("eager", "eager");
+        assertThat(images.get(0).attr("fetchpriority")).isEqualTo("high");
+        assertThat(images.get(1).hasAttr("fetchpriority")).isFalse();
+    }
+
+    @Test
+    void heroHidesControlsWhenOnlyOneBannerExists() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("단일 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#banners .hero__slide")).hasSize(1);
+        assertThat(document.select("#banners .hero__slide img").attr("src")).isEqualTo("/api/files/1");
+        assertThat(document.select("#banners .hero__slide").first().hasAttr("hidden")).isFalse();
+        assertThat(document.select("#banners .hero__controls")).isEmpty();
+        assertThat(document.select("#banners #hero-prev")).isEmpty();
+        assertThat(document.select("#banners #hero-next")).isEmpty();
+        assertThat(document.select("#banners #hero-play-pause")).isEmpty();
+        assertThat(document.select("#banners .hero__indicator")).isEmpty();
     }
 
     @Test

@@ -8,15 +8,36 @@
 <div id="index-content" class="container" style="margin-top: 40px;">
 
     <section id="banners" class="hero">
-        <div th:if="${!#lists.isEmpty(banners)}" class="hero__slide" th:with="banner=${banners[0]}">
-            <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}" class="hero__link">
-                <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy" class="hero__image">
-            </a>
-            <div th:unless="${banner.linkUrl() != null}" class="hero__link">
-                <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy" class="hero__image">
+        <div th:if="${!#lists.isEmpty(banners)}" class="hero__viewport" id="hero-viewport">
+            <div class="hero__slide" th:each="banner, iter : ${banners}"
+                 th:attr="hidden=${iter.first} ? null : 'hidden'">
+                <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}" class="hero__link">
+                    <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
+                         th:attr="fetchpriority=${iter.first} ? 'high' : null">
+                </a>
+                <div th:unless="${banner.linkUrl() != null}" class="hero__link">
+                    <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
+                         th:attr="fetchpriority=${iter.first} ? 'high' : null">
+                </div>
+                <p class="hero__caption" th:text="${banner.title()}"></p>
             </div>
-            <p class="hero__caption" th:text="${banner.title()}"></p>
         </div>
+
+        <div th:if="${#lists.size(banners) gt 1}" class="hero__controls" id="hero-controls">
+            <button type="button" class="hero__nav hero__nav--prev" id="hero-prev" aria-label="이전 배너">‹</button>
+            <button type="button" class="hero__nav hero__nav--next" id="hero-next" aria-label="다음 배너">›</button>
+            <div class="hero__bottom-bar">
+                <button type="button" class="hero__play-pause" id="hero-play-pause"
+                        aria-label="배너 자동 전환 일시정지">일시정지</button>
+                <div class="hero__indicators" id="hero-indicators" role="group" aria-label="배너 선택">
+                    <button type="button" class="hero__indicator" th:each="banner, iter : ${banners}"
+                            th:classappend="${iter.first} ? ' is-active'"
+                            th:attr="aria-label=${banner.title() + ' 배너로 이동'}, aria-current=${iter.first} ? 'true' : null"
+                            th:text="${iter.count}"></button>
+                </div>
+            </div>
+        </div>
+
         <div th:if="${#lists.isEmpty(banners)}" class="hero__empty">
             <p>등록된 배너가 없습니다.</p>
         </div>
@@ -107,6 +128,10 @@
         </div>
     </section>
 
+    <script th:src="@{/js/home/hero-carousel.js}"></script>
+    <script>
+        HeroCarousel.bootstrap(document, window);
+    </script>
 </div>
 </body>
 </html>
