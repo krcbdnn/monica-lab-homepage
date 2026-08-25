@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Seoul
       DB_URL: jdbc:mariadb://db:3306/monica_lab?characterEncoding=UTF-8
       DB_USERNAME: monica
       DB_PASSWORD: ${MARIADB_PASSWORD}
@@ -28,6 +29,7 @@ services:
   db:
     image: mariadb:11.4.12
     environment:
+      TZ: Asia/Seoul
       MARIADB_DATABASE: monica_lab
       MARIADB_USER: monica
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
