@@ -1,6 +1,25 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 
+// 여러 describe 블록(Hero 배너 캐러셀, 긴 제목 오버플로우, 메인 카드 폭)이 공통으로 쓰는
+// 관리자 로그인/CSRF 헬퍼. 각 블록은 이 두 함수만 공유하고, 무엇을 생성/삭제할지는 각자 정의한다.
+const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+async function loginAsAdmin(context, baseURL) {
+  const response = await context.request.post(`${baseURL}/api/admin/login`, {
+    data: { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD },
+  });
+  expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
+}
+
+async function getXsrfToken(context) {
+  const cookies = await context.cookies();
+  const xsrfCookie = cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
+  expect(xsrfCookie, 'XSRF-TOKEN 쿠키가 발급되어 있어야 한다').toBeTruthy();
+  return xsrfCookie.value;
+}
+
 // P11-T1: 반응형 적용 검증.
 // 대상은 빈 DB에서도 안정적으로 검증 가능한 공개 주요 화면으로 한정한다.
 // Program/Board 상세 화면은 기존 Java/View 테스트가 이미 커버하므로 이번 범위에서 제외한다.
@@ -8,6 +27,7 @@ const { test, expect } = require('@playwright/test');
 const VIEWPORTS = [
   { name: '375px (mobile)', width: 375, height: 812 },
   { name: '768px (tablet)', width: 768, height: 1024 },
+  { name: '1024px (tablet landscape)', width: 1024, height: 768 },
   { name: '1440px (desktop)', width: 1440, height: 900 },
 ];
 
@@ -151,24 +171,7 @@ test.describe('모바일 햄버거 메뉴', () => {
 // 표시 텍스트/aria-label, hidden 속성) 변화만 즉시 확인하거나 5초보다 훨씬 짧은 대기(1.5초)로 "전환되지
 // 않았음"만 확인한다.
 test.describe('Hero 배너 캐러셀', () => {
-  const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
-  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-
   test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
-
-  async function loginAsAdmin(context, baseURL) {
-    const response = await context.request.post(`${baseURL}/api/admin/login`, {
-      data: { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD },
-    });
-    expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
-  }
-
-  async function getXsrfToken(context) {
-    const cookies = await context.cookies();
-    const xsrfCookie = cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
-    expect(xsrfCookie, 'XSRF-TOKEN 쿠키가 발급되어 있어야 한다').toBeTruthy();
-    return xsrfCookie.value;
-  }
 
   async function createBanner(context, baseURL, xsrfToken, title, sortOrder) {
     const response = await context.request.post(`${baseURL}/api/admin/banners`, {
@@ -427,5 +430,143 @@ test.describe('Hero 배너 캐러셀', () => {
       requestedImageUrls.some((url) => url.endsWith(thirdSlideImageSrc)),
       `세 번째 배너 이미지(${thirdSlideImageSrc}) 요청도 페이지 로드만으로 발생해야 한다. 실제 요청 목록: ${requestedImageUrls.join(', ')}`
     ).toBeTruthy();
+  });
+});
+
+// 반응형 조사에서 확인된 회귀 #1: /programs, /boards는 순수 Bootstrap list-group이라
+// overflow-wrap이 없어서, 공백 없는 긴 제목 하나만으로 페이지 전체가 가로 스크롤됐다.
+// (home.css의 #program-list a, #board-list a { overflow-wrap: break-word } 로 수정)
+// 로컬 DB에 이미 있는 데이터에 의존하지 않도록 매 테스트마다 API로 데이터를 만들고 끝나면 지운다.
+test.describe('긴 제목 오버플로우 회귀 검증', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  // 공백이 전혀 없어 정상적인 단어 경계 줄바꿈으로는 절대 해결되지 않는, overflow-wrap이 실제로
+  // 필요한 최악의 케이스를 만든다.
+  function longUnbreakableTitle(prefix) {
+    return `${prefix}${'A'.repeat(150)}${Date.now()}`;
+  }
+
+  let xsrfToken;
+  let programId;
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+
+    const programResponse = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE',
+        title: longUnbreakableTitle('LongProgramTitle'),
+        content: 'overflow regression',
+        isPublic: true,
+      },
+    });
+    expect(programResponse.ok()).toBeTruthy();
+    programId = (await programResponse.json()).data.id;
+
+    const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title: longUnbreakableTitle('LongBoardTitle'), isPublic: true },
+    });
+    expect(boardResponse.ok()).toBeTruthy();
+    boardId = (await boardResponse.json()).data.id;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+    });
+    await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+    });
+  });
+
+  async function overflowX(page) {
+    return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  }
+
+  test('/programs: 공백 없는 긴 제목이 있어도 가로 스크롤이 생기지 않는다', async ({ page }) => {
+    await page.goto('/programs');
+    expect(await overflowX(page)).toBeLessThanOrEqual(0);
+  });
+
+  test('/boards: 공백 없는 긴 제목이 있어도 가로 스크롤이 생기지 않는다', async ({ page }) => {
+    await page.goto('/boards');
+    expect(await overflowX(page)).toBeLessThanOrEqual(0);
+  });
+});
+
+// 반응형 조사에서 확인된 회귀 #2: 메인 Program/Gallery 카드 grid가 auto-fit이라, 실제 아이템 수보다
+// 들어갈 수 있는 컬럼 수가 많은 상태(메인은 각각 최신 3건/5건만 노출하는데 1440px에서는 5/7컬럼까지
+// 들어갈 폭)에서 남는 1fr 공간을 카드가 그대로 나눠 가져 비정상적으로 커졌다(실측 최대 636px).
+// (home.css에서 auto-fit -> auto-fill로 수정)
+// 이 상태는 메인이 항상 개수를 상한으로 자르기 때문에 현재 DB에 데이터가 몇 건이든 상시 재현되므로,
+// 전체 개수를 통제할 필요 없이 "고유 제목의 아이템 1건이 최소 존재"하도록만 만들면 충분하다.
+test.describe('메인 카드 폭 회귀 검증', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  // CSS가 선언한 minmax() 하한(Program 220px, Gallery 160px) 대비 여유를 둔 상한.
+  // auto-fill 적용 후 1440px 실측 예상치(Program ≈245px, Gallery ≈188px)보다는 넉넉하고,
+  // auto-fit이었을 때의 회귀치(Program 636px)보다는 훨씬 작아 회귀를 확실히 잡아낸다.
+  const PROGRAM_CARD_MAX_WIDTH = 320;
+  const GALLERY_CARD_MAX_WIDTH = 240;
+
+  let xsrfToken;
+  let programId;
+  let boardId;
+  let programTitle;
+  let boardTitle;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+
+    const runId = Date.now();
+    programTitle = `카드 폭 회귀 확인용 프로그램 ${runId}`;
+    boardTitle = `카드 폭 회귀 확인용 갤러리 ${runId}`;
+
+    const programResponse = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'COURSE', title: programTitle, content: '카드 폭 확인', isPublic: true },
+    });
+    expect(programResponse.ok()).toBeTruthy();
+    programId = (await programResponse.json()).data.id;
+
+    const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'GALLERY', title: boardTitle, isPublic: true },
+    });
+    expect(boardResponse.ok()).toBeTruthy();
+    boardId = (await boardResponse.json()).data.id;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+    });
+    await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+    });
+  });
+
+  test('1440px에서 Program 카드가 minmax 하한 대비 과도하게 커지지 않는다', async ({ page }) => {
+    await page.goto('/');
+    const card = page.locator('.program-card').filter({ has: page.locator(`text=${programTitle}`) });
+    await expect(card).toBeVisible();
+    const box = await card.boundingBox();
+    expect(box.width).toBeLessThanOrEqual(PROGRAM_CARD_MAX_WIDTH);
+  });
+
+  test('1440px에서 Gallery 카드가 minmax 하한 대비 과도하게 커지지 않는다', async ({ page }) => {
+    await page.goto('/');
+    const card = page.locator('.gallery-card__link').filter({ has: page.locator(`text=${boardTitle}`) });
+    await expect(card).toBeVisible();
+    const thumb = card.locator('.gallery-card__thumb');
+    const box = await thumb.boundingBox();
+    expect(box.width).toBeLessThanOrEqual(GALLERY_CARD_MAX_WIDTH);
   });
 });
