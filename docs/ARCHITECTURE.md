@@ -737,3 +737,6 @@ Admin
 
 ## Health / 배포 자동화 범위
 헬스체크는 Spring Boot Actuator `/actuator/health`를 사용한다. GitHub Actions는 CI(test/build)까지만 자동화하고 실제 운영 배포는 Docker Compose 수동 배포를 기본 범위로 한다.
+
+## 타임존
+모든 시각 컬럼은 타임존을 저장하지 않는 `DATETIME`이고 애플리케이션이 `LocalDateTime.now()`로 현재 시각을 판단하므로, `docker-compose.yml`의 `app`/`db` 컨테이너는 `TZ=Asia/Seoul`로 시간 기준을 통일한다.
