@@ -1,6 +1,7 @@
 package com.monicalab.program.controller;
 
 import com.monicalab.common.dto.PageResponse;
+import com.monicalab.common.util.PaginationSupport;
 import com.monicalab.program.dto.ProgramResponse;
 import com.monicalab.program.entity.ProgramType;
 import com.monicalab.program.service.ProgramService;
@@ -24,9 +25,11 @@ public class ProgramViewController {
     public String list(
             @RequestParam(required = false) ProgramType programType,
             @RequestParam(required = false) String keyword,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            @RequestParam(required = false) String pageJump,
+            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             Model model) {
-        PageResponse<ProgramResponse> programs = programService.getPublicList(programType, keyword, pageable);
+        PageResponse<ProgramResponse> programs = PaginationSupport.resolve(pageable, pageJump,
+                p -> programService.getPublicList(programType, keyword, p));
         model.addAttribute("programs", programs);
         model.addAttribute("programType", programType);
         model.addAttribute("keyword", keyword);

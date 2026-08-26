@@ -11,8 +11,11 @@ import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
 import com.monicalab.support.AbstractIntegrationTest;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.jsoup.select.Elements;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -177,6 +180,150 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(prevHref).contains("page=0", "size=1", "boardType=NOTICE", "keyword=summer");
     }
 
+    @Test
+    void listUsesDefaultPageSizeOfTenForPublicView() throws Exception {
+        seedNBoards(12);
+
+        String body = mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#board-list > li.list-group-item")).hasSize(10);
+        assertThat(document.select("#next-page")).isNotEmpty();
+    }
+
+    @Test
+    void boardTypeFilterMarksSelectedOptionActiveAndOthersNot() throws Exception {
+        String body = mockMvc.perform(get("/boards").param("boardType", "NOTICE"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements active = document.select("#board-type-filter .filter-nav__link.is-active");
+        assertThat(active).hasSize(1);
+        assertThat(active.text()).isEqualTo("공지사항");
+    }
+
+    @Test
+    void boardTypeFilterMarksAllActiveWhenBoardTypeIsNull() throws Exception {
+        String body = mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements active = document.select("#board-type-filter .filter-nav__link.is-active");
+        assertThat(active).hasSize(1);
+        assertThat(active.text()).isEqualTo("전체");
+    }
+
+    @Test
+    void listRendersBoardTypeTitleViewCountAndCreatedAtInsideTheItemLink() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("운영 안내")
+                .content("내용")
+                .viewCount(7)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#board-list > li.list-group-item > a.board-list__link")).hasSize(1);
+        assertThat(document.select(".board-list__type").text()).isEqualTo("NOTICE");
+        assertThat(document.select(".board-list__title").text()).isEqualTo("운영 안내");
+        assertThat(document.select(".board-list__views").text()).isEqualTo("조회 7");
+        assertThat(document.select(".board-list__date").text()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}");
+        assertThat(document.select(".board-list__link").attr("href")).isEqualTo("/boards/" + id);
+    }
+
+    @Test
+    void paginationShowsUpToTenPageNumbersInFirstGroup() throws Exception {
+        // size=1로 줄여 totalPages=15를 15건만으로 값싸게 재현한다(기본 size=10이면 141건이 필요).
+        seedNBoards(15);
+
+        String body = mockMvc.perform(get("/boards").param("size", "1").param("page", "0"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements numbers = document.select(".pagination-bar__number");
+        assertThat(numbers).hasSize(10);
+        assertThat(numbers.first().text()).isEqualTo("1");
+        assertThat(numbers.last().text()).isEqualTo("10");
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("1");
+    }
+
+    @Test
+    void paginationSwitchesToNextGroupAfterPageTen() throws Exception {
+        seedNBoards(15);
+
+        String body = mockMvc.perform(get("/boards").param("size", "1").param("page", "10"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements numbers = document.select(".pagination-bar__number");
+        assertThat(numbers.first().text()).isEqualTo("11");
+        assertThat(numbers.last().text()).isEqualTo("15");
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("11");
+    }
+
+    @Test
+    void pageJumpNavigatesToRequestedOneBasedPage() throws Exception {
+        seedNBoards(15);
+
+        String body = mockMvc.perform(get("/boards").param("size", "1").param("pageJump", "3"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("3");
+    }
+
+    @Test
+    void pageJumpClampsValueOfOneOrLessToFirstPage() throws Exception {
+        seedNBoards(15);
+
+        String body = mockMvc.perform(get("/boards").param("size", "1").param("pageJump", "0"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("1");
+    }
+
+    @Test
+    void pageJumpClampsValueBeyondTotalPagesToLastValidPage() throws Exception {
+        seedNBoards(3);
+
+        String body = mockMvc.perform(get("/boards").param("size", "1").param("pageJump", "999"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("3");
+    }
+
+    @Test
+    void pageJumpWithNonNumericValueIsIgnoredSafelyWithoutError() throws Exception {
+        seedNBoards(3);
+
+        mockMvc.perform(get("/boards").param("pageJump", "abc"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/board/list"));
+    }
+
+    @Test
+    void pageJumpIsSafeWhenThereIsNoData() throws Exception {
+        mockMvc.perform(get("/boards").param("pageJump", "5"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/board/list"));
+    }
+
     private void seedTwoSummerNoticeBoards() {
         for (int i = 0; i < 2; i++) {
             boardRepository.saveAndFlush(Board.builder()
@@ -187,5 +334,19 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
                     .isPublic(true)
                     .build());
         }
+    }
+
+    private void seedNBoards(int count) {
+        List<Board> boards = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            boards.add(Board.builder()
+                    .boardType(BoardType.NOTICE)
+                    .title("board " + i)
+                    .viewCount(0)
+                    .isPublic(true)
+                    .build());
+        }
+        boardRepository.saveAll(boards);
+        boardRepository.flush();
     }
 }

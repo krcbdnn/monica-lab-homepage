@@ -11,8 +11,11 @@ import com.monicalab.program.entity.RecruitStatus;
 import com.monicalab.program.repository.ProgramRepository;
 import com.monicalab.support.AbstractIntegrationTest;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.jsoup.select.Elements;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -241,6 +244,115 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         assertThat(prevHref).contains("page=0", "size=1", "programType=COURSE", "keyword=summer");
     }
 
+    @Test
+    void listUsesDefaultPageSizeOfTenForPublicView() throws Exception {
+        seedNPrograms(12);
+
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#program-list > li.list-group-item")).hasSize(10);
+        assertThat(document.select("#next-page")).isNotEmpty();
+    }
+
+    @Test
+    void programTypeFilterMarksSelectedOptionActiveAndOthersNot() throws Exception {
+        String body = mockMvc.perform(get("/programs").param("programType", "COURSE"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements active = document.select("#program-type-filter .filter-nav__link.is-active");
+        assertThat(active).hasSize(1);
+        assertThat(active.text()).isEqualTo("수강");
+    }
+
+    @Test
+    void programTypeFilterMarksAllActiveWhenProgramTypeIsNull() throws Exception {
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements active = document.select("#program-type-filter .filter-nav__link.is-active");
+        assertThat(active).hasSize(1);
+        assertThat(active.text()).isEqualTo("전체");
+    }
+
+    @Test
+    void paginationShowsUpToTenPageNumbersInFirstGroup() throws Exception {
+        // size=1로 줄여 totalPages=15를 15건만으로 값싸게 재현한다(기본 size=10이면 141건이 필요).
+        seedNPrograms(15);
+
+        String body = mockMvc.perform(get("/programs").param("size", "1").param("page", "0"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements numbers = document.select(".pagination-bar__number");
+        assertThat(numbers).hasSize(10);
+        assertThat(numbers.first().text()).isEqualTo("1");
+        assertThat(numbers.last().text()).isEqualTo("10");
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("1");
+    }
+
+    @Test
+    void paginationSwitchesToNextGroupAfterPageTen() throws Exception {
+        seedNPrograms(15);
+
+        String body = mockMvc.perform(get("/programs").param("size", "1").param("page", "10"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements numbers = document.select(".pagination-bar__number");
+        assertThat(numbers.first().text()).isEqualTo("11");
+        assertThat(numbers.last().text()).isEqualTo("15");
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("11");
+    }
+
+    @Test
+    void pageJumpNavigatesToRequestedOneBasedPage() throws Exception {
+        seedNPrograms(15);
+
+        String body = mockMvc.perform(get("/programs").param("size", "1").param("pageJump", "3"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("3");
+    }
+
+    @Test
+    void pageJumpClampsValueBeyondTotalPagesToLastValidPage() throws Exception {
+        seedNPrograms(3);
+
+        String body = mockMvc.perform(get("/programs").param("size", "1").param("pageJump", "999"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select(".pagination-bar__number.is-active").text()).isEqualTo("3");
+    }
+
+    @Test
+    void pageJumpWithNonNumericValueIsIgnoredSafelyWithoutError() throws Exception {
+        seedNPrograms(3);
+
+        mockMvc.perform(get("/programs").param("pageJump", "abc"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/program/list"));
+    }
+
+    @Test
+    void pageJumpIsSafeWhenThereIsNoData() throws Exception {
+        mockMvc.perform(get("/programs").param("pageJump", "5"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("home/program/list"));
+    }
+
     private void seedTwoSummerCoursePrograms() {
         for (int i = 0; i < 2; i++) {
             programRepository.saveAndFlush(Program.builder()
@@ -251,5 +363,19 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
                     .isPublic(true)
                     .build());
         }
+    }
+
+    private void seedNPrograms(int count) {
+        List<Program> programs = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            programs.add(Program.builder()
+                    .programType(ProgramType.COURSE)
+                    .title("program " + i)
+                    .recruitStatus(RecruitStatus.OPEN)
+                    .isPublic(true)
+                    .build());
+        }
+        programRepository.saveAll(programs);
+        programRepository.flush();
     }
 }

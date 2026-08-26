@@ -4,6 +4,7 @@ import com.monicalab.board.dto.BoardResponse;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
 import com.monicalab.common.dto.PageResponse;
+import com.monicalab.common.util.PaginationSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -24,9 +25,11 @@ public class BoardViewController {
     public String list(
             @RequestParam(required = false) BoardType boardType,
             @RequestParam(required = false) String keyword,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            @RequestParam(required = false) String pageJump,
+            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             Model model) {
-        PageResponse<BoardResponse> boards = boardService.getPublicList(boardType, keyword, pageable);
+        PageResponse<BoardResponse> boards = PaginationSupport.resolve(pageable, pageJump,
+                p -> boardService.getPublicList(boardType, keyword, p));
         model.addAttribute("boards", boards);
         model.addAttribute("boardType", boardType);
         model.addAttribute("keyword", keyword);

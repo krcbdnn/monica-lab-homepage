@@ -721,6 +721,124 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
   });
 });
 
+// P13-T14: 게시판/프로그램 목록 필터 · UI · pagination. 실제 Docker DB는 이 세션 전체에서 누적된
+// 데이터가 이미 있을 수 있으므로(격리된 테스트 DB가 아님), "정확히 N페이지"처럼 전체 개수를 못박는
+// 단정은 하지 않는다 - 이번에 새로 만드는 레코드 개수만큼 "최소 이 이상"이라는 사실만 검증한다
+// (새로 만든 레코드는 createdAt DESC 정렬에서 항상 최신이라 페이지 1에 온다는 점만 이용).
+test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  async function createNoticeBoard(context, baseURL, xsrfToken, title) {
+    const response = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title, content: '<p>내용</p>', isPublic: true },
+    });
+    expect(response.ok()).toBeTruthy();
+    return (await response.json()).data.id;
+  }
+
+  async function deleteBoard(context, baseURL, xsrfToken, id) {
+    await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+    });
+  }
+
+  test('"공지사항" 필터가 active일 때 다른 필터보다 굵게 표시된다', async ({ page }) => {
+    await page.goto('/boards?boardType=NOTICE');
+
+    const active = page.locator('#board-type-filter .filter-nav__link.is-active');
+    const inactive = page.locator('#board-type-filter .filter-nav__link:not(.is-active)').first();
+    await expect(active).toHaveText('공지사항');
+
+    const activeWeight = Number(await active.evaluate((el) => getComputedStyle(el).fontWeight));
+    const inactiveWeight = Number(await inactive.evaluate((el) => getComputedStyle(el).fontWeight));
+    expect(activeWeight).toBeGreaterThan(inactiveWeight);
+  });
+
+  test('boardType 없이 /boards에 진입하면 "전체" 필터가 active다', async ({ page }) => {
+    await page.goto('/boards');
+    await expect(page.locator('#board-type-filter .filter-nav__link.is-active')).toHaveText('전체');
+  });
+
+  test.describe('목록 UI 및 pagination', () => {
+    let xsrfToken;
+    let boardIds;
+    let titlePrefix;
+
+    test.beforeEach(async ({ context, baseURL }) => {
+      await loginAsAdmin(context, baseURL);
+      xsrfToken = await getXsrfToken(context);
+      titlePrefix = `P13-T14 목록확인 ${Date.now()}`;
+      boardIds = [];
+      for (let i = 0; i < 3; i++) {
+        boardIds.push(await createNoticeBoard(context, baseURL, xsrfToken, `${titlePrefix}-${i}`));
+      }
+    });
+
+    test.afterEach(async ({ context, baseURL }) => {
+      for (const id of boardIds) {
+        await deleteBoard(context, baseURL, xsrfToken, id);
+      }
+    });
+
+    test('게시판 분류명/제목/조회수가 한 줄에, 작성일시는 아래 보조 줄에 표시된다', async ({ page }) => {
+      await page.goto('/boards');
+      const item = page.locator('#board-list li').filter({ hasText: titlePrefix }).first();
+
+      const typeBox = await item.locator('.board-list__type').boundingBox();
+      const titleBox = await item.locator('.board-list__title').boundingBox();
+      const viewsBox = await item.locator('.board-list__views').boundingBox();
+      const dateBox = await item.locator('.board-list__date').boundingBox();
+
+      // 분류명/제목/조회수는 세로 위치가 거의 같은 한 줄이다.
+      expect(Math.abs(typeBox.y - titleBox.y)).toBeLessThan(10);
+      expect(Math.abs(titleBox.y - viewsBox.y)).toBeLessThan(10);
+      // 조회수는 제목 바로 오른쪽 근처에 붙어있다(화면 오른쪽 끝으로 밀려나지 않는다).
+      expect(viewsBox.x - (titleBox.x + titleBox.width)).toBeLessThan(80);
+      // 작성일시는 그 아래 별도 줄이다.
+      expect(dateBox.y).toBeGreaterThan(titleBox.y + 5);
+    });
+
+    test('pagination이 하단 가운데 정렬되고 현재 페이지가 active로 표시된다', async ({ page }) => {
+      await page.goto('/boards?boardType=NOTICE&size=1&page=0');
+
+      const bar = page.locator('.pagination-bar');
+      await expect(bar).toBeVisible();
+      const barBox = await bar.boundingBox();
+      const viewportWidth = page.viewportSize().width;
+      const barCenter = barBox.x + barBox.width / 2;
+      expect(Math.abs(barCenter - viewportWidth / 2)).toBeLessThan(40);
+      await expect(page.locator('.pagination-bar__number.is-active')).toHaveText('1');
+    });
+
+    test('직접 페이지 이동: pageJump 폼 제출 시 pageJump 쿼리를 유지한 채 2페이지 내용이 표시된다', async ({ page }) => {
+      await page.goto('/boards?boardType=NOTICE&size=1&page=0');
+      const firstPageTitle = await page.locator('#board-list .board-list__title').first().textContent();
+
+      await page.fill('#page-jump-input', '2');
+      await page.click('#page-jump-submit');
+
+      // 직접 이동은 redirect 설계가 아니다 - URL이 page=1로 바뀌는 게 아니라 pageJump=2를 그대로 유지한다.
+      await expect(page).toHaveURL(/pageJump=2/);
+      await expect(page.locator('.pagination-bar__number.is-active')).toHaveText('2');
+      const secondPageTitle = await page.locator('#board-list .board-list__title').first().textContent();
+      expect(secondPageTitle).not.toEqual(firstPageTitle);
+    });
+
+    for (const viewport of VIEWPORTS) {
+      test(`${viewport.name}에서 게시판 목록+pagination에 overflow가 없다`, async ({ page }) => {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.goto('/boards?boardType=NOTICE&size=1');
+
+        await expect(page.locator('.pagination-bar')).toBeVisible();
+        const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflowX).toBeLessThanOrEqual(0);
+      });
+    }
+  });
+});
+
 // P13-T11: 공개 Popup 레이어(비차단형, 최대 3개 동시 노출 + 보충 - P13-T10 재정정 계약).
 // 로컬/Docker DB에 이미 실제 Popup이 등록돼 있을 수 있어(개수/순서 통제 불가) 두 가지로 독립성을 확보한다.
 // (1) 테스트가 만드는 A/B/C/D는 매 테스트 고유한 제목으로 만들고 끝나면 그 4건만 삭제한다.

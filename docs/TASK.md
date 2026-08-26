@@ -555,6 +555,23 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T14. 게시판/프로그램 목록 필터 · UI · 페이지네이션 개선
+- 의존성: P13-T5, P13-T12
+- 산출물: `home/board/list.html`, `home/program/list.html`, `home/fragments/pagination.html`(신설), `static/css/home.css`, `board/controller/BoardViewController.java`, `program/controller/ProgramViewController.java`, `common/util/PaginationSupport.java`(신설), `src/test/java/com/monicalab/board/controller/BoardViewControllerTest.java`, `src/test/java/com/monicalab/program/controller/ProgramViewControllerTest.java`, `src/test/java/com/monicalab/common/util/PaginationSupportTest.java`(신설), `frontend-tests/visual-regression.spec.js`
+- 작업 내용: Controller만 변경하고 Service/Repository/DTO는 변경하지 않는다.
+  1. `BoardViewController`/`ProgramViewController`(공개 View 컨트롤러 2곳만, admin/REST API 컨트롤러는 무변경)의 `@PageableDefault` size를 20 → 10으로 변경한다.
+  2. `#board-type-filter`/`#program-type-filter`의 `[전체]`/`[공지사항]` 같은 대괄호 텍스트 방식을 제거하고, `boardType`/`programType` 쿼리 파라미터 기준 `th:classappend`로 `is-active` 클래스를 붙이는 방식으로 바꾼다(기존 `.hero__indicator.is-active` 네이밍 재사용). 기본 링크 색상은 검정 계열, active는 bold+살짝 큰 글자, hover/focus-visible에서 밑줄을 제공한다. 두 필터는 옵션 개수·라벨이 서로 달라 공통 fragment로 묶지 않고 `.filter-nav`/`.filter-nav__link` CSS 클래스만 공유한다.
+  3. `#board-list`(`ul>li>a` 구조, P13-T1 계약 유지 대상)는 P13-T12에서 `#program-list`에 적용한 것과 동일한 원칙(`ul`/`li`/`a` 골격은 유지하고 `a` 내부에 요소 추가)으로, 게시판 분류명(`badge`)/제목/"조회 N"을 한 줄에, 작성일시(`BoardResponse.createdAt()`, 기존 데이터 그대로 재사용)를 아래 보조 줄에 표시한다. 제목 기본 색상은 검정 계열, `a` 전체가 클릭 영역이다. `#program-list`의 P13-T12 아이템 구조(썸네일/제목/타입·상태 뱃지)는 이번 Task에서 재구성하지 않는다.
+  4. Board/Program이 공유하는 `home/fragments/pagination.html`(신설) fragment로 `#pagination`(id 자체는 P13-T1 계약 대상이 아니라 자유롭게 재설계, 단 `#prev-page`/`#next-page` id는 유지)을 교체한다. 페이지 번호를 최대 10개 단위로 그룹 표시(`#numbers.sequence(page/10*10, min(page/10*10+9, totalPages-1))`)하고, 이전/다음/현재 페이지 `is-active`를 제공하며, 전체를 하단 가운데 정렬한다. `boardType`/`programType`/`keyword`는 모든 링크·폼에서 유지한다. Map 기반 파라미터 전달은 쓰지 않고(null 값을 허용하지 않는 `Map.of`의 위험을 피하기 위해) `boardType`/`programType`/`keyword`를 fragment의 개별 named parameter로 전달한다(Thymeleaf `@{}`가 null 파라미터를 빈 값으로 안전하게 렌더링하고 컨트롤러가 이를 정상적으로 null로 바인딩함을 실측 확인).
+  5. 직접 페이지 이동: 1-based `pageJump` 문자열 쿼리 파라미터(Spring의 0-based `page`와 별도) + GET `<form>`(JS 없음)으로 구현한다. 신설된 `common/util/PaginationSupport.resolve(Pageable, String pageJump, Function<Pageable, PageResponse<T>>)`가 파싱/clamp를 전담한다: `pageJump`가 없으면 원래 조회 결과를 그대로 반환하고(기존 `?page=` 요청의 동작 범위를 넓히지 않음), 있으면 1 이하는 첫 페이지로, 숫자가 아니면(Integer.MIN_VALUE 등 오버플로 경계값 포함, `requested <= 1 ? 0 : requested - 1`로 뺄셈 전에 분기해 오버플로를 피함) 원래 `Pageable`을 그대로 사용해 Spring 바인딩 오류·JSON 에러 없이 항상 200 OK HTML을 반환하며, totalPages를 초과하면 마지막 유효 페이지로 1회 재조회한다(`totalPages == 0`이면 이 재조회 자체를 하지 않아 안전하다).
+- DoD:
+  - `BoardViewControllerTest`/`ProgramViewControllerTest`: 기본 size=10, active filter(전체 포함), Board 목록의 분류명/제목/조회수/작성일시 렌더링(Program 목록 구조 회귀 없음), 페이지 번호 1~10 그룹과 11페이지 이상에서의 그룹 전환(`size=1` override로 15건만으로 재현, 141건 등 불필요하게 큰 fixture 생성 금지), boardType/programType/keyword 유지(기존 prev/next 테스트 무변경 통과), `pageJump` 정상/1 이하/초과/숫자 아님/데이터 0건 각각에서 200 OK 유지 케이스 추가.
+  - `PaginationSupportTest`(신규): Spring 컨텍스트 없는 순수 단위 테스트로 `pageJump` 없음/공백, 1 이하 clamp, `Integer.MIN_VALUE` 오버플로 미발생, totalPages 초과 clamp, 숫자 아님(정수 초과 포함)/소수점 무시, totalPages=0 안전, pageJump 없는 `?page=999` 요청은 clamp되지 않음(범위 확장 금지 확인)을 모두 검증.
+  - 신규 Playwright 케이스: Board 필터 active 시각 상태(computed font-weight), Board 목록 UI(분류명/제목/조회수 한 줄, 작성일시 아래 줄) boundingBox 확인, Board/Program pagination 중앙 정렬과 현재 페이지 `is-active`, `pageJump` 폼 제출 후 URL이 `pageJump=2`를 유지한 채(리다이렉트 설계가 아니므로 `page=1`로 바뀌는 것을 기대하지 않음) 2페이지 active/내용이 표시됨, 375/768/1024/1440에서 Board/Program 목록+pagination에 overflow 없음. 기존 P13-T12 썸네일/`ul>li>a` 회귀, 긴 제목 회귀 describe는 무변경 통과.
+  - `./gradlew build`/Playwright 전체 통과, Docker 8088 수동 확인(375/768/1024/1440에서 필터 active, 목록 UI, pagination 그룹/직접 이동).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

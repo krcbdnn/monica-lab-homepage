@@ -8,15 +8,15 @@
 <div id="board-list-content" class="container" style="margin-top: 40px;">
     <h2 class="mb-4">게시판</h2>
 
-    <nav id="board-type-filter" class="mb-3">
-        <a th:href="@{/boards(keyword=${keyword})}"
-           th:text="${boardType == null} ? '[전체]' : '전체'"></a>
-        <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}"
-           th:text="${boardType != null and boardType.name() == 'NOTICE'} ? '[공지사항]' : '공지사항'"></a>
-        <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}"
-           th:text="${boardType != null and boardType.name() == 'GALLERY'} ? '[갤러리]' : '갤러리'"></a>
-        <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}"
-           th:text="${boardType != null and boardType.name() == 'ARCHIVE'} ? '[자료실]' : '자료실'"></a>
+    <nav id="board-type-filter" class="filter-nav mb-3">
+        <a th:href="@{/boards(keyword=${keyword})}" class="filter-nav__link"
+           th:classappend="${boardType == null} ? ' is-active'">전체</a>
+        <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}" class="filter-nav__link"
+           th:classappend="${boardType != null and boardType.name() == 'NOTICE'} ? ' is-active'">공지사항</a>
+        <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}" class="filter-nav__link"
+           th:classappend="${boardType != null and boardType.name() == 'GALLERY'} ? ' is-active'">갤러리</a>
+        <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
+           th:classappend="${boardType != null and boardType.name() == 'ARCHIVE'} ? ' is-active'">자료실</a>
     </nav>
 
     <form method="get" th:action="@{/boards}" class="row g-2 mb-4">
@@ -31,19 +31,21 @@
 
     <ul id="board-list" class="list-group mb-4">
         <li class="list-group-item" th:each="board : ${boards.content}">
-            <a th:href="@{/boards/{id}(id=${board.id()})}" th:text="${board.title()}"></a>
-            <span class="badge bg-secondary" th:text="${board.boardType()}"></span>
-            <span class="text-muted small" th:text="'조회 ' + ${board.viewCount()}"></span>
+            <a th:href="@{/boards/{id}(id=${board.id()})}" class="board-list__link">
+                <span class="board-list__row">
+                    <span class="badge bg-secondary board-list__type" th:text="${board.boardType()}"></span>
+                    <span class="board-list__title" th:text="${board.title()}"></span>
+                    <span class="board-list__views" th:text="'조회 ' + ${board.viewCount()}"></span>
+                </span>
+                <time class="board-list__date" th:datetime="${board.createdAt()}"
+                      th:text="${#temporals.format(board.createdAt(), 'yyyy-MM-dd HH:mm')}"></time>
+            </a>
         </li>
         <li class="list-group-item text-muted" th:if="${boards.content.isEmpty()}">등록된 게시글이 없습니다.</li>
     </ul>
 
-    <nav id="pagination">
-        <a id="prev-page" th:if="${boards.page > 0}"
-           th:href="@{/boards(page=${boards.page - 1}, size=${boards.size}, boardType=${boardType}, keyword=${keyword})}">이전</a>
-        <a id="next-page" th:if="${!boards.last}"
-           th:href="@{/boards(page=${boards.page + 1}, size=${boards.size}, boardType=${boardType}, keyword=${keyword})}">다음</a>
-    </nav>
+    <nav th:replace="~{home/fragments/pagination :: pagination(
+            '/boards', ${boards.page}, ${boards.totalPages}, ${boards.size}, ${boardType}, null, ${keyword})}"></nav>
 </div>
 </body>
 </html>
