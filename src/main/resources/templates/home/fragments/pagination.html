@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- P13-T14: Board/Program 공개 목록이 공유하는 pagination UI. basePath('/boards' 또는 '/programs')만
+     다르고 나머지 구조는 완전히 동일해서 fragment로 뽑았다(호출부 2곳뿐이라 Map 등 범용 구조는
+     쓰지 않고 명시적 파라미터로 받는다 - null이어도 Thymeleaf @{} 가 빈 값으로 안전하게 렌더링하고
+     컨트롤러가 null로 정상 바인딩하는 것을 실측 확인함). #prev-page/#next-page id는 P13-T1 계약
+     대상이라 그대로 유지한다. -->
+<nav th:fragment="pagination(basePath, page, totalPages, size, boardType, programType, keyword)"
+     id="pagination" class="pagination-bar" th:if="${totalPages > 0}">
+    <a id="prev-page" class="pagination-bar__nav" th:if="${page > 0}"
+       th:href="@{${basePath}(page=${page - 1}, size=${size}, boardType=${boardType}, programType=${programType}, keyword=${keyword})}">이전</a>
+
+    <span class="pagination-bar__numbers">
+        <a th:each="n : ${#numbers.sequence(
+                        page / 10 * 10,
+                        (page / 10 * 10 + 9 lt totalPages - 1) ? (page / 10 * 10 + 9) : (totalPages - 1))}"
+           class="pagination-bar__number" th:classappend="${n == page} ? ' is-active'"
+           th:href="@{${basePath}(page=${n}, size=${size}, boardType=${boardType}, programType=${programType}, keyword=${keyword})}"
+           th:text="${n + 1}"></a>
+    </span>
+
+    <a id="next-page" class="pagination-bar__nav" th:if="${page lt totalPages - 1}"
+       th:href="@{${basePath}(page=${page + 1}, size=${size}, boardType=${boardType}, programType=${programType}, keyword=${keyword})}">다음</a>
+
+    <form method="get" th:action="@{${basePath}}" class="pagination-bar__jump">
+        <input type="hidden" name="boardType" th:if="${boardType != null}" th:value="${boardType}">
+        <input type="hidden" name="programType" th:if="${programType != null}" th:value="${programType}">
+        <input type="hidden" name="keyword" th:if="${keyword != null}" th:value="${keyword}">
+        <input type="hidden" name="size" th:value="${size}">
+        <input type="number" name="pageJump" min="1" id="page-jump-input"
+               class="form-control form-control-sm pagination-bar__jump-input"
+               th:placeholder="${page + 1}" aria-label="페이지 번호 입력">
+        <button type="submit" id="page-jump-submit" class="btn btn-outline-secondary btn-sm">이동</button>
+    </form>
+</nav>
+</body>
+</html>

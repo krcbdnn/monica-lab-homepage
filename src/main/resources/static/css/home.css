@@ -614,6 +614,115 @@
     }
 }
 
+/* P13-T14: /boards, /programs 상단 분류 필터. 기본 링크는 검정 계열, 현재 선택된 항목만
+   bold+살짝 큰 글자로 구분한다(대괄호 텍스트 방식 제거). is-active 네이밍은 .hero__indicator.is-active와
+   동일한 기존 컨벤션을 재사용한다. */
+.filter-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.filter-nav__link {
+    color: var(--color-text);
+    text-decoration: none;
+    font-size: 0.9375rem;
+}
+
+.filter-nav__link:hover,
+.filter-nav__link:focus-visible {
+    text-decoration: underline;
+}
+
+.filter-nav__link.is-active {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+/* P13-T14: /boards 목록. 게시판 분류명/제목/조회수를 한 줄(board-list__row)에 묶어 자연스럽게
+   붙어 보이게 하고, 작성일시는 아래 보조 줄로 분리한다. 제목에 flex-grow를 주지 않는 이유: grow를
+   주면 제목이 행의 남은 폭을 전부 차지해버려 조회수가 화면 오른쪽 끝으로 밀려나 보인다(실측으로
+   재현/확인한 문제) - 요구사항은 "조회수가 제목 바로 옆", "오른쪽 끝으로 밀지 않음"이므로 grow 없이
+   내용 크기만큼만 차지하게 한다. white-space:nowrap은 "조회 N"이 줄 중간에서 쪼개지는 것만 막고,
+   min-width:0은 P13-T12와 동일한 이유(flex item 기본 min-width:auto가 제목 줄바꿈을 막는 것)로
+   제목에 필요하다(grow 없이도 shrink+min-width:0만으로 긴 제목은 그대로 줄바꿈된다). */
+#board-list .board-list__link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+
+#board-list .board-list__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem var(--space-1);
+}
+
+#board-list .board-list__title {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: var(--color-text);
+}
+
+#board-list .board-list__views {
+    flex-shrink: 0;
+    white-space: nowrap;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+}
+
+#board-list .board-list__date {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+}
+
+/* P13-T14: Board/Program 공통 pagination(home/fragments/pagination.html). 하단 가운데 정렬,
+   현재 페이지만 강조. 직접 이동 입력은 기존 검색 폼과 동일하게 Bootstrap 클래스를 재사용해
+   별도 기본 input 스타일을 새로 만들지 않는다. */
+.pagination-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    margin-top: var(--space-3);
+}
+
+.pagination-bar__nav,
+.pagination-bar__number {
+    color: var(--color-text);
+    text-decoration: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius);
+}
+
+.pagination-bar__nav:hover,
+.pagination-bar__number:hover,
+.pagination-bar__nav:focus-visible,
+.pagination-bar__number:focus-visible {
+    background: var(--color-surface);
+}
+
+.pagination-bar__number.is-active {
+    font-weight: 700;
+    background: var(--color-primary);
+    color: var(--color-primary-contrast);
+}
+
+.pagination-bar__jump {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: var(--space-2);
+}
+
+.pagination-bar__jump-input {
+    width: 4.5rem;
+}
+
 /* P13-T11: 공개 Popup 레이어(비차단형 floating 카드, 중앙 배치 + 드래그). #popup-overlay/.popup-modal은
    SSR 시점부터 hidden이고, static/js/home/popup-modal.js가 표시 상태·위치·z-index를 전담한다
    (P13-T10 계약). overlay 자체는 배경을 막지 않는 좌표 기준 컨테이너일 뿐이라 pointer-events를 받지
