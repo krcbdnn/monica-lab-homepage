@@ -112,10 +112,12 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#banners img").attr("src")).isEqualTo("/api/files/1");
         assertThat(document.select("#banners img").attr("loading")).isEqualTo("eager");
         assertThat(document.select("#popups").text()).contains("공지 팝업");
-        assertThat(document.select("#latest-notices a").text()).contains("최신 공지 제목");
-        assertThat(document.select("#latest-notices a").attr("href")).isEqualTo("/boards/" + notice.getId());
-        assertThat(document.select("#latest-gallery a").text()).contains("최신 갤러리 제목");
-        assertThat(document.select("#latest-gallery a").attr("href")).isEqualTo("/boards/" + gallery.getId());
+        assertThat(document.select("#latest-notices .notice-list__link").text()).contains("최신 공지 제목");
+        assertThat(document.select("#latest-notices .notice-list__link").attr("href"))
+                .isEqualTo("/boards/" + notice.getId());
+        assertThat(document.select("#latest-gallery .gallery-card__link").text()).contains("최신 갤러리 제목");
+        assertThat(document.select("#latest-gallery .gallery-card__link").attr("href"))
+                .isEqualTo("/boards/" + gallery.getId());
     }
 
     @Test
@@ -182,6 +184,17 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         assertThat(document.select("#latest-programs .program-card")).isEmpty();
         assertThat(document.select("#latest-programs .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestProgramsSectionTitleLinksToProgramsListPage() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-programs .section-title__link").attr("href")).isEqualTo("/programs");
     }
 
     @Test
@@ -364,6 +377,19 @@ class HomeControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void latestNoticesSectionTitleLinksToNoticeListPageAndHasNoLegacyMoreLink() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-notices .section-title__link").attr("href"))
+                .isEqualTo("/boards?boardType=NOTICE");
+        assertThat(document.select("#latest-notices .section__more")).isEmpty();
+    }
+
+    @Test
     void latestGalleryRendersThumbnailAndLinksToBoardDetail() throws Exception {
         Board gallery = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.GALLERY).title("갤러리 목록 확인용 제목")
@@ -410,6 +436,19 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         assertThat(document.select("#latest-gallery .gallery-grid")).isEmpty();
         assertThat(document.select("#latest-gallery .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestGallerySectionTitleLinksToGalleryListPageAndHasNoLegacyMoreLink() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .section-title__link").attr("href"))
+                .isEqualTo("/boards?boardType=GALLERY");
+        assertThat(document.select("#latest-gallery .section__more")).isEmpty();
     }
 
     private Program publicProgram(String title) {

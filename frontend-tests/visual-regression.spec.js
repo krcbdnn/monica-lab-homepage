@@ -619,6 +619,108 @@ test.describe('메인 카드 폭 회귀 검증', () => {
   });
 });
 
+// P13-T12: 메인 섹션 제목 링크화 + Program 목록 썸네일.
+test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test('메인 화면에 "전체보기" 텍스트가 더 이상 존재하지 않는다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('body')).not.toContainText('전체보기');
+  });
+
+  test('"최신 프로그램" 섹션 제목을 클릭하면 /programs로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-programs .section-title__link').click();
+    await expect(page).toHaveURL(/\/programs$/);
+  });
+
+  test('"공지사항" 섹션 제목을 클릭하면 /boards?boardType=NOTICE로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-notices .section-title__link').click();
+    await expect(page).toHaveURL(/\/boards\?boardType=NOTICE$/);
+  });
+
+  test('"갤러리" 섹션 제목을 클릭하면 /boards?boardType=GALLERY로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-gallery .section-title__link').click();
+    await expect(page).toHaveURL(/\/boards\?boardType=GALLERY$/);
+  });
+
+  test.describe('/programs 목록 썸네일', () => {
+    let xsrfToken;
+    let programIdWithThumb;
+    let programIdWithoutThumb;
+    let titleWithThumb;
+    let titleWithoutThumb;
+
+    test.beforeEach(async ({ context, baseURL }) => {
+      await loginAsAdmin(context, baseURL);
+      xsrfToken = await getXsrfToken(context);
+      const runId = Date.now();
+      titleWithThumb = `프로그램 썸네일 확인 ${runId}`;
+      titleWithoutThumb = `프로그램 썸네일 없음 확인 ${runId}`;
+
+      const withThumbRes = await context.request.post(`${baseURL}/api/admin/programs`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: {
+          programType: 'COURSE', title: titleWithThumb, content: '내용',
+          thumbnail: '/api/files/900001', isPublic: true,
+        },
+      });
+      expect(withThumbRes.ok()).toBeTruthy();
+      programIdWithThumb = (await withThumbRes.json()).data.id;
+
+      const withoutThumbRes = await context.request.post(`${baseURL}/api/admin/programs`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: { programType: 'COURSE', title: titleWithoutThumb, content: '내용', isPublic: true },
+      });
+      expect(withoutThumbRes.ok()).toBeTruthy();
+      programIdWithoutThumb = (await withoutThumbRes.json()).data.id;
+    });
+
+    test.afterEach(async ({ context, baseURL }) => {
+      await context.request.delete(`${baseURL}/api/admin/programs/${programIdWithThumb}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+      await context.request.delete(`${baseURL}/api/admin/programs/${programIdWithoutThumb}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    });
+
+    function itemFor(page, title) {
+      return page.locator('#program-list li').filter({ has: page.locator(`text=${title}`) });
+    }
+
+    test('썸네일이 있으면 img로, 없으면 placeholder로 표시된다', async ({ page }) => {
+      await page.goto('/programs');
+
+      await expect(itemFor(page, titleWithThumb).locator('.program-list__thumb img'))
+        .toHaveAttribute('src', '/api/files/900001');
+      await expect(itemFor(page, titleWithoutThumb).locator('.program-list__thumb-placeholder')).toBeVisible();
+      await expect(itemFor(page, titleWithoutThumb).locator('.program-list__thumb img')).toHaveCount(0);
+    });
+
+    test('썸네일 영역을 클릭해도 상세 페이지로 이동한다(a 전체가 클릭 영역)', async ({ page }) => {
+      await page.goto('/programs');
+
+      await itemFor(page, titleWithThumb).locator('.program-list__thumb').click();
+      await expect(page).toHaveURL(new RegExp(`/programs/${programIdWithThumb}$`));
+    });
+
+    for (const viewport of VIEWPORTS) {
+      test(`${viewport.name}에서 /programs 목록(썸네일 포함)에 overflow가 없다`, async ({ page }) => {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.goto('/programs');
+
+        await expect(itemFor(page, titleWithThumb)).toBeVisible();
+        const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflowX).toBeLessThanOrEqual(0);
+      });
+    }
+  });
+});
+
 // P13-T11: 공개 Popup 레이어(비차단형, 최대 3개 동시 노출 + 보충 - P13-T10 재정정 계약).
 // 로컬/Docker DB에 이미 실제 Popup이 등록돼 있을 수 있어(개수/순서 통제 불가) 두 가지로 독립성을 확보한다.
 // (1) 테스트가 만드는 A/B/C/D는 매 테스트 고유한 제목으로 만들고 끝나면 그 4건만 삭제한다.
