@@ -572,6 +572,19 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T15. 공개 Popup 제목 영역 배경색 개선
+- 의존성: P13-T13
+- 산출물: `static/css/home.css`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: P13-T13에서 적용한 `.popup-modal__header`의 `background: var(--color-surface)`(`#f8f9fa`, 흰색 계열)가 여전히 `.popup-modal__body`(`--color-bg`, 흰색)와 시각적으로 뚜렷이 구분되지 않는다는 피드백에 따라, 흰색 계열이 아닌 불투명 배경으로 교체한다. `.popup-modal__header`의 `background`를 `var(--color-text)`(진한 잉크색)로, `.popup-modal__title`의 `color`를 `var(--color-text)`에서 `var(--color-primary-contrast)`(흰색)로 교체한다. 새 CSS 변수·새 색상값·opacity/투명 효과는 추가하지 않고 기존 토큰만 재사용한다. `padding`/`border-bottom`(`--color-border`)/`border-radius`(`--radius`)/`.popup-modal__close`(`--color-text-muted`, 미변경)/`.popup-modal__body`/`.popup-modal__hide-today`/popup DOM 구조/`popup-modal.js`/dialog 접근성/닫기 버튼 동작/"오늘 하루 보지 않기"/다중 Popup 순차 표시·offset 로직은 변경하지 않는다.
+- DoD:
+  - `.popup-modal__header`가 흰색 계열이 아닌 불투명 배경을 가지며 `.popup-modal__body`(카드 배경)와 시각적으로 구분된다. 기존 Java Popup 관련 테스트(DOM/속성 검증)는 무변경 통과.
+  - 기존 Playwright 케이스(`headerBackground !== cardBackground`)는 그대로 유지해 통과시킨다.
+  - 신규 Playwright 케이스: `.popup-modal__header`의 computed `backgroundColor`와 `.popup-modal__title`의 computed `color` 간 WCAG 상대휘도 기준 대비비를 계산해 4.5:1 이상임을 검증한다(exact hex 하드코딩 금지). 보조적으로 헤더 배경이 흰색(`rgb(255, 255, 255)`)이 아님을 느슨하게 확인한다.
+  - 기존 "공개 Popup 레이어" Playwright describe 전체(드래그, offset, z-index, ESC, 오늘 하루 보지 않기 등) 무변경 통과.
+  - `./gradlew build` 성공, Docker 8088 수동 확인(375/768/1024/1440에서 header/body 구분, 제목/닫기 버튼 대비, 긴 제목 2줄 이상, 다중 Popup 겹침, 드래그 후 스타일 유지, 기존 상호작용 회귀 없음).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
