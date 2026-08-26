@@ -843,6 +843,19 @@ test.describe('공개 Popup 레이어', () => {
     await expect(modal.locator('.popup-modal__body img')).toHaveAttribute('src', imageUrlA);
   });
 
+  // P13-T13: header/body가 둘 다 흰색이라 구분되지 않던 문제를 개선한다. 배경색 구체적인 값(어떤
+  // 회색인지)이나 border-bottom 존재 여부까지 고정하면 CSS 구현이 바뀔 때마다 깨지기 쉬우므로,
+  // "header가 카드(본문) 배경과 실제로 다른 색"이라는 동작 수준으로만 검증한다.
+  test('제목 영역(header)이 본문/카드와 시각적으로 구분되는 배경을 가진다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const headerBackground = await modal
+      .locator('.popup-modal__header')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    const cardBackground = await modal.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(headerBackground).not.toBe(cardBackground);
+  });
+
   test('하나를 닫으면 다음 대기 Popup(D)이 그 자리를 채워 다시 3개가 유지된다', async ({ page }) => {
     await page.goto('/');
     await modalFor(page, titleA).locator('.popup-modal__close').click();
