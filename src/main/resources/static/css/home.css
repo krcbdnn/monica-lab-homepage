@@ -674,13 +674,19 @@
     }
 }
 
+/* P13-T13: header와 body가 둘 다 --color-bg(흰색)라 시각적으로 구분되지 않던 문제를 개선한다.
+   기존 디자인 토큰만 재사용해 옅은 배경(--color-surface)과 구분선(--color-border)을 추가하고,
+   상단 radius는 .popup-modal의 border-radius(--radius)와 이어지도록 상단 두 모서리만 맞춘다. */
 .popup-modal__header {
     flex-shrink: 0;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-2);
-    padding: var(--space-2) var(--space-2) 0;
+    padding: var(--space-2);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    border-radius: var(--radius) var(--radius) 0 0;
     cursor: grab;
 }
 

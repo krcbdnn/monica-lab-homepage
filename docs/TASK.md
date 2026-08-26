@@ -543,6 +543,18 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T13. 공개 Popup 제목 영역 시인성 개선
+- 의존성: P13-T11
+- 산출물: `static/css/home.css`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: `.popup-modal__header`가 `.popup-modal__body`와 동일한 흰색(`--color-bg`) 배경을 써서 시각적으로 구분되지 않던 문제를, 기존 디자인 토큰(`--color-surface`, `--color-border`, `--radius`)만 재사용해 개선한다. `.popup-modal__header`에 옅은 배경(`background: var(--color-surface)`)과 구분선(`border-bottom: 1px solid var(--color-border)`)을 추가하고, 카드 전체의 `border-radius: var(--radius)`와 자연스럽게 이어지도록 상단 두 모서리에만 동일한 radius(`border-radius: var(--radius) var(--radius) 0 0`)를 적용한다. 새 CSS 변수·새 색상값·opacity/투명 효과는 추가하지 않는다. popup DOM 구조, `popup-modal.js`, dialog 접근성(`role`/`aria-labelledby`/focus trap/ESC/focus restore/background scroll lock), 닫기 버튼 동작, "오늘 하루 보지 않기", 다중 Popup 순차 표시/offset 로직은 변경하지 않는다.
+- DoD:
+  - `.popup-modal__header`가 `.popup-modal__body`(또는 카드 배경)와 시각적으로 구분되는 배경을 가진다. 기존 Java Popup 관련 테스트(DOM/속성 검증)는 무변경 통과.
+  - 신규 Playwright 케이스: `.popup-modal__header`의 computed `backgroundColor`가 흰색 배경(카드/본문)과 실제로 다름을 검증. CSS 구현 세부값(`border-bottom` 존재 여부 등)까지 과도하게 고정하지 않고, "header가 본문과 시각적으로 구분된다"는 동작 수준까지만 검증한다.
+  - 기존 "공개 Popup 레이어" Playwright describe 전체(드래그, offset, z-index, ESC, 오늘 하루 보지 않기 등) 무변경 통과.
+  - `./gradlew build` 성공, Docker 8088 수동 확인(375/768/1024/1440에서 header/body 구분, 상단 radius, 제목/닫기 버튼 대비, 긴 제목 2줄 이상, 다중 Popup 겹침, 드래그 후 스타일 유지, 기존 상호작용 회귀 없음).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
