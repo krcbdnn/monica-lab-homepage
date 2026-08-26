@@ -839,6 +839,29 @@ test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', ()
   });
 });
 
+// P13-T15: header/title 색상 조합이 WCAG 최소 대비(4.5:1)를 만족하는지 계산하기 위한 헬퍼.
+// exact hex 값을 고정하지 않고 computed rgb()를 그대로 상대휘도 공식에 대입한다.
+function popupParseRgb(rgbString) {
+  const match = rgbString.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function popupRelativeLuminance([r, g, b]) {
+  const channel = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function popupContrastRatio(rgbStringA, rgbStringB) {
+  const lumA = popupRelativeLuminance(popupParseRgb(rgbStringA));
+  const lumB = popupRelativeLuminance(popupParseRgb(rgbStringB));
+  const lighter = Math.max(lumA, lumB);
+  const darker = Math.min(lumA, lumB);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 // P13-T11: 공개 Popup 레이어(비차단형, 최대 3개 동시 노출 + 보충 - P13-T10 재정정 계약).
 // 로컬/Docker DB에 이미 실제 Popup이 등록돼 있을 수 있어(개수/순서 통제 불가) 두 가지로 독립성을 확보한다.
 // (1) 테스트가 만드는 A/B/C/D는 매 테스트 고유한 제목으로 만들고 끝나면 그 4건만 삭제한다.
@@ -972,6 +995,23 @@ test.describe('공개 Popup 레이어', () => {
       .evaluate((el) => getComputedStyle(el).backgroundColor);
     const cardBackground = await modal.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(headerBackground).not.toBe(cardBackground);
+  });
+
+  // P13-T15: --color-surface(#f8f9fa)도 흰색 계열이라 body와 잘 구분되지 않는다는 피드백으로
+  // 불투명한 배경(--color-text)으로 교체했다. exact hex를 고정하면 구현이 바뀔 때마다 깨지기
+  // 쉬우므로, "흰색이 아니다"라는 느슨한 확인과 "제목 텍스트와의 대비가 WCAG 최소 기준(4.5:1)을
+  // 만족한다"는 동작 수준의 확인만 한다.
+  test('제목 영역(header) 배경이 흰색 계열이 아니고 제목 텍스트와 충분한 대비를 가진다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const headerBackground = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const titleColor = await modal
+      .locator('.popup-modal__title')
+      .evaluate((el) => getComputedStyle(el).color);
+
+    expect(headerBackground).not.toBe('rgb(255, 255, 255)');
+    expect(popupContrastRatio(headerBackground, titleColor)).toBeGreaterThanOrEqual(4.5);
   });
 
   test('하나를 닫으면 다음 대기 Popup(D)이 그 자리를 채워 다시 3개가 유지된다', async ({ page }) => {
