@@ -494,19 +494,24 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ### P13-T10. 공개 팝업 레이어 UI 계약
 - 의존성: P13-T1, P13-T9
 - 산출물: `docs/PRD.md`, `docs/FEATURES.md`, `docs/TASK.md`(본 항목), `docs/ARCHITECTURE.md`(Home 섹션)
-- 작업 내용: 코드/템플릿/CSS/JS/테스트 변경 없이 문서 계약만 갱신한다. 현재 공개 메인(`/`)의 Popup은 `home/index.html`이 제목만 본문 흐름에 나열하는 최소 placeholder 상태이며(P8-T1 이후 P13의 어떤 태스크에서도 다뤄진 적 없음), 이번 태스크에서 실제 공개 팝업 UX를 문서로 확정한다. `docs/PRD.md`/`docs/FEATURES.md` 홈페이지 기능 목록에 팝업이 화면 중앙 레이어로 노출됨을 반영하고, `docs/ARCHITECTURE.md` Home 섹션에는 `HomeController`가 `PopupService.getPublicList()`가 반환한 공개 노출 대상 Popup 전체를 `popups` 모델 속성으로 그대로 전달하며 서버는 1건으로 자르거나 순차 표시 상태를 관리하지 않는다는 것, 실제 표시 순서·닫기·오늘 하루 보지 않기 등 UI 상태는 프론트 `static/js/home/popup-modal.js`가 전담한다는 구조를 명시한다. `docs/API.md`는 `PopupResponse.content`와 공개 조회 조건(`isVisible=true` + 노출기간)이 이미 충분히 정의돼 있어 변경하지 않는다.
+- 작업 내용: 코드/템플릿/CSS/JS/테스트 변경 없이 문서 계약만 갱신한다. 현재 공개 메인(`/`)의 Popup은 `home/index.html`이 제목만 본문 흐름에 나열하는 최소 placeholder 상태이며(P8-T1 이후 P13의 어떤 태스크에서도 다뤄진 적 없음), 이번 태스크에서 실제 공개 팝업 UX를 문서로 확정한다. `docs/PRD.md`/`docs/FEATURES.md` 홈페이지 기능 목록에 팝업이 상단 floating 카드로 노출됨을 반영하고, `docs/ARCHITECTURE.md` Home 섹션에는 `HomeController`가 `PopupService.getPublicList()`가 반환한 공개 노출 대상 Popup 전체를 `popups` 모델 속성으로 그대로 전달하며 서버는 1건으로 자르거나 표시 상태를 관리하지 않는다는 것, 실제 표시 개수·순서·닫기·오늘 하루 보지 않기 등 UI 상태는 프론트 `static/js/home/popup-modal.js`가 전담한다는 구조를 명시한다. `docs/API.md`는 `PopupResponse.content`와 공개 조회 조건(`isVisible=true` + 노출기간)이 이미 충분히 정의돼 있어 변경하지 않는다.
+
+  > **P13-T11 구현 중 재정정**: 아래 1, 6, 7번은 최초 확정본(중앙 모달 오버레이 + 순차 표시 + 배경 차단)에서
+  > 비차단형 "최대 3개 동시 floating 카드 + 보충" 방식으로 변경됐다. 2~5, 9번은 실질적으로 그대로 유지되며,
+  > 8번은 카드 크기/오프셋 수치만 보완됐다. `docs/ARCHITECTURE.md` Home 섹션의 "서버는 전체를 그대로 넘기고
+  > 프론트가 표시 상태를 전담한다"는 구조 원칙은 이 재정정과 그대로 부합하므로 변경하지 않았다.
 
   공개 팝업 레이어 UI 계약을 다음과 같이 확정한다.
-  1. visible이며 노출기간 내인 Popup을 본문이 아니라 화면 중앙 레이어(오버레이)로 표시하고, 배경 콘텐츠 위에 덮어 노출한다.
+  1. visible이며 노출기간 내인 Popup 중 `createdAt DESC` 기준 **최대 3개까지 동시에** 화면 상단에 floating 카드로 표시한다. 배경 콘텐츠 위에 떠 있지만 배경을 차단하지 않는다(비차단형 - 아래 6, 7번 참고).
   2. 제목과 관리자 CKEditor content 전체(기존 `PopupResponse.content` + `HtmlSanitizer` 처리 결과 그대로)를 표시한다. 새 Popup 전용 API/DTO를 만들지 않고, 인사말(GREETING)이 이미 쓰는 `th:utext` 패턴을 재사용한다.
   3. content 안 이미지(`<img src="/api/files/...">`)는 원본 비율을 유지한 채 팝업 폭을 넘지 않도록 반응형으로 표시하며, 모바일에서 가로 overflow를 만들지 않는다.
-  4. 명확한 `닫기` 버튼을 제공하고, `ESC` 키로도 현재 팝업을 닫을 수 있다.
+  4. 명확한 `닫기` 버튼을 제공하고, `ESC` 키로도 팝업을 닫을 수 있다(닫는 대상은 7번 참고).
   5. Popup별 "오늘 하루 보지 않기"를 제공한다. "24시간 숨김"이 아니라 **브라우저 로컬 날짜 기준으로 그 날짜 동안만** 해당 Popup ID를 숨기며, 브라우저의 날짜가 바뀌면 다시 표시 대상이 될 수 있다. 서버 저장 없이 `localStorage`에 Popup ID별로 독립 저장하고, 다른 브라우저/기기와 상태를 공유하지 않는다.
-  6. visible이며 기간 내인 Popup이 여러 건이면 동시에 겹쳐 띄우지 않고 순차 표시한다. 현재 Popup을 닫기 또는 오늘 하루 보지 않기로 닫으면 다음 표시 대상을 보여주고, 오늘 하루 보지 않기로 숨긴 Popup은 당일 표시 대상에서 제외하며, 모두 닫으면 오버레이를 제거한다.
-  7. 접근성: dialog semantics를 적용하고, 팝업 제목과 dialog를 연결하며, 닫기 버튼에 명확한 접근 가능한 이름을 제공한다. Popup이 열릴 때 포커스를 팝업 내부 요소(우선 닫기 버튼)로 이동하고, `ESC`로 닫을 수 있으며, 닫힌 뒤 가능한 범위에서 이전 포커스를 복원한다. 팝업이 열려 있는 동안 배경 페이지의 불필요한 스크롤을 막는다. Tab 순환을 팝업 내부로 제한하는 완전한 focus trap은 이 태스크의 필수 계약으로 요구하지 않는다.
-  8. 반응형: 데스크톱에서 과도하게 넓지 않은 `max-width`를 쓰고, 375px 모바일에서도 좌우 여백을 유지하며 viewport를 넘지 않는다. content가 길면 화면 전체 높이를 넘기지 않도록 팝업 내부 스크롤을 허용한다. 375/768/1024/1440 기준으로 레이아웃이 안정적이어야 한다.
+  6. visible이며 기간 내인 Popup이 여러 건이면 최신순으로 최대 3개까지 동시에 표시한다(순차 표시 아님). 화면에 보이는 Popup 하나를 `닫기` 또는 `오늘 하루 보지 않기`로 제거하면, 아직 표시되지 않은 다음 대기 Popup이 있을 경우 그 자리를 채워 다시 최대 3개를 유지한다(더 이상 대기 Popup이 없으면 남은 Popup만 유지). `닫기`는 이번 방문에서만 유효하고(새로고침하면 다시 노출 대상이 될 수 있음), `오늘 하루 보지 않기`만 당일 재방문에도 유지된다. 각 Popup의 닫기/오늘 하루 보지 않기는 다른 Popup 상태에 영향을 주지 않는다. 프론트는 서버가 정렬한 `createdAt DESC` 순서를 그대로 사용하고 별도 재정렬하지 않는다. 모두 닫히면 Popup 영역 자체가 사라진다.
+  7. 접근성: `role="dialog"`는 유지하되 배경을 차단하지 않으므로 `aria-modal`은 쓰지 않는다. Popup이 열릴 때 강제로 포커스를 이동시키지 않고, 닫을 때 별도의 포커스 복원도 하지 않는다(배경이 계속 상호작용 가능한 상태이므로 포커스를 임의로 옮기면 오히려 방해가 된다) - 각 닫기 버튼은 명확한 접근 가능한 이름을 갖고 자연스러운 Tab 순서로 도달 가능하면 충분하다. `ESC`는 현재 표시 중인 Popup 가운데 가장 위(=가장 최신) 1건만 닫으며, 반복하면 최신순으로 하나씩 닫힌다. Popup이 떠 있는 동안 배경 페이지의 스크롤/클릭을 막지 않는다(배경 스크롤 잠금 없음). Tab 순환을 팝업 내부로 제한하는 완전한 focus trap은 이 태스크의 필수 계약으로 요구하지 않는다.
+  8. 반응형: 데스크톱/태블릿은 헤더와 적절한 여백(`max(96px, 뷰포트 높이의 12%)`)을 둔 화면 수평 중앙 부근을 기준으로, 최신 Popup이 z-index 최상단에 오고 다음 Popup일수록 오른쪽/아래로 40px 안팎 offset을 두어 완전히 겹치지 않게 배치한다(24px는 뒤쪽 카드의 버튼이 앞쪽 카드에 가려 클릭이 안 되는 문제가 있어 40px로 확정). 각 Popup 헤더는 드래그 핸들이며, Pointer Events(별도 라이브러리 없이 vanilla JS)로 사용자가 원하는 위치로 옮길 수 있다. 드래그로 잡은 Popup은 즉시 다른 Popup보다 z-index 최상단이 되고, 옮긴 위치는 화면 밖으로 나가지 않게 clamp되며, 다른 Popup이 닫히거나 보충돼도 되돌아가지 않고 해당 방문 동안 유지된다(localStorage 저장은 하지 않음 - 새로고침하면 기본 배치로 복귀). 375px 등 480px 미만 좁은 화면에서는 가로 offset과 드래그 모두 비활성화하고 세로 offset만 사용해 가로 overflow와 스크롤 제스처 충돌이 절대 발생하지 않게 한다. content가 길면 화면 전체 높이를 넘기지 않도록 팝업 내부 스크롤을 허용한다. 375/768/1024/1440 기준으로 레이아웃이 안정적이어야 한다.
   9. Popup의 `isVisible`/`startDate`/`endDate` 공개 조회 조건, `PopupService`/`HomeController` 흐름, 관리자 CRUD 계약은 모두 기존 그대로 유지한다. 이 문서 태스크에서 타임존 설정(`docker-compose.yml`의 `TZ`)은 건드리지 않는다.
-- DoD: 변경 범위가 `docs/**`로만 한정됨(코드/템플릿/CSS/JS/테스트 diff 없음), `./gradlew build`/`./gradlew test` 결과에 영향 없음(문서 전용 변경), PR 리뷰로 4개 문서의 신규/변경 문구 확인.
+- DoD: 변경 범위가 `docs/**`로만 한정됨(코드/템플릿/CSS/JS/테스트 diff 없음), `./gradlew build`/`./gradlew test` 결과에 영향 없음(문서 전용 변경), PR 리뷰로 4개 문서의 신규/변경 문구 확인. (P13-T11 재정정 시점에는 구현과 같은 PR로 병합됨 - 아래 P13-T11 DoD 참고.)
 
 ### P13-T11. 공개 팝업 레이어 UI 구현
 - 의존성: P13-T10
@@ -514,12 +519,12 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: P13-T10에서 확정한 계약대로 공개 팝업 레이어 UI를 구현한다. `PopupService`/`HomeController`/API/DTO는 변경하지 않는 것을 원칙으로 한다(`PopupResponse.content`가 이미 모델까지 전달되고 있음). 기존 `#popups` id는 그대로 유지해 `homeReturns200WithAllRequiredAreasAndFixedQuickMenuLinks`(`#popups` 존재 확인)와 `homeRendersGreetingContentAsUnescapedHtmlAndListsDomainData`(`#popups` 텍스트에 제목 포함 확인) 두 기존 테스트가 구조 변경 없이 계속 통과하도록 한다.
 - DoD:
   - 기존 `#popups` id 유지, `PopupService`/`HomeController`/API/DTO 무변경을 코드 리뷰로 확인.
-  - `HomeControllerTest`: content/이미지가 실제 마크업에 렌더링됨을 검증하는 케이스, 여러 Popup 등록 시 전부 DOM에 존재하되 최초 1건만 활성 상태임을 검증하는 케이스 추가. 기존 두 테스트 무변경 통과.
-  - `src/test/js/home/popup-modal.test.js`(신규): 오늘 하루 보지 않기의 브라우저 로컬 날짜 비교 순수 로직, 순차 표시 대상 선정 로직 단위 테스트.
-  - 신규 Playwright 케이스: 레이어 표시(제목/content/이미지 렌더링), 닫기, `ESC` 닫기, 오늘 하루 보지 않기 후 새로고침해도 당일 숨김 유지, 여러 Popup 순차 표시, 포커스 이동(닫기 버튼)/복원, 모바일 overflow 없음.
+  - `HomeControllerTest`: content/이미지가 실제 마크업에 렌더링됨을 검증하는 케이스(`role="dialog"`는 확인하되 `aria-modal`은 없음을 확인), 여러 Popup 등록 시 전부 DOM에 SSR 시점부터 hidden 상태로 존재함을 검증하는 케이스 추가. 기존 두 테스트 무변경 통과.
+  - `src/test/js/home/popup-modal.test.js`(신규): 오늘 하루 보지 않기의 브라우저 로컬 날짜 비교 순수 로직, 최대 3개 노출 대상 선정(닫힌 것 제외하고 다음 대기로 보충) 순수 로직, `clampPosition`(viewport 경계값 포함)/`computeDefaultPosition`(중앙 기준·rank별 offset·모바일 세로 전용)/`currentTopmostPopupId`(드래그로 순서가 바뀌어도 실제 최상단 판정) 순수 로직 단위 테스트.
+  - 신규 Playwright 케이스: 최신 3개 동시 표시 + 4번째는 최초 hidden, 제목/content/이미지 렌더링, 하나를 닫으면 다음 대기 Popup으로 보충되어 다시 3개 유지, 오늘 하루 보지 않기도 동일하게 보충되고 새로고침 후에도 유지, 개별 닫기가 다른 Popup에 영향 없음, `ESC`로 최상단 1건만 닫히고 반복 시 최신순으로 닫힘, Popup이 떠 있어도 배경 스크롤/배경 링크 클릭이 가능함, 최신 Popup의 z-index가 가장 높음, 1024/1440에서 수평 중앙 배치 확인, 데스크톱 40px offset 확인, 헤더 드래그로 위치 이동, 닫기/오늘 하루 보지 않기 버튼 위 pointerdown은 드래그로 처리되지 않음, 드래그 시 즉시 z-index 최상단, viewport 밖으로 드래그해도 clamp, 드래그 후 다른 Popup이 닫히고 보충돼도 위치 유지, 375px에서 드래그 비활성화, 375/768/1024/1440 overflow 없음, 실제 CKEditor 업로드 이미지가 공개 화면에 렌더링됨.
   - 기존 `frontend-tests/visual-regression.spec.js` 전체 통과.
   - `./gradlew build`/`./gradlew test` 전체 통과, 관리자 Node 테스트 무변경 통과.
-  - Docker 8088 수동 확인(CKEditor 이미지 포함 팝업 실제 노출/닫기/오늘 하루 보지 않기 육안 확인).
+  - Docker 8088 수동 확인(CKEditor 이미지 포함 팝업 실제 노출/닫기/오늘 하루 보지 않기/드래그 육안 확인, 배경 스크롤/클릭이 막히지 않음을 육안 확인).
 
 ---
 

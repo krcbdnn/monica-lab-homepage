@@ -267,6 +267,71 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#banners .hero__empty")).isNotEmpty();
     }
 
+    // #popup-overlay/.popup-modal은 SSR 시점부터 항상 hidden이어야 한다(P13-T10 계약: 서버는 1건으로
+    // 자르거나 어느 것을 "활성"으로 표시할지 결정하지 않고, static/js/home/popup-modal.js가 전담한다).
+    //
+    // 이 테스트는 뷰가 content를 th:utext로 그대로(비이스케이프) 렌더링하는지만 검증한다. sanitize
+    // 자체(스크립트 태그 제거 등)는 PopupService.create()/update() 쓰기 경로의 책임이고 별도로 검증되므로
+    // (P2-T5/P7-T2), 다른 도메인 테스트들과 동일하게 repository로 직접 저장해 그 경로를 우회하는 이 테스트에서
+    // 는 다루지 않는다.
+    @Test
+    void popupRendersTitleAndContentWithImageInsideDialogMarkup() throws Exception {
+        Popup popup = popupRepository.saveAndFlush(Popup.builder()
+                .title("이미지 포함 팝업")
+                .content("<p>안내 내용</p><img src=\"/api/files/1\">")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements modal = document.select("#popup-overlay .popup-modal");
+
+        assertThat(modal).hasSize(1);
+        assertThat(modal.attr("id")).isEqualTo("popup-modal-" + popup.getId());
+        assertThat(modal.attr("role")).isEqualTo("dialog");
+        // 비차단형 floating 카드로 변경(P13-T10 재정정): 배경을 막지 않으므로 aria-modal은 쓰지 않는다.
+        assertThat(modal.hasAttr("aria-modal")).isFalse();
+        assertThat(modal.attr("aria-labelledby")).isEqualTo("popup-modal-title-" + popup.getId());
+        assertThat(document.select("#popup-modal-title-" + popup.getId()).text()).isEqualTo("이미지 포함 팝업");
+        assertThat(document.select(".popup-modal__body p").text()).isEqualTo("안내 내용");
+        assertThat(document.select(".popup-modal__body img").attr("src")).isEqualTo("/api/files/1");
+    }
+
+    @Test
+    void popupOverlayAndAllModalsAreHiddenInServerRenderedMarkupRegardlessOfCount() throws Exception {
+        popupRepository.saveAndFlush(Popup.builder()
+                .title("첫 번째 팝업")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+        popupRepository.saveAndFlush(Popup.builder()
+                .title("두 번째 팝업")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements overlay = document.select("#popup-overlay");
+        Elements modals = document.select(".popup-modal");
+
+        assertThat(overlay).hasSize(1);
+        assertThat(overlay.first().hasAttr("hidden")).isTrue();
+        assertThat(modals).hasSize(2);
+        assertThat(modals.get(0).hasAttr("hidden")).isTrue();
+        assertThat(modals.get(1).hasAttr("hidden")).isTrue();
+    }
+
     @Test
     void latestNoticesRendersTitleAndDateAndLinksToBoardDetail() throws Exception {
         Board notice = boardRepository.saveAndFlush(Board.builder()
