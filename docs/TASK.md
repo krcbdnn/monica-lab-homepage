@@ -528,6 +528,21 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T12. 메인 섹션 제목 링크화 + Program 목록 썸네일
+- 의존성: P13-T3, P13-T4
+- 산출물: `home/index.html`, `home/program/list.html`, `static/css/home.css`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `src/test/java/com/monicalab/program/controller/ProgramViewControllerTest.java`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 코드/문서 두 가지를 다룬다. Controller/Service/DTO는 변경하지 않는다.
+  1. 메인 `#latest-programs`/`#latest-notices`/`#latest-gallery`의 `<h2 class="section-title">`를 유지한 채 그 안에 `<a class="section-title__link">`를 배치해 각각 `/programs`, `/boards?boardType=NOTICE`, `/boards?boardType=GALLERY`로 이동하게 한다. `#latest-notices`/`#latest-gallery`에 있던 `.section__more`("전체보기") 링크는 제거하고, `#latest-programs`에는 원래 없던 전체보기를 새로 만들지 않는다. `#program-shortcut` CTA는 건드리지 않는다.
+  2. `home/program/list.html`의 `#program-list`(`ul > li > a`, P13-T1 태그 구조 유지 계약 대상)는 최상위 구조를 그대로 두고, 각 `a` 내부에 썸네일(`ProgramResponse.thumbnail`, 기존 데이터 그대로 재사용)과 제목, 기존 타입/상태 뱃지를 배치하는 리스트형으로 개선한다(카드형 grid로 재구성하지 않음). 썸네일이 null/빈 문자열/공백만 있는 문자열이어도 항상 placeholder로 대체되어 레이아웃이 깨지지 않게 하며(`#strings.isEmpty(#strings.trim(...))`, 둘 다 null-safe), 썸네일 영역은 데스크톱/태블릿 112×80px, 375px 부근 모바일 80×60px로 고정하고 `object-fit: cover`로 원본 비율과 무관하게 행 높이를 일정하게 유지한다.
+- DoD:
+  - `HomeControllerTest`: 3개 섹션 제목 링크의 href를 각각 검증하는 케이스, `#latest-notices`/`#latest-gallery`에 `.section__more`가 더 이상 없음을 검증하는 케이스 추가. 기존 `#latest-notices a`/`#latest-gallery a` 범용 selector 사용 테스트는 `.notice-list__link`/`.gallery-card__link` 구체적 selector로 교체(검증 강도 약화 아님, 다른 기존 테스트에 이미 쓰인 selector와 통일). 나머지 기존 테스트 무변경 통과.
+  - `ProgramViewControllerTest`: `#program-list`가 `ul > li > a` 구조를 유지한 채 `a` 내부에 썸네일/제목/기존 타입·상태 정보를 렌더링함을 검증하는 케이스, 썸네일 null/빈 문자열/공백 문자열 각각에서 placeholder가 표시됨을 검증하는 케이스(직접 `programRepository.saveAndFlush`로 실제 저장 가능한 데이터만 사용) 추가. 기존 테스트 무변경 통과.
+  - 신규 Playwright 케이스: 메인 3개 섹션 제목 클릭 시 각 목록 페이지로 이동, "전체보기" 텍스트가 더 이상 존재하지 않음, `/programs` 목록에서 썸네일 있는/없는 프로그램이 각각 img/placeholder로 표시됨, 375/768/1024/1440에서 프로그램 목록에 overflow가 없음. 기존 "공백 없는 긴 제목이 있어도 가로 스크롤이 생기지 않는다"(`/programs`) 테스트는 새 마크업에서도 그대로 통과.
+  - `./gradlew build`/`./gradlew test` 전체 통과, Node 전체(홈/관리자) 무변경 통과, `frontend-tests/visual-regression.spec.js` 전체 통과.
+  - Docker 8088 수동 확인(375/768/1024/1440에서 메인 섹션 제목 링크와 `/programs` 썸네일 목록 육안 확인).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

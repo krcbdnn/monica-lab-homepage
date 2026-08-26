@@ -29,9 +29,21 @@
 
     <ul id="program-list" class="list-group mb-4">
         <li class="list-group-item" th:each="program : ${programs.content}">
-            <a th:href="@{/programs/{id}(id=${program.id()})}" th:text="${program.title()}"></a>
-            <span class="badge bg-secondary" th:text="${program.programType()}"></span>
-            <span class="badge bg-info" th:text="${program.recruitStatus()}"></span>
+            <a th:href="@{/programs/{id}(id=${program.id()})}" class="program-list__link">
+                <span class="program-list__thumb">
+                    <img th:unless="${#strings.isEmpty(#strings.trim(program.thumbnail()))}"
+                         th:src="${program.thumbnail()}" th:alt="${program.title()}" loading="lazy">
+                    <span th:if="${#strings.isEmpty(#strings.trim(program.thumbnail()))}"
+                          class="program-list__thumb-placeholder" aria-hidden="true"></span>
+                </span>
+                <span class="program-list__body">
+                    <span class="program-list__title" th:text="${program.title()}"></span>
+                    <span class="program-list__meta">
+                        <span class="badge bg-secondary" th:text="${program.programType()}"></span>
+                        <span class="badge bg-info" th:text="${program.recruitStatus()}"></span>
+                    </span>
+                </span>
+            </a>
         </li>
         <li class="list-group-item text-muted" th:if="${programs.content.isEmpty()}">등록된 프로그램이 없습니다.</li>
     </ul>

@@ -114,6 +114,96 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void listRendersThumbnailTitleAndExistingTypeStatusInfoInsideTheItemLinkKeepingUlLiAStructure() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("목록 썸네일 확인용 프로그램")
+                .content("내용")
+                .thumbnail("/api/files/3")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        // 기존 ul#program-list > li > a 구조가 그대로인지(요소를 제거하거나 카드형 grid로 재구성하지 않았는지).
+        assertThat(document.select("ul#program-list.list-group")).isNotEmpty();
+        assertThat(document.select("#program-list > li.list-group-item > a.program-list__link")).hasSize(1);
+
+        assertThat(document.select("#program-list .program-list__thumb img").attr("src")).isEqualTo("/api/files/3");
+        assertThat(document.select("#program-list .program-list__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#program-list .program-list__title").text()).isEqualTo("목록 썸네일 확인용 프로그램");
+        assertThat(document.select("#program-list .program-list__meta").text()).contains("COURSE", "OPEN");
+        assertThat(document.select("#program-list .program-list__link").attr("href")).isEqualTo("/programs/" + id);
+    }
+
+    @Test
+    void listShowsPlaceholderWhenThumbnailIsNull() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("썸네일 null 프로그램")
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#program-list .program-list__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#program-list .program-list__thumb img")).isEmpty();
+    }
+
+    @Test
+    void listShowsPlaceholderWhenThumbnailIsEmptyString() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("썸네일 빈 문자열 프로그램")
+                .content("내용")
+                .thumbnail("")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#program-list .program-list__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#program-list .program-list__thumb img")).isEmpty();
+    }
+
+    @Test
+    void listShowsPlaceholderWhenThumbnailIsWhitespaceOnly() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("썸네일 공백 문자열 프로그램")
+                .content("내용")
+                .thumbnail("   ")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#program-list .program-list__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#program-list .program-list__thumb img")).isEmpty();
+    }
+
+    @Test
     void nextPageLinkPreservesProgramTypeAndKeywordOnFirstPage() throws Exception {
         seedTwoSummerCoursePrograms();
 
