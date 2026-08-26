@@ -553,3 +553,123 @@
 #board-list a {
     overflow-wrap: break-word;
 }
+
+/* P13-T11: 공개 Popup 레이어(비차단형 floating 카드, 중앙 배치 + 드래그). #popup-overlay/.popup-modal은
+   SSR 시점부터 hidden이고, static/js/home/popup-modal.js가 표시 상태·위치·z-index를 전담한다
+   (P13-T10 계약). overlay 자체는 배경을 막지 않는 좌표 기준 컨테이너일 뿐이라 pointer-events를 받지
+   않고, 실제 카드(.popup-modal)만 pointer-events를 받아 배경 스크롤/클릭이 Popup이 떠 있는 동안에도
+   계속 가능하다.
+   위치(top/left)와 z-index는 이 파일에서 고정값으로 선언하지 않는다 - 중앙 기준 배치, rank별 offset,
+   드래그로 옮긴 위치 유지를 모두 만족하려면 실제 렌더링된 카드 크기/뷰포트 크기를 알아야 해서
+   popup-modal.js의 computeDefaultPosition/clampPosition이 매번 계산해 인라인 style로 지정한다.
+   이 블록은 position:absolute 기준점 역할과 카드의 크기/외관만 담당한다. */
+.popup-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.popup-overlay[hidden] {
+    display: none;
+}
+
+/* 폭: 기본 480px에서 시작해 콘텐츠가 많으면 720px까지 자연스럽게 늘어난다(fit-content + min/max-width).
+   내용이 짧으면 min-width(480px)에서 멈추고, 길면 max-width(720px, viewport 여백 고려)에서 멈춘다.
+   JS(computeDefaultPosition/clampPosition)는 이 최종 렌더링 폭(offsetWidth)을 그대로 읽어 중앙 배치·
+   40px offset·drag clamp를 계산하므로 이 블록만으로 폭이 결정되고 JS 쪽은 변경할 필요가 없다. */
+.popup-modal {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    width: fit-content;
+    min-width: 480px;
+    max-width: min(720px, calc(100vw - 2 * var(--space-2)));
+    max-height: 65vh;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.3);
+    pointer-events: auto;
+}
+
+.popup-modal[hidden] {
+    display: none;
+}
+
+/* 480px 미만: 카드 폭을 뷰포트에 맞춰 가로 offset이 없어도 자연스럽게 꽉 차게 한다(가로 offset
+   자체는 popup-modal.js의 computeDefaultPosition이 이 폭 미만에서는 넣지 않는다).
+   min-width는 CSS 우선순위상 width보다 항상 이기므로, 데스크톱의 min-width:480px을 여기서 반드시
+   0으로 재설정해야 한다 - 안 하면 375px 같은 좁은 화면에서도 카드가 480px로 고정돼 화면 밖으로 나간다
+   (실측으로 재현/확인한 문제). 이미지 max-width도 데스크톱의 고정 px 캡을 그대로 두면 좁은 카드
+   안에서 이미지가 넘치므로 여기서 다시 퍼센트 기반으로 되돌린다. */
+@media (max-width: 480px) {
+    .popup-modal {
+        width: calc(100vw - 2 * var(--space-2));
+        min-width: 0;
+        max-width: none;
+    }
+
+    .popup-modal__body img {
+        max-width: 100%;
+    }
+}
+
+.popup-modal__header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) 0;
+    cursor: grab;
+}
+
+.popup-modal__title {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.popup-modal__close {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    font-size: 1.5rem;
+    line-height: 1;
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.popup-modal__body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: var(--space-2);
+    color: var(--color-text);
+    line-height: 1.6;
+    /* 공백 없는 긴 문자열(CKEditor content)이 폭 계산을 무한정 밀어붙이지 않고 카드 내부에서
+       정상적으로 줄바꿈되게 한다. */
+    overflow-wrap: break-word;
+}
+
+/* 퍼센트(%) max-width는 fit-content로 폭을 계산하는 시점엔 순환 참조라 이미지의 원본 크기가 그대로
+   반영돼(실측 확인: 이미지 하나만 있어도 720px까지 늘어남) "이미지만으로 폭이 커지지 않아야 한다"는
+   요구를 못 지킨다. 고정 px 캡(480px 최소폭에서 좌우 padding을 뺀 값)으로 이미지 자체의 폭 계산
+   기여도를 미리 제한해, 텍스트가 없거나 짧을 때는 이미지가 있어도 480px에서 멈추게 한다. 텍스트가
+   길어 카드가 더 넓어지면 이미지는 이 값을 넘지 않는 선에서 원본 비율로 표시된다. */
+.popup-modal__body img {
+    max-width: calc(480px - 2 * var(--space-2));
+    height: auto;
+}
+
+.popup-modal__hide-today {
+    flex-shrink: 0;
+    margin: 0 var(--space-2) var(--space-2);
+    padding: 0.5rem var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.875rem;
+    cursor: pointer;
+}

@@ -20,6 +20,54 @@ async function getXsrfToken(context) {
   return xsrfCookie.value;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// popup-modal.js와 동일한 "오늘 하루 보지 않기" localStorage 키 규칙.
+// 이 파일의 모든 describe가 공유한다 - 아래 파일 전역 beforeEach가 실제로 떠 있는 Popup을
+// 모든 테스트에서 억제하는 데 쓰고, "공개 Popup 레이어" describe는 자신이 만든 A/B 테스트를
+// 위해 같은 규칙을 다시 사용한다.
+const POPUP_STORAGE_KEY_PREFIX = 'popup-hide-until:';
+
+function popupPad2(n) {
+  return n < 10 ? '0' + n : '' + n;
+}
+
+function popupTodayLocalDateString() {
+  const now = new Date();
+  return now.getFullYear() + '-' + popupPad2(now.getMonth() + 1) + '-' + popupPad2(now.getDate());
+}
+
+async function fetchExistingPublicPopupIds(context, baseURL) {
+  const response = await context.request.get(`${baseURL}/api/popups`);
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json();
+  return body.data.map((popup) => String(popup.id));
+}
+
+// P13-T11 도입 이후 실DB에 현재 활성 상태인 실Popup이 있으면(개수/여부 통제 불가) 전체 화면을
+// 덮는 overlay가 뜬다. 이 파일의 다른 describe(햄버거 메뉴, Hero 캐러셀, 반응형 뷰포트 등)는
+// Popup을 전혀 알지 못하므로, 그 overlay가 클릭/포커스를 가로채 무관한 테스트를 깨뜨릴 수 있다.
+// 그래서 "실제로 지금 떠 있는 Popup을 이 테스트 브라우저 컨텍스트에서만 오늘 하루 보지 않기로
+// 미리 처리"하는 로직을 특정 describe 안이 아니라 파일 전역 beforeEach로 올려 모든 테스트에
+// 공통 적용한다. 실Popup은 삭제/수정/visibility 변경을 전혀 하지 않는다.
+let globalPreExistingPopupIds = [];
+
+test.beforeEach(async ({ context, baseURL }) => {
+  globalPreExistingPopupIds = await fetchExistingPublicPopupIds(context, baseURL);
+  const todayString = popupTodayLocalDateString();
+
+  await context.addInitScript(
+    ({ ids, today, prefix }) => {
+      ids.forEach((id) => {
+        window.localStorage.setItem(prefix + id, today);
+      });
+    },
+    { ids: globalPreExistingPopupIds, today: todayString, prefix: POPUP_STORAGE_KEY_PREFIX }
+  );
+});
+
 // P11-T1: 반응형 적용 검증.
 // 대상은 빈 DB에서도 안정적으로 검증 가능한 공개 주요 화면으로 한정한다.
 // Program/Board 상세 화면은 기존 Java/View 테스트가 이미 커버하므로 이번 범위에서 제외한다.
@@ -568,5 +616,538 @@ test.describe('메인 카드 폭 회귀 검증', () => {
     const thumb = card.locator('.gallery-card__thumb');
     const box = await thumb.boundingBox();
     expect(box.width).toBeLessThanOrEqual(GALLERY_CARD_MAX_WIDTH);
+  });
+});
+
+// P13-T11: 공개 Popup 레이어(비차단형, 최대 3개 동시 노출 + 보충 - P13-T10 재정정 계약).
+// 로컬/Docker DB에 이미 실제 Popup이 등록돼 있을 수 있어(개수/순서 통제 불가) 두 가지로 독립성을 확보한다.
+// (1) 테스트가 만드는 A/B/C/D는 매 테스트 고유한 제목으로 만들고 끝나면 그 4건만 삭제한다.
+// (2) "테스트가 만들기 전부터 떠 있던" 실Popup을 이 테스트 브라우저 컨텍스트에서만 오늘 하루 보지
+//     않기 처리하는 로직은 이 describe만이 아니라 파일 전역 beforeEach(위 참고)에 있다 - 실Popup의
+//     카드가 다른 describe의 클릭/포커스를 가로채는 것을 막기 위해서다(이제는 배경 비차단형이라 실제
+//     충돌 가능성은 낮아졌지만 카드 자체는 pointer-events:auto라 여전히 겹치는 위치의 클릭을 가로챌 수
+//     있다). 이 describe는 그 전역 beforeEach가 채워둔 globalPreExistingPopupIds를 자신의 afterEach
+//     정리에 그대로 재사용한다. 실Popup은 삭제/수정/visibility 변경을 전혀 하지 않는다 - 브라우저 쪽
+//     "오늘 하루 보지 않기" localStorage 상태만 조작하며, 그 값도 afterEach에서 지운다(테스트가 만든
+//     A/B/C/D의 상태와 실Popup의 상태는 서로 다른 key(popup id)를 쓰므로 항상 독립적이다).
+test.describe('공개 Popup 레이어', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  function toLocalIsoString(date) {
+    return date.getFullYear() + '-' + popupPad2(date.getMonth() + 1) + '-' + popupPad2(date.getDate())
+      + 'T' + popupPad2(date.getHours()) + ':' + popupPad2(date.getMinutes()) + ':' + popupPad2(date.getSeconds());
+  }
+
+  async function createPopup(context, baseURL, xsrfToken, title, contentHtml) {
+    const now = new Date();
+    const start = new Date(now.getTime() - 60 * 60 * 1000);
+    const end = new Date(now.getTime() + 60 * 60 * 1000);
+    const response = await context.request.post(`${baseURL}/api/admin/popups`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        title,
+        content: contentHtml,
+        startDate: toLocalIsoString(start),
+        endDate: toLocalIsoString(end),
+        isVisible: true,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+    const body = await response.json();
+    return body.data.id;
+  }
+
+  async function deletePopup(context, baseURL, xsrfToken, id) {
+    await context.request.delete(`${baseURL}/api/admin/popups/${id}`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+    });
+  }
+
+  let xsrfToken;
+  let popupIdA;
+  let popupIdB;
+  let popupIdC;
+  let popupIdD;
+  let titleA;
+  let titleB;
+  let titleC;
+  let titleD;
+  let imageUrlA;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+
+    const runId = Date.now();
+    titleA = `Popup 테스트 A ${runId}`;
+    titleB = `Popup 테스트 B ${runId}`;
+    titleC = `Popup 테스트 C ${runId}`;
+    titleD = `Popup 테스트 D ${runId}`;
+    // HtmlSanitizer(common/util)는 img[src]에 http/https 절대 URL만 허용한다(addProtocols("img",
+    // "src", "http", "https")). 이 describe는 관리자 API를 통해 실제 저장 경로(sanitize 포함)를 타므로,
+    // sanitizer가 실제로 보존하는 형태인 절대 URL을 써야 한다.
+    imageUrlA = `${baseURL}/api/files/900001`;
+
+    // 공개 목록은 createdAt DESC로 정렬된다. created_at 컬럼은 초 단위 정밀도(DATETIME)라
+    // 같은 초 안에 두 Popup을 만들면 createdAt이 동률이 되어 정렬 순서가 보장되지 않는다
+    // (실측: 동률일 때 나중에 만든 쪽이 먼저 온다는 보장이 없었다). A가 항상 가장 최신이 되도록
+    // D->C->B->A 순으로, 매 생성 사이에 최소 1초(1100ms 여유)를 두어 서로 다른 초에 기록되게 한다.
+    // 최대 3개 동시 노출 + 4번째 보충 계약을 검증하려면 최소 4건이 필요하다.
+    popupIdD = await createPopup(context, baseURL, xsrfToken, titleD, '<p>D 내용</p>');
+    await sleep(1100);
+    popupIdC = await createPopup(context, baseURL, xsrfToken, titleC, '<p>C 내용</p>');
+    await sleep(1100);
+    popupIdB = await createPopup(context, baseURL, xsrfToken, titleB, '<p>B 내용</p>');
+    await sleep(1100);
+    popupIdA = await createPopup(context, baseURL, xsrfToken, titleA,
+      `<p>A 내용</p><img src="${imageUrlA}" alt="A 이미지">`);
+  });
+
+  test.afterEach(async ({ context, baseURL, page }) => {
+    await deletePopup(context, baseURL, xsrfToken, popupIdA);
+    await deletePopup(context, baseURL, xsrfToken, popupIdB);
+    await deletePopup(context, baseURL, xsrfToken, popupIdC);
+    await deletePopup(context, baseURL, xsrfToken, popupIdD);
+    // addInitScript로 심은 값(파일 전역 beforeEach가 심음)은 컨텍스트 종료 시 자동 폐기되지만,
+    // 명시적으로도 정리한다.
+    if (page && !page.isClosed()) {
+      await page.evaluate(
+        ({ ids, prefix }) => {
+          ids.forEach((id) => window.localStorage.removeItem(prefix + id));
+        },
+        { ids: globalPreExistingPopupIds, prefix: POPUP_STORAGE_KEY_PREFIX }
+      ).catch(() => {});
+    }
+  });
+
+  function modalFor(page, title) {
+    return page.locator('.popup-modal').filter({ has: page.locator(`text=${title}`) });
+  }
+
+  test('노출 대상 Popup 중 최신 3개(A/B/C)가 동시에 표시되고 4번째(D)는 최초 hidden이다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#popup-overlay')).toBeVisible();
+    await expect(modalFor(page, titleA)).toBeVisible();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeHidden();
+  });
+
+  test('제목/content/이미지를 표시한다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    await expect(modal.locator('.popup-modal__title')).toHaveText(titleA);
+    await expect(modal.locator('.popup-modal__body')).toContainText('A 내용');
+    await expect(modal.locator('.popup-modal__body img')).toHaveAttribute('src', imageUrlA);
+  });
+
+  test('하나를 닫으면 다음 대기 Popup(D)이 그 자리를 채워 다시 3개가 유지된다', async ({ page }) => {
+    await page.goto('/');
+    await modalFor(page, titleA).locator('.popup-modal__close').click();
+
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+  });
+
+  test('오늘 하루 보지 않기로 닫아도 동일하게 다음 대기 Popup으로 보충되고, 새로고침 후에도 그 Popup만 계속 숨겨진다', async ({ page }) => {
+    await page.goto('/');
+    // "오늘 하루 보지 않기" 버튼은 카드 폭 대부분을 차지해서(닫기 버튼과 달리) 뒤쪽 카드에서는
+    // 40px offset만으로 안 가려진 영역을 확보하지 못할 수 있다 - 항상 안 가려지는 최상단(A)으로 확인한다.
+    await modalFor(page, titleA).locator('.popup-modal__hide-today').click();
+
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+
+    await page.reload();
+    // 오늘 하루 보지 않기는 localStorage에 영구 저장되므로 A는 새로고침 후에도 계속 제외된다.
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+  });
+
+  test('하나를 닫아도 나머지 Popup은 그대로 유지되고 서로 독립적으로 닫을 수 있다', async ({ page }) => {
+    await page.goto('/');
+    await modalFor(page, titleB).locator('.popup-modal__close').click();
+
+    await expect(modalFor(page, titleB)).toBeHidden();
+    await expect(modalFor(page, titleA)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+
+    await modalFor(page, titleC).locator('.popup-modal__close').click();
+    await expect(modalFor(page, titleC)).toBeHidden();
+    await expect(modalFor(page, titleA)).toBeVisible();
+  });
+
+  test('ESC를 누르면 가장 위(최신) Popup 1건만 닫히고, 반복하면 최신순으로 하나씩 닫힌다', async ({ page }) => {
+    await page.goto('/');
+
+    await page.keyboard.press('Escape');
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(modalFor(page, titleB)).toBeHidden();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+  });
+
+  test('Popup이 떠 있어도 배경 페이지를 스크롤할 수 있다', async ({ page }) => {
+    await page.goto('/');
+    await expect(modalFor(page, titleA)).toBeVisible();
+
+    const before = await page.evaluate(() => window.scrollY);
+    await page.mouse.wheel(0, 1200);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
+  });
+
+  test('Popup이 떠 있어도 배경 하단의 콘텐츠 링크를 클릭할 수 있다', async ({ page }) => {
+    await page.goto('/');
+    await expect(modalFor(page, titleA)).toBeVisible();
+
+    await page.locator('#program-shortcut a.btn').click();
+    await expect(page).toHaveURL(/\/programs$/);
+  });
+
+  test('최신 Popup(rank 0)의 z-index가 다른 Popup보다 높다', async ({ page }) => {
+    await page.goto('/');
+    const zIndexOf = (locator) => locator.evaluate((el) => Number(getComputedStyle(el).zIndex));
+
+    const zA = await zIndexOf(modalFor(page, titleA));
+    const zB = await zIndexOf(modalFor(page, titleB));
+    const zC = await zIndexOf(modalFor(page, titleC));
+
+    expect(zA).toBeGreaterThan(zB);
+    expect(zB).toBeGreaterThan(zC);
+  });
+
+  test('데스크톱에서 각 Popup은 오른쪽/아래로 뚜렷하게(40px 안팎) offset을 두고 배치되어 완전히 겹치지 않는다', async ({ page }) => {
+    await page.goto('/');
+    const boxA = await modalFor(page, titleA).boundingBox();
+    const boxB = await modalFor(page, titleB).boundingBox();
+    const boxC = await modalFor(page, titleC).boundingBox();
+
+    expect(boxB.x - boxA.x).toBeGreaterThanOrEqual(36);
+    expect(boxB.y - boxA.y).toBeGreaterThanOrEqual(36);
+    expect(boxC.x - boxB.x).toBeGreaterThanOrEqual(36);
+    expect(boxC.y - boxB.y).toBeGreaterThanOrEqual(36);
+  });
+
+  test('40px offset 덕분에 뒤쪽 Popup의 닫기 버튼도 앞쪽 카드에 가려지지 않고 바로 클릭할 수 있다', async ({ page }) => {
+    await page.goto('/');
+    // B/C는 rank1/2라 A보다 뒤에 있지만, 실제로 눈에 안 가려지는 위치까지 offset이 벌어져 있어야
+    // 클릭이 다른 카드에 가로채이지 않는다(24px였을 때는 이 클릭이 실패했었다).
+    await modalFor(page, titleC).locator('.popup-modal__close').click({ timeout: 3000 });
+    await expect(modalFor(page, titleC)).toBeHidden();
+    await expect(modalFor(page, titleA)).toBeVisible();
+    await expect(modalFor(page, titleB)).toBeVisible();
+  });
+
+  test('1024px/1440px 데스크톱에서 최신 Popup이 화면 수평 중앙 부근, 헤더와 충분한 여백을 두고 배치된다', async ({ page }) => {
+    for (const viewport of [{ width: 1024, height: 768 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto('/');
+      const box = await modalFor(page, titleA).boundingBox();
+      const centerX = box.x + box.width / 2;
+
+      expect(Math.abs(centerX - viewport.width / 2)).toBeLessThan(2);
+      expect(box.y).toBeGreaterThanOrEqual(90);
+    }
+  });
+
+  test('헤더를 드래그하면 Popup 위치가 이동한다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const before = await modal.boundingBox();
+    const headerBox = await header.boundingBox();
+    const startX = headerBox.x + headerBox.width / 2;
+    const startY = headerBox.y + headerBox.height / 2;
+    const dx = 150;
+    const dy = 90;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + dx, startY + dy, { steps: 10 });
+    await page.mouse.up();
+
+    const after = await modal.boundingBox();
+    expect(Math.abs(after.x - (before.x + dx))).toBeLessThan(3);
+    expect(Math.abs(after.y - (before.y + dy))).toBeLessThan(3);
+  });
+
+  test('닫기 버튼 위에서 누른 채 움직여도 드래그로 처리되지 않아 Popup 위치가 그대로다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleC);
+    const closeButton = modal.locator('.popup-modal__close');
+    const before = await modal.boundingBox();
+    const btnBox = await closeButton.boundingBox();
+    const startX = btnBox.x + btnBox.width / 2;
+    const startY = btnBox.y + btnBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 80, startY + 80, { steps: 5 });
+    const duringPointerDown = await modal.boundingBox();
+    await page.mouse.up();
+
+    expect(Math.abs(duringPointerDown.x - before.x)).toBeLessThan(2);
+    expect(Math.abs(duringPointerDown.y - before.y)).toBeLessThan(2);
+  });
+
+  test('드래그를 시작하면 그 Popup이 즉시 다른 Popup보다 z-index 최상단으로 올라온다', async ({ page }) => {
+    await page.goto('/');
+    // B는 rank1이라 원래 A보다 z-index가 낮다 - 드래그하면 A(원래 최상단)보다도 위로 올라와야 한다.
+    // 헤더 "중앙"은 앞쪽 카드(A)에 가려진 영역일 수 있으므로, 실제로 안 가려지는 지점(헤더 오른쪽
+    // 끝에서 살짝 안쪽 - 닫기 버튼 바로 왼쪽)을 좌표로 쓴다.
+    const target = modalFor(page, titleB);
+    const other = modalFor(page, titleA);
+    const header = target.locator('.popup-modal__header');
+    const headerBox = await header.boundingBox();
+    const startX = headerBox.x + headerBox.width - 12;
+    const startY = headerBox.y + headerBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 60, startY + 40, { steps: 5 });
+    await page.mouse.up();
+
+    const zTarget = await target.evaluate((el) => Number(getComputedStyle(el).zIndex));
+    const zOther = await other.evaluate((el) => Number(getComputedStyle(el).zIndex));
+    expect(zTarget).toBeGreaterThan(zOther);
+  });
+
+  test('viewport 밖으로 드래그해도 Popup 전체가 화면 안에 clamp된다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const headerBox = await header.boundingBox();
+    const viewport = page.viewportSize();
+
+    await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(viewport.width + 500, viewport.height + 500, { steps: 10 });
+    await page.mouse.up();
+
+    const after = await modal.boundingBox();
+    expect(after.x).toBeGreaterThanOrEqual(0);
+    expect(after.y).toBeGreaterThanOrEqual(0);
+    expect(after.x + after.width).toBeLessThanOrEqual(viewport.width + 1);
+    expect(after.y + after.height).toBeLessThanOrEqual(viewport.height + 1);
+  });
+
+  test('드래그로 옮긴 Popup은 다른 Popup이 닫히고 보충돼도 위치가 유지된다', async ({ page }) => {
+    await page.goto('/');
+    // B(rank1)를 드래그한 뒤 A(rank0)를 닫으면, 드래그하지 않았을 경우 B는 recency reflow로 rank0
+    // 위치로 재배치돼야 정상이다(다른 테스트에서 이미 확인된 동작). 여기서는 드래그로 옮긴 위치가
+    // 그 재배치를 덮어쓰지 않고 그대로 유지되는지를 확인한다.
+    const modal = modalFor(page, titleB);
+    const header = modal.locator('.popup-modal__header');
+    const headerBox = await header.boundingBox();
+    const startX = headerBox.x + headerBox.width - 12;
+    const startY = headerBox.y + headerBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 120, startY + 90, { steps: 8 });
+    await page.mouse.up();
+
+    const draggedPosition = await modal.boundingBox();
+
+    await modalFor(page, titleA).locator('.popup-modal__close').click();
+    await expect(modalFor(page, titleD)).toBeVisible();
+
+    const afterBackfill = await modal.boundingBox();
+    expect(Math.abs(afterBackfill.x - draggedPosition.x)).toBeLessThan(2);
+    expect(Math.abs(afterBackfill.y - draggedPosition.y)).toBeLessThan(2);
+  });
+
+  test('375px에서는 헤더를 드래그해도 Popup 위치가 바뀌지 않는다(모바일 drag 비활성화)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const before = await modal.boundingBox();
+    const headerBox = await header.boundingBox();
+
+    await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(headerBox.x + 50, headerBox.y + 50, { steps: 5 });
+    await page.mouse.up();
+
+    const after = await modal.boundingBox();
+    expect(Math.abs(after.x - before.x)).toBeLessThan(2);
+    expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+  });
+
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}에서 Popup이 여러 개 떠 있어도 가로 overflow가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto('/');
+      await expect(modalFor(page, titleA)).toBeVisible();
+      await expect(modalFor(page, titleB)).toBeVisible();
+      await expect(modalFor(page, titleC)).toBeVisible();
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      // document.scrollWidth는 position:absolute인 Popup 카드가 viewport 밖으로 나가도 감지하지
+      // 못한다(절대 배치 요소는 문서 스크롤 영역에 반영되지 않음 - 실측으로 확인된 맹점). 가변 폭
+      // 도입 이후에는 각 Popup 카드 자신의 boundingBox가 실제로 viewport 안에 있는지 직접 확인한다.
+      for (const title of [titleA, titleB, titleC]) {
+        const box = await modalFor(page, title).boundingBox();
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width + 0.5);
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 0.5);
+      }
+    });
+  }
+
+  test('콘텐츠 길이에 따라 Popup 폭이 최소 480px~최대 720px 사이에서 자연스럽게 늘어난다(fit-content)', async ({ page, context, baseURL }) => {
+    async function widthFor(contentHtml) {
+      const runId = Date.now();
+      const title = `폭가변 확인 ${runId}`;
+      const id = await createPopup(context, baseURL, xsrfToken, title, contentHtml);
+      await page.goto('/');
+      const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+      await deletePopup(context, baseURL, xsrfToken, id);
+      return box.width;
+    }
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    const shortWidth = await widthFor('<p>짧은 안내</p>');
+    const mediumWidth = await widthFor('<p>' + '중간 길이의 안내 문구입니다. '.repeat(3) + '</p>');
+    const longWidth = await widthFor('<p>' + '이것은 실제 관리자 CKEditor로 작성했을 법한 다소 긴 안내 문구입니다. '.repeat(8) + '</p>');
+
+    expect(shortWidth).toBeCloseTo(480, 0);
+    expect(mediumWidth).toBeGreaterThan(shortWidth);
+    expect(mediumWidth).toBeLessThan(720);
+    expect(longWidth).toBeCloseTo(720, 0);
+  });
+
+  test('이미지만 있고 텍스트가 짧으면 이미지 크기와 무관하게 폭이 최소값(480px)에 머문다', async ({ page, context, baseURL }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const title = `이미지단독 폭확인 ${Date.now()}`;
+    // 실제 파일 존재 여부와 무관하게 width/height 속성으로 큰 이미지의 intrinsic size를 흉내낸다.
+    const id = await createPopup(context, baseURL, xsrfToken, title,
+      `<p>짧은 캡션</p><img src="${imageUrlA}" width="1600" height="900">`);
+
+    await page.goto('/');
+    const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+    expect(box.width).toBeCloseTo(480, 0);
+
+    await deletePopup(context, baseURL, xsrfToken, id);
+  });
+
+  test('공백 없는 긴 문자열도 최대폭(720px)에서 카드 내부에 정상적으로 줄바꿈된다(overflow-wrap)', async ({ page, context, baseURL }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const title = `줄바꿈 확인 ${Date.now()}`;
+    const id = await createPopup(context, baseURL, xsrfToken, title, '<p>' + 'A'.repeat(500) + '</p>');
+
+    await page.goto('/');
+    const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+    expect(box.width).toBeCloseTo(720, 0);
+
+    const wrap = await page.evaluate((popupId) => {
+      const body = document.querySelector(`#popup-modal-${popupId} .popup-modal__body`);
+      return { scrollWidth: body.scrollWidth, clientWidth: body.clientWidth };
+    }, id);
+    // scrollWidth가 clientWidth를 넘지 않으면 카드 내부에서도 가로 스크롤 없이 정상 줄바꿈된 것이다.
+    expect(wrap.scrollWidth).toBeLessThanOrEqual(wrap.clientWidth + 1);
+
+    await deletePopup(context, baseURL, xsrfToken, id);
+  });
+
+  test('375px 모바일에서는 데스크톱 min-width(480px)가 적용되지 않고 화면 폭에 맞춰진다', async ({ page, context, baseURL }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const title = `모바일 폭확인 ${Date.now()}`;
+    const id = await createPopup(context, baseURL, xsrfToken, title,
+      '<p>' + '이것은 실제 관리자 CKEditor로 작성했을 법한 다소 긴 안내 문구입니다. '.repeat(8) + '</p>');
+
+    await page.goto('/');
+    const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+    // 데스크톱 min-width(480px)가 재설정 안 되면 375px 화면에서도 480px로 고정돼 밖으로 나간다 -
+    // 실측으로 재현했던 버그를 회귀 테스트로 고정한다.
+    expect(box.width).toBeLessThan(375);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(375.5);
+
+    await deletePopup(context, baseURL, xsrfToken, id);
+  });
+
+  test('실제 관리자 CKEditor 업로드 이미지가 공개 Popup 안에서 렌더링된다', async ({ page, context, baseURL }) => {
+    // A~D와 별개로, 진짜 CKEditor 업로드 버튼을 통해 만든 5번째 Popup으로 별도 검증한다
+    // (HtmlSanitizer가 /api/files/{id} 상대 경로를 보존하도록 고친 fix가 실제 렌더링까지 이어지는지 확인).
+    const title = `CKEditor 이미지 렌더링 확인 ${Date.now()}`;
+    await page.goto('/admin/popups/new');
+    await page.locator('#title').fill(title);
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('이미지 테스트');
+
+    const uploadButton = page
+      .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
+      .first();
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await uploadButton.click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({
+      name: 'tiny.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64'
+      ),
+    });
+
+    // placeholder만 뜬 시점이 아니라 실제 업로드가 끝나 /api/files/{id} src가 채워질 때까지 기다린다.
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && img.getAttribute('src') && img.getAttribute('src').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+
+    const now = new Date();
+    const start = new Date(now.getTime() - 60 * 60 * 1000);
+    const end = new Date(now.getTime() + 60 * 60 * 1000);
+    await page.locator('#startDate').fill(toLocalIsoString(start).slice(0, 16));
+    await page.locator('#endDate').fill(toLocalIsoString(end).slice(0, 16));
+    await page.locator('#isVisible').check();
+
+    await Promise.all([
+      page.waitForURL(/\/admin\/popups$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+
+    const listRes = await context.request.get(`${baseURL}/api/admin/popups?page=0&size=1`);
+    const listBody = await listRes.json();
+    const popupId = listBody.data[0].id;
+
+    await page.goto('/');
+    const img = page.locator(`#popup-modal-${popupId} img`);
+    await expect(img).toBeVisible();
+    const src = await img.getAttribute('src');
+    expect(src).toMatch(/^\/api\/files\/\d+$/);
+
+    const loaded = await img.evaluate((el) => new Promise((resolve) => {
+      if (el.complete) { resolve(el.naturalWidth > 0); return; }
+      el.addEventListener('load', () => resolve(true));
+      el.addEventListener('error', () => resolve(false));
+      setTimeout(() => resolve(el.naturalWidth > 0), 3000);
+    }));
+    expect(loaded).toBeTruthy();
+
+    const cookies = await context.cookies();
+    const xsrf = cookies.find((c) => c.name === 'XSRF-TOKEN').value;
+    await context.request.delete(`${baseURL}/api/admin/popups/${popupId}`, {
+      headers: { 'X-XSRF-TOKEN': xsrf },
+    });
   });
 });

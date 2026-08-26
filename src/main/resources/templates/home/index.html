@@ -43,9 +43,18 @@
         </div>
     </section>
 
-    <section id="popups" class="mb-4">
-        <div th:each="popup : ${popups}" class="popup-item">
-            <span th:text="${popup.title()}"></span>
+    <section id="popups">
+        <div id="popup-overlay" class="popup-overlay" th:if="${!#lists.isEmpty(popups)}" hidden>
+            <div class="popup-modal" th:each="popup : ${popups}" role="dialog"
+                 th:attr="id='popup-modal-' + ${popup.id()}, aria-labelledby='popup-modal-title-' + ${popup.id()}, data-popup-id=${popup.id()}, hidden='hidden'">
+                <div class="popup-modal__header">
+                    <h2 class="popup-modal__title" th:text="${popup.title()}"
+                        th:attr="id='popup-modal-title-' + ${popup.id()}"></h2>
+                    <button type="button" class="popup-modal__close" aria-label="팝업 닫기">×</button>
+                </div>
+                <div class="popup-modal__body" th:if="${popup.content() != null}" th:utext="${popup.content()}"></div>
+                <button type="button" class="popup-modal__hide-today">오늘 하루 보지 않기</button>
+            </div>
         </div>
     </section>
 
@@ -129,8 +138,10 @@
     </section>
 
     <script th:src="@{/js/home/hero-carousel.js}"></script>
+    <script th:src="@{/js/home/popup-modal.js}"></script>
     <script>
         HeroCarousel.bootstrap(document, window);
+        PopupModal.bootstrap(document, window);
     </script>
 </div>
 </body>
