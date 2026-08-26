@@ -64,4 +64,55 @@ class HtmlSanitizerTest {
     void nullInputReturnsNull() {
         assertThat(HtmlSanitizer.sanitize(null)).isNull();
     }
+
+    @Test
+    void preservesInternalRelativeFileImageSrc() {
+        String result = HtmlSanitizer.sanitize("<p>A</p><img src=\"/api/files/123\">");
+
+        assertThat(result).contains("src=\"/api/files/123\"");
+    }
+
+    @Test
+    void removesDataSchemeImage() {
+        String result = HtmlSanitizer.sanitize("<img src=\"data:image/png;base64,abcd\">");
+
+        assertThat(result).doesNotContain("data:").doesNotContain("src=");
+    }
+
+    @Test
+    void removesProtocolRelativeImageSrc() {
+        String result = HtmlSanitizer.sanitize("<img src=\"//evil.com/x.png\">");
+
+        assertThat(result).doesNotContain("evil.com").doesNotContain("src=");
+    }
+
+    @Test
+    void removesArbitraryRelativePathImageSrc() {
+        String result = HtmlSanitizer.sanitize("<img src=\"/admin/dashboard\">");
+
+        assertThat(result).doesNotContain("/admin/dashboard").doesNotContain("src=");
+    }
+
+    @Test
+    void removesNonNumericFileIdImageSrc() {
+        String result = HtmlSanitizer.sanitize("<img src=\"/api/files/abc\">");
+
+        assertThat(result).doesNotContain("/api/files/abc").doesNotContain("src=");
+    }
+
+    @Test
+    void removesTraversalShapedImageSrc() {
+        String result = HtmlSanitizer.sanitize("<img src=\"/api/files/123/../../etc/passwd\">");
+
+        assertThat(result).doesNotContain("etc/passwd").doesNotContain("src=");
+    }
+
+    @Test
+    void removesEventHandlerEvenWithAllowedRelativeSrc() {
+        String result = HtmlSanitizer.sanitize("<img src=\"/api/files/1\" onerror=\"alert(1)\">");
+
+        assertThat(result).contains("src=\"/api/files/1\"")
+                .doesNotContainIgnoringCase("onerror")
+                .doesNotContain("alert(1)");
+    }
 }
