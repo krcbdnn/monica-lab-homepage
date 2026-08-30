@@ -159,6 +159,8 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         Document document = Jsoup.parse(body);
         assertThat(document.select("#attachment-link")).isNotEmpty();
         assertThat(document.select("#attachment-link").attr("href")).isEqualTo("/api/files/1");
+        assertThat(document.select("#attachment-link").attr("target")).isEqualTo("_blank");
+        assertThat(document.select("#attachment-link").attr("rel")).isEqualTo("noopener noreferrer");
     }
 
     @Test

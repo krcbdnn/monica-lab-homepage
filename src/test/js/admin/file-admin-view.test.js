@@ -38,6 +38,12 @@ test('templates/admin/file/list.html links originalName to the existing download
     assert.doesNotMatch(html, /\.src = file\./);
 });
 
+test('templates/admin/file/list.html opens the download link in a new tab with rel="noopener noreferrer"', () => {
+    const html = readTemplate('admin/file/list.html');
+    assert.match(html, /nameLink\.target = '_blank'/);
+    assert.match(html, /nameLink\.rel = 'noopener noreferrer'/);
+});
+
 test('templates/admin/file/list.html formats size with a local formatFileSize helper (B/KB/MB), no shared util', () => {
     const html = readTemplate('admin/file/list.html');
     assert.match(html, /function formatFileSize\(bytes\)/);
