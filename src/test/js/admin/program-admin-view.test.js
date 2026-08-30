@@ -83,3 +83,47 @@ test('templates/admin/program/form.html displays an error message when the save 
     assert.match(html, /errorMessage\.textContent = /);
     assert.match(html, /errorMessage\.style\.display = 'block'/);
 });
+
+// P13-T18: 기존 thumbnail/attachment가 있으면 미리보기가 보이고, 신규 등록 화면(값 없음)에서는
+// hidden 속성으로 기본 숨김 상태다.
+test('templates/admin/program/form.html loads the shared admin-file-preview.js helper', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.match(html, /\/js\/admin\/admin-file-preview\.js/);
+});
+
+test('templates/admin/program/form.html preview containers are hidden by default (new-program screen has no existing files)', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.match(html, /<div id="thumbnailPreview" class="mb-2" hidden>/);
+    assert.match(html, /<div id="attachmentPreview" class="mb-2" hidden>/);
+});
+
+test('templates/admin/program/form.html renders the existing thumbnail/attachment preview when prefilling an edited program', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.match(html, /AdminFilePreview\.renderImagePreview\(\s*document\.querySelector\('#thumbnailPreview'\),\s*document\.querySelector\('#thumbnailPreviewImage'\),\s*document\.querySelector\('#thumbnailPreviewLink'\),\s*program\.thumbnail\);/);
+    assert.match(html, /AdminFilePreview\.renderLinkPreview\(\s*document\.querySelector\('#attachmentPreview'\),\s*document\.querySelector\('#attachmentPreviewLink'\),\s*program\.attachment\);/);
+});
+
+test('templates/admin/program/form.html refreshes the preview immediately after a new thumbnail/attachment upload succeeds', () => {
+    const html = readTemplate('admin/program/form.html');
+    const thumbnailHandlerIndex = html.indexOf("#thumbnailInput').addEventListener('change'");
+    const thumbnailPreviewCallIndex = html.indexOf('AdminFilePreview.renderImagePreview', thumbnailHandlerIndex);
+    const attachmentHandlerIndex = html.indexOf("#attachmentInput').addEventListener('change'");
+    const attachmentPreviewCallIndex = html.indexOf('AdminFilePreview.renderLinkPreview', attachmentHandlerIndex);
+
+    assert.notEqual(thumbnailHandlerIndex, -1);
+    assert.notEqual(attachmentHandlerIndex, -1);
+    assert.ok(thumbnailPreviewCallIndex > thumbnailHandlerIndex,
+        'thumbnail change handler must call renderImagePreview after a successful upload');
+    assert.ok(attachmentPreviewCallIndex > attachmentHandlerIndex,
+        'attachment change handler must call renderLinkPreview after a successful upload');
+});
+
+test('templates/admin/program/form.html attachment link has no target="_blank" (server already responds with Content-Disposition: attachment)', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.match(html, /<a id="attachmentPreviewLink" href="#">현재 등록된 첨부파일 다운로드<\/a>/);
+});
+
+test('templates/admin/program/form.html thumbnail "open in new tab" link uses target="_blank" with rel="noopener noreferrer"', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.match(html, /<a id="thumbnailPreviewLink" href="#" target="_blank" rel="noopener noreferrer">/);
+});

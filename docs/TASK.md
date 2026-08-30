@@ -637,6 +637,26 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T18. 관리자 Board/Program 수정 화면 기존 썸네일/첨부파일 미리보기
+- 의존성: P13-T17
+- 산출물: `static/js/admin/admin-file-preview.js`(신규), `admin/board/form.html`, `admin/program/form.html`, `static/css/admin/admin.css`, `src/test/js/admin/admin-file-preview.test.js`(신규), `src/test/js/admin/board-admin-view.test.js`, `src/test/js/admin/program-admin-view.test.js`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 관리자가 Board/Program 수정 화면에 진입했을 때 이미 등록된 `thumbnail`/`attachment`가 화면에 전혀 보이지 않던 문제를 고친다(원인: `<input type="file">`은 보안상 값을 미리 채울 수 없는데 hidden input에만 기존 URL을 넣고 있었음 — 유지 흐름 자체는 정상 동작했으나 화면에 표시가 안 됨).
+  1. Board/Program 각 폼의 썸네일/첨부파일 `<input type="file">` 위에 미리보기 블록(`#thumbnailPreview`/`#attachmentPreview`, 기본 `hidden`)을 추가한다. 썸네일은 실제 `<img>` 미리보기 + "새 창에서 보기"(`target="_blank" rel="noopener noreferrer"`) 링크, 첨부파일은 "현재 등록된 첨부파일 다운로드" 고정 텍스트 링크(서버가 이미 `Content-Disposition: attachment`로 응답하므로 `target="_blank"` 미사용, 공개 상세 페이지 "첨부파일 다운로드" 링크와 동일한 패턴 재사용)로 표시한다. Board/Program 응답에는 원본 파일명이 없고(ERD.md 설계상 FK 대신 URL 문자열만 저장) `GET /api/admin/files/{id}` 단건 조회 API도 없으므로, 새 API를 추가하지 않고 URL 링크만으로 "식별 가능한 정보"를 제공한다.
+  2. 신규 공용 모듈 `static/js/admin/admin-file-preview.js`(`AdminFilePreview.renderImagePreview`/`renderLinkPreview`)를 만들어 Board/Program 폼이 함께 사용한다. URL을 `trim()`한 뒤 빈 문자열(공백만 있는 경우 포함)이면 컨테이너를 `hidden` 처리하고 `src`/`href` 속성을 제거하며, `innerHTML`은 사용하지 않는다.
+  3. 편집 진입 시 기존 populate 콜백(`Promise.all(...).then(...)`)에서 hidden input 값을 채우는 것과 같은 자리에 미리보기 렌더 호출을 추가한다. 신규 등록 화면(`editingBoardId`/`editingProgramId` 없음)은 이 콜백 자체가 실행되지 않으므로 미리보기가 항상 `hidden` 상태로 유지된다(별도 분기 불필요).
+  4. `#thumbnailInput`/`#attachmentInput`의 `change` 핸들러에서 업로드 성공 시(hidden input 값을 갱신하는 자리) 미리보기도 함께 새 URL로 갱신한다.
+  5. 기존 hidden input 유지 방식(새 파일 미선택 시 PUT payload에 기존 URL 그대로 전송)은 변경하지 않는다. `board-file-upload.js`/`program-file-upload.js`의 기존 중복은 리팩토링하지 않는다. 파일 삭제 기능, 원본 파일명 조회 API는 추가하지 않는다.
+- DoD:
+  - Board/Program 수정 진입 시 기존 `thumbnail`이 있으면 `<img>` 미리보기가 렌더링되고, 기존 `attachment`가 있으면 다운로드 링크가 렌더링된다. 값이 없으면(신규 등록 화면 포함) 컨테이너가 `hidden`이다.
+  - `admin-file-preview.js`: URL이 `null`/`undefined`/`''`/공백 전용 문자열이면 컨테이너 hidden + `src`/`href` 제거, 유효한 문자열(앞뒤 공백 trim)이면 컨테이너 표시 + `src`/`href` 설정을 단위 테스트로 검증.
+  - `board-admin-view.test.js`/`program-admin-view.test.js`: 미리보기 스크립트 로드, 신규 등록 화면 기본 hidden, 편집 진입 시 populate 콜백에서 렌더 호출, 신규 업로드 성공 시 렌더 갱신 호출, 첨부파일 링크에 `target` 없음, 썸네일 "새 창에서 보기" 링크에 `target="_blank" rel="noopener noreferrer"` 존재를 정적 테스트로 검증.
+  - Playwright: Board/Program 각각 (a) 기존 썸네일/첨부파일이 있는 게시글/프로그램 수정 진입 시 미리보기 visible과 실제 URL 일치, (b) 신규 등록 화면에서 미리보기 hidden, (c) 새 파일을 선택하지 않고 저장했을 때 실제 PUT payload(또는 저장 후 재조회 응답)의 `thumbnail`/`attachment`가 기존 URL과 동일하게 유지됨(프론트 hidden value 유지 동작 자체를 증명), (d) 새 파일 업로드 시 미리보기가 즉시 갱신됨을 신규 케이스로 확인한다.
+  - `./gradlew build` 성공, Node/Java 전체 무변경 통과(Java는 API/DTO/Entity 변경이 없어 회귀만 확인), Playwright 전체 통과, Docker 8088 수동 확인.
+  - Banner의 동일한 문제는 확인만 하고 이번 Task에서 고치지 않는다(후속 Task 후보로 기록). 조회수 제거, 기존 파일 삭제 기능, 링크/썸네일/상세 이미지 크기 등은 이번 Task 범위에 포함하지 않는다.
+  - DB/Entity/DTO/API/Flyway 변경 없음.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

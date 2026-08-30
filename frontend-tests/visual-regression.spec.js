@@ -796,6 +796,177 @@ test.describe('P13-T17: 공개 화면 명칭/네비게이션/홈 구성 정리',
   }
 });
 
+// P13-T18: 관리자 Board/Program 수정 화면에서 기존 thumbnail/attachment가 보이지 않던 문제 검증.
+// 1x1 투명 PNG(순수 데이터 URI, 실제 파일 아님) - 진짜 업로드 검증(magic byte 검사 포함)용.
+const PNG_1PX_BUFFER = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64');
+
+test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 미리보기', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+  let programId;
+
+  async function createBoardWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE', title,
+        thumbnail: '/api/files/900201', attachment: '/api/files/900202',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  async function createProgramWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE', title, content: '내용',
+        thumbnail: '/api/files/900301', attachment: '/api/files/900302',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+    programId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+    if (programId) {
+      await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('Board 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL }) => {
+    boardId = await createBoardWithFiles(context, baseURL, 'Board 썸네일 미리보기 확인 ' + Date.now());
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900201');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('href', '/api/files/900201');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('target', '_blank');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('Board 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL }) => {
+    boardId = await createBoardWithFiles(context, baseURL, 'Board 첨부파일 미리보기 확인 ' + Date.now());
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+    await expect(page.locator('#attachmentPreviewLink')).toHaveAttribute('href', '/api/files/900202');
+    await expect(page.locator('#attachmentPreviewLink')).not.toHaveAttribute('target', /.+/);
+  });
+
+  test('Program 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL }) => {
+    programId = await createProgramWithFiles(context, baseURL, 'Program 썸네일 미리보기 확인 ' + Date.now());
+    await page.goto(`/admin/programs/${programId}/edit`);
+
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900301');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('target', '_blank');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('Program 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL }) => {
+    programId = await createProgramWithFiles(context, baseURL, 'Program 첨부파일 미리보기 확인 ' + Date.now());
+    await page.goto(`/admin/programs/${programId}/edit`);
+
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+    await expect(page.locator('#attachmentPreviewLink')).toHaveAttribute('href', '/api/files/900302');
+    await expect(page.locator('#attachmentPreviewLink')).not.toHaveAttribute('target', /.+/);
+  });
+
+  test('신규 등록 화면(Board/Program 모두)에서는 미리보기 영역이 표시되지 않는다', async ({ page }) => {
+    await page.goto('/admin/boards/new');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+
+    await page.goto('/admin/programs/new');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+
+  test('Board: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL }) => {
+    boardId = await createBoardWithFiles(context, baseURL, 'Board URL 유지 확인 ' + Date.now());
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/boards/${boardId}`) && req.method() === 'PUT'),
+      page.locator('#boardForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBe('/api/files/900201');
+    expect(payload.attachment).toBe('/api/files/900202');
+  });
+
+  test('Program: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL }) => {
+    programId = await createProgramWithFiles(context, baseURL, 'Program URL 유지 확인 ' + Date.now());
+    await page.goto(`/admin/programs/${programId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/programs/${programId}`) && req.method() === 'PUT'),
+      page.locator('#programForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBe('/api/files/900301');
+    expect(payload.attachment).toBe('/api/files/900302');
+  });
+
+  test('Board: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL }) => {
+    boardId = await createBoardWithFiles(context, baseURL, 'Board 새 썸네일 갱신 확인 ' + Date.now());
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900201');
+
+    await page.setInputFiles('#thumbnailInput', {
+      name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+
+    await expect(page.locator('#thumbnail')).not.toHaveValue('/api/files/900201');
+    const newUrl = await page.locator('#thumbnail').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', newUrl);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+  });
+
+  test('Program: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL }) => {
+    programId = await createProgramWithFiles(context, baseURL, 'Program 새 썸네일 갱신 확인 ' + Date.now());
+    await page.goto(`/admin/programs/${programId}/edit`);
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900301');
+
+    await page.setInputFiles('#thumbnailInput', {
+      name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+
+    await expect(page.locator('#thumbnail')).not.toHaveValue('/api/files/900301');
+    const newUrl = await page.locator('#thumbnail').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', newUrl);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+  });
+});
+
 // P13-T14: 게시판/프로그램 목록 필터 · UI · pagination. 실제 Docker DB는 이 세션 전체에서 누적된
 // 데이터가 이미 있을 수 있으므로(격리된 테스트 DB가 아님), "정확히 N페이지"처럼 전체 개수를 못박는
 // 단정은 하지 않는다 - 이번에 새로 만드는 레코드 개수만큼 "최소 이 이상"이라는 사실만 검증한다

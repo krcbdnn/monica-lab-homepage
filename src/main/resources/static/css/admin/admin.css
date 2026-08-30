@@ -24,3 +24,10 @@
 .ck-editor__editable:focus {
     border-color: #86b7fe !important;
 }
+
+/* P13-T18: 관리자 Board/Program 수정 화면의 기존 썸네일/첨부파일 미리보기 */
+.admin-file-preview__thumb {
+    max-width: 200px;
+    max-height: 150px;
+    display: block;
+}
