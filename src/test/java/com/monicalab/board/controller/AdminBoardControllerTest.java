@@ -10,10 +10,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +33,9 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
 
     @Autowired
     private BoardRepository boardRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
@@ -198,6 +203,42 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
         mockMvc.perform(admin(get("/api/admin/boards/{id}", board.getId())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
+    }
+
+    // P13-T16: BoardType.REVIEW는 기존 Board CRUD/공개 조회 로직을 그대로 재사용하므로(타입 분기 없음),
+    // 등록/수정/삭제/공개 여부 자체는 위의 기존 테스트들이 이미 모든 BoardType에 대해 검증하고 있다.
+    // 이 테스트는 그 전제 위에서 "관리자가 REVIEW로 등록 -> 비공개 상태에서는 공개 목록에 없음 ->
+    // 공개 전환 -> 공개 목록/상세에 노출"이라는 새로 생긴 핵심 경로 하나만 스모크로 확인한다.
+    @Test
+    void reviewCreatedByAdminBecomesVisibleInPublicListAndDetailAfterVisibilityIsToggled() throws Exception {
+        String createBody = "{\"boardType\":\"REVIEW\",\"title\":\"강의 후기 스모크\",\"thumbnail\":\"/api/files/9\"}";
+
+        String responseBody = mockMvc.perform(admin(post("/api/admin/boards")).content(createBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.boardType").value("REVIEW"))
+                .andExpect(jsonPath("$.data.isPublic").value(false))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Long id = objectMapper.readTree(responseBody).path("data").path("id").asLong();
+
+        mockMvc.perform(get("/api/boards").param("boardType", "REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(0));
+
+        mockMvc.perform(admin(patch("/api/admin/boards/{id}/visibility", id))
+                        .content("{\"isPublic\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.isPublic").value(true));
+
+        mockMvc.perform(get("/api/boards").param("boardType", "REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(id));
+
+        mockMvc.perform(get("/api/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("강의 후기 스모크"))
+                .andExpect(jsonPath("$.data.thumbnail").value("/api/files/9"));
     }
 
     private MockHttpServletRequestBuilder admin(MockHttpServletRequestBuilder builder) {

@@ -20,6 +20,7 @@ public class HomeController {
 
     private static final int LATEST_BOARD_LIMIT = 5;
     private static final int LATEST_PROGRAM_LIMIT = 3;
+    private static final int LATEST_REVIEW_LIMIT = 3;
 
     private final BannerService bannerService;
     private final PopupService popupService;
@@ -34,6 +35,8 @@ public class HomeController {
         model.addAttribute("greeting", pageService.getByType(PageType.GREETING));
         model.addAttribute("latestPrograms",
                 programService.getPublicList(null, null, latestProgramPageable()).getContent());
+        model.addAttribute("latestReviews",
+                boardService.getPublicList(BoardType.REVIEW, null, latestReviewPageable()).getContent());
         model.addAttribute("latestNotices",
                 boardService.getPublicList(BoardType.NOTICE, null, latestBoardPageable()).getContent());
         model.addAttribute("latestGallery",
@@ -47,5 +50,9 @@ public class HomeController {
 
     private PageRequest latestProgramPageable() {
         return PageRequest.of(0, LATEST_PROGRAM_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"));
+    }
+
+    private PageRequest latestReviewPageable() {
+        return PageRequest.of(0, LATEST_REVIEW_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 }

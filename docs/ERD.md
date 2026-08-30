@@ -70,15 +70,15 @@ Version 2.0
 
 # 3. Board
 
-공지사항, 갤러리, 자료실을 하나의 테이블에서 관리한다.
+공지사항, 갤러리, 자료실, 강의 후기(P13-T16)를 하나의 테이블에서 관리한다.
 
 | 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
 |-------|------|------|------------|-------------|
 | id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
-| board_type | VARCHAR(20) | NOT NULL | 없음 | NOTICE / GALLERY / ARCHIVE |
+| board_type | VARCHAR(20) | NOT NULL | 없음 | NOTICE / GALLERY / ARCHIVE / REVIEW |
 | title | VARCHAR(200) | NOT NULL | 없음 | 제목 |
 | content | LONGTEXT | NULL | 없음 | 내용 |
-| thumbnail | VARCHAR(255) | NULL | 없음 | 대표 이미지(갤러리), File API URL 문자열 |
+| thumbnail | VARCHAR(255) | NULL | 없음 | 대표 이미지(갤러리, 강의 후기), File API URL 문자열 |
 | attachment | VARCHAR(255) | NULL | 없음 | 첨부파일, File API URL 문자열 |
 | view_count | INT | NOT NULL | 없음 | 서버 관리 필드; 생성 시 application-level 기본값 `0` |
 | is_public | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
@@ -233,7 +233,7 @@ DB에는 파일 경로만 저장한다.
 # 설계 원칙
 
 - Program(program_type)으로 수강/특강 통합
-- Board(board_type)으로 공지사항/갤러리/자료실 통합
+- Board(board_type)으로 공지사항/갤러리/자료실/강의 후기 통합
 - Google Form URL을 이용한 신청
 - CMS에서 모든 콘텐츠 수정
 - 관리자만 Spring Security 인증

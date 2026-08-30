@@ -294,9 +294,10 @@ HomeController
 - 팝업 조회: `HomeController`는 `PopupService.getPublicList()`가 반환한 공개 노출 대상(`isVisible=true`이며 노출기간 내) Popup 전체를 `popups` 모델 속성으로 그대로 전달한다. 서버는 1건으로 자르거나 순차 표시 상태를 관리하지 않는다. 실제 표시 순서, 닫기, 오늘 하루 보지 않기 등 UI 상태는 서버가 관여하지 않고 프론트 `static/js/home/popup-modal.js`가 전담한다. 상세 계약은 `docs/TASK.md` P13-T10/P13-T11을 따른다.
 - 기관소개(인사말, GREETING) 요약 조회
 - 최신 프로그램 카드 조회: `ProgramService.getPublicList(null, null, createdAt desc pageable)` 결과 중 최신 3건을 모델에 제공한다. `recruitStatus` 기준 서버 측 필터링은 하지 않으며, 응답에 포함된 `recruitStatus` 값으로 화면에서 상태 배지만 표시한다. 0건이어도 화면은 완성된 레이아웃의 empty state로 렌더링한다.
+- 최신 강의 후기 카드 조회(P13-T16): `#latest-programs` 바로 다음에 위치한다. `BoardService.getPublicList(BoardType.REVIEW, null, createdAt desc pageable)` 결과 중 최신 `LATEST_REVIEW_LIMIT`(3)건을 `latestReviews` 모델 속성으로 제공한다. `LATEST_BOARD_LIMIT`(공지/갤러리, 5)과는 별도 상수를 쓴다. 별도 Entity/API를 만들지 않고 기존 `Board`(`boardType=REVIEW`)를 재사용하며, 마크업은 `#latest-gallery`의 `.gallery-grid`/`.gallery-card__*`를 그대로 재사용한다.
 - 최신 공지/갤러리 조회
 - 프로그램 바로가기
-- 바로가기 메뉴: 기존 공개 화면으로 이동하는 고정 링크 3개(`기관소개` → `/pages/GREETING`, `프로그램` → `/programs`, `게시판` → `/boards`). 별도 Entity/API를 만들지 않는다.
+- 바로가기 메뉴: 기존 공개 화면으로 이동하는 고정 링크 4개(`기관소개` → `/pages/GREETING`, `프로그램` → `/programs`, `강의 후기` → `/boards?boardType=REVIEW`, `게시판` → `/boards`). 별도 Entity/API를 만들지 않는다.
 
 자체 Entity/Repository 없이 Banner, Popup, Board, Program, Page Service를 조합하여 사용한다.
 

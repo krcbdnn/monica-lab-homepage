@@ -70,15 +70,16 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#banners")).isNotEmpty();
         assertThat(document.select("#popups")).isNotEmpty();
         assertThat(document.select("#greeting")).isNotEmpty();
+        assertThat(document.select("#latest-reviews")).isNotEmpty();
         assertThat(document.select("#latest-notices")).isNotEmpty();
         assertThat(document.select("#latest-gallery")).isNotEmpty();
         assertThat(document.select("#program-shortcut")).isNotEmpty();
         assertThat(document.select("#quick-menu")).isNotEmpty();
 
         Elements quickMenuLinks = document.select("#quick-menu a");
-        assertThat(quickMenuLinks).hasSize(3);
+        assertThat(quickMenuLinks).hasSize(4);
         assertThat(quickMenuLinks.eachAttr("href"))
-                .containsExactly("/pages/GREETING", "/programs", "/boards");
+                .containsExactly("/pages/GREETING", "/programs", "/boards?boardType=REVIEW", "/boards");
     }
 
     @Test
@@ -449,6 +450,94 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#latest-gallery .section-title__link").attr("href"))
                 .isEqualTo("/boards?boardType=GALLERY");
         assertThat(document.select("#latest-gallery .section__more")).isEmpty();
+    }
+
+    @Test
+    void latestReviewsShowsAtMostThreeMostRecentPublicReviews() throws Exception {
+        boardRepository.saveAndFlush(publicReview("가장 오래된 후기"));
+        Thread.sleep(1100);
+        boardRepository.saveAndFlush(publicReview("후기 A"));
+        boardRepository.saveAndFlush(publicReview("후기 B"));
+        boardRepository.saveAndFlush(publicReview("후기 C"));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements cards = document.select("#latest-reviews .gallery-card");
+
+        assertThat(cards).hasSize(3);
+        String cardsText = cards.text();
+        assertThat(cardsText).contains("후기 A", "후기 B", "후기 C");
+        assertThat(cardsText).doesNotContain("가장 오래된 후기");
+    }
+
+    @Test
+    void latestReviewsRendersThumbnailAndLinksToBoardDetail() throws Exception {
+        Board review = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("강의 후기 목록 확인용 제목")
+                .thumbnail("/api/files/3")
+                .viewCount(0).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .gallery-card__thumb img").attr("src"))
+                .isEqualTo("/api/files/3");
+        assertThat(document.select("#latest-reviews .gallery-card__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#latest-reviews .gallery-card__title").text()).isEqualTo("강의 후기 목록 확인용 제목");
+        assertThat(document.select("#latest-reviews .gallery-card__link").attr("href"))
+                .isEqualTo("/boards/" + review.getId());
+    }
+
+    @Test
+    void latestReviewsShowsPlaceholderWhenThumbnailMissing() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("썸네일 없는 후기")
+                .viewCount(0).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .gallery-card__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#latest-reviews .gallery-card__thumb img")).isEmpty();
+    }
+
+    @Test
+    void latestReviewsShowsEmptyStateWhenNoReviewsExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .gallery-grid")).isEmpty();
+        assertThat(document.select("#latest-reviews .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestReviewsSectionTitleLinksToReviewListPage() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .section-title__link").attr("href"))
+                .isEqualTo("/boards?boardType=REVIEW");
+    }
+
+    private Board publicReview(String title) {
+        return Board.builder()
+                .boardType(BoardType.REVIEW).title(title)
+                .viewCount(0).isPublic(true).build();
     }
 
     private Program publicProgram(String title) {
