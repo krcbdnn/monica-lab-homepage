@@ -753,6 +753,27 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T23. 관리자 CKEditor 이미지 정렬 노출 및 공개 반영
+- 의존성: P13-T22
+- 산출물: `common/util/HtmlSanitizer.java`, `src/test/java/com/monicalab/common/util/HtmlSanitizerTest.java`, `static/js/admin/ckeditor-config.js`(신규), `src/test/js/admin/ckeditor-config.test.js`(신규), `admin/board/form.html`, `admin/program/form.html`, `admin/page/form.html`, `admin/popup/form.html`, `home/board/detail.html`, `home/program/detail.html`, `home/page/detail.html`, `static/css/home.css`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 관리자 CKEditor 편집기 확장 가능성 조사(현재 CKEditor 5 41.4.2 classic CDN build를 실제 헤드리스 실행/jsoup 1.18.1 재현으로 직접 검증) 결과에 따라, 새 plugin/build/npm 도입 없이 이미 `ImageStyle` 플러그인에 등록되어 있는 `alignLeft`/`alignRight`/`alignCenter`를 관리자 화면에 노출하고, 저장 시 사라지던 이미지 정렬 정보가 실제로 왕복 보존되도록 한다.
+  1. CDN URL(`https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js`)과 버전은 그대로 유지한다. 새 CKEditor plugin, npm 패키지, 번들러는 도입하지 않는다.
+  2. 4개 폼이 공유하는 `static/js/admin/ckeditor-config.js`(신규)를 만들어 `image.toolbar`에 기존 `imageStyle:inline`/`imageStyle:block`/`imageStyle:side`를 유지한 채 `imageStyle:alignLeft`/`imageStyle:alignCenter`/`imageStyle:alignRight`를 추가한다(`image.styles` 재선언 불필요 — 헤드리스 실행으로 이미 기본 등록되어 있음을 확인). 4개 폼은 `ClassicEditor.create(el, AdminCkeditorConfig.EDITOR_CONFIG)`로 이 config를 전달하고, 업로드 어댑터(`ckeditor-upload-adapter.js`, `installUploadAdapterPlugin`) 계약은 변경하지 않는다.
+  3. `HtmlSanitizer`에 `figure` 태그와 `figure[class]` 속성을 추가하고, class 값은 whitespace로 분리한 토큰 단위로 화이트리스트(`image`, `image-style-side`, `image-style-align-left`, `image-style-align-right`, `image-style-align-center` — CKEditor 41.4.2 `getData()` 실제 출력을 헤드리스로 직접 확인해 결정한 최소 목록)와 대조해 안전한 토큰만 남긴다. `img`에는 class를 허용하지 않는다(inline 스타일은 `<figure>` 없이 bare `<img>`로 표현되어 class 자체가 필요 없음을 실측 확인, `image-inline` 토큰은 `getData()`에 존재하지 않음). `style`/`width`/`height`/`figcaption`/font 관련 속성은 이번 범위에 포함하지 않는다. 기존 `<script>`/`iframe`/`on*`/`javascript:` 차단 정책은 변경하지 않는다.
+  4. Board/Program/Page 상세의 CKEditor 본문 div에 공용 class `ckeditor-content`를 추가하고, `static/css/home.css`에 `.ckeditor-content`/`.popup-modal__body` 공용 규칙(`display: flow-root`로 float containment, `.image`/`.image img`/`.image-style-side`/`.image-style-align-left`/`.image-style-align-right`/`.image-style-align-center`)을 추가한다. `.image img`의 `max-width:100%; height:auto`는 `.ckeditor-content`에만 한정한다(`.popup-modal__body`는 이미 fit-content 순환 참조 방지용 고정 px 캡을 갖고 있어, 공용으로 걸면 specificity가 더 높은 새 규칙이 그 캡을 덮어써 P13-T11에서 고친 문제가 재발함을 CSS 검토로 확인했다). 인라인 `style` 기반 크기 정보는 이번 범위에 없어 `width`-vs-`max-width` specificity 충돌이나 `!important`는 필요하지 않다.
+- DoD:
+  - `alignLeft`/`alignRight`/`alignCenter` 버튼이 Board/Program/Page/Popup 4개 관리자 화면의 이미지 toolbar에 노출되며, 기존 `inline`/`block`/`side` 버튼은 제거되지 않는다.
+  - `HtmlSanitizerTest`: 5개 허용 class 토큰 각각 보존, 허용되지 않은 토큰은 같은 속성 안에서도 개별 제거(허용 토큰은 유지), 모든 토큰이 허용되지 않으면 `class` 속성 자체 제거, `figure`에 대한 이벤트 핸들러/스크립트 삽입 시도는 여전히 차단, `<figure>` 없는 bare inline `<img>`는 sanitize 전후 동일(회귀 없음), 기존 XSS 차단 테스트 전체 무변경 통과.
+  - `ckeditor-config.js`가 4개 폼에서 동일하게 재사용되고 config 중복 정의가 없다. 업로드 어댑터 계약 무변경.
+  - Board 대표 Playwright 1건으로 다음 전체 흐름을 실제 검증한다: 관리자 편집기에서 정렬 버튼 노출 → 실제 정렬 적용 → 저장 → API 재조회로 얻은 id로 수정 화면 재진입 시 정렬이 CKEditor 안에서 그대로 복원됨 → 공개 상세 화면에서 동일 정렬(class)이 반영됨 → float 다음에 이어지는 하단 UI와 겹치지 않음 → 375/768/1024/1440에서 가로 overflow 없음. Program/Page/Popup에는 동일 케이스를 중복 추가하지 않는다(`HtmlSanitizer`/CSS가 공유되는 단일 지점이므로).
+  - `ImageResize`/`Font*`/문단 `Alignment` plugin은 추가되지 않는다(코드 리뷰로 확인). CDN URL/버전 무변경.
+  - 이미지 caption(`figcaption` 텍스트 leak)과 `img[alt]` 미보존은 발견사항으로만 기록하고 이번 DoD에 포함하지 않는다.
+  - `./gradlew build` 성공, Java/Node 전체 테스트 통과, Playwright 전체 회귀 통과.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+  - ImageResize(px/% preset), Font Size/Family/Color/Background Color, 문단 Alignment는 각각 별도 후속 Task(P13-T24A/B, P13-T25, P13-T26) 후보로 남긴다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

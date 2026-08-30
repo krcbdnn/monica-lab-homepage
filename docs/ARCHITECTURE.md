@@ -356,12 +356,18 @@ POST /api/admin/files
 
 이미지 URL을 반환하여 CKEditor에 삽입한다.
 
+## CKEditor 구성 및 build 정책
+
+- CDN 사전빌드(`https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js`, classic build)를 그대로 사용하며, npm 패키지/번들러는 도입하지 않는다. 이 build에는 `FontFamily`/`FontSize`/`FontColor`/`FontBackgroundColor`/문단 `Alignment`/`ImageResize`/`LinkImage` 플러그인이 포함되어 있지 않다(실제 CDN 번들을 헤드리스로 직접 실행해 확인, 문자열 grep이 아닌 `editor.plugins.has()`/`editor.commands` 기준). `ImageStyle`/`ImageToolbar`는 포함되어 있고, `image.styles.options`에 `inline`/`alignLeft`/`alignRight`/`alignCenter`/`alignBlockLeft`/`alignBlockRight`/`block`/`side`가 이미 등록되어 있어, 이 중 toolbar에 노출할 항목은 새 plugin 없이 `image.toolbar` config만으로 선택할 수 있다.
+- `static/js/admin/ckeditor-config.js`가 Board/Program/Page/Popup 4개 관리자 폼이 공유하는 `EDITOR_CONFIG`를 제공하며, `ClassicEditor.create(el, AdminCkeditorConfig.EDITOR_CONFIG)`로 전달한다. 업로드 어댑터(`ckeditor-upload-adapter.js`)는 이 config와 독립적으로 `FileRepository.createUploadAdapter`를 교체하는 방식을 그대로 유지한다.
+
 ## XSS 방지 정책
 
 CKEditor5로 작성된 콘텐츠는 HTML 형태로 저장되며, Thymeleaf에서 `th:utext`로 그대로 출력되므로 저장형 XSS(Stored XSS)에 노출될 수 있다. 다음 정책을 따른다.
 
 - 서버 저장 시점에 HTML 화이트리스트 정제(sanitize)를 수행한다(예: OWASP Java HTML Sanitizer 또는 jsoup의 `Safelist` 사용).
-- 허용 태그: 텍스트 서식(`p`, `br`, `strong`, `em`, `u`, `h1~h6`), 표(`table`, `tr`, `td`, `th`), 링크(`a[href]`), 이미지(`img[src]`) 등 CKEditor5 기본 툴바가 생성하는 태그로 한정한다.
+- 허용 태그: 텍스트 서식(`p`, `br`, `strong`, `em`, `u`, `h1~h6`), 표(`table`, `tr`, `td`, `th`), 링크(`a[href]`), 이미지(`img[src]`), 이미지 wrapper(`figure[class]`) 등 CKEditor5 기본 툴바가 생성하는 태그로 한정한다.
+- `figure`의 `class` 속성은 값 전체를 정규식으로 검증하지 않고, whitespace로 분리한 토큰 단위로 화이트리스트(`image`, `image-style-side`, `image-style-align-left`, `image-style-align-right`, `image-style-align-center`)와 대조해 안전한 토큰만 남긴다. `img`에는 class를 허용하지 않는다. `style`/`width`/`height`/`figcaption`/font 관련 속성·값은 허용하지 않는다(향후 확장 시에도 속성/값 단위 화이트리스트만 확장하고 `style` 속성 전체를 허용하지 않는 것을 원칙으로 한다).
 - `script`, `iframe`, `on*` 이벤트 속성, `javascript:` 스킴 링크는 모두 제거한다.
 - 정제는 `PageService`, `ProgramService`, `BoardService`, `PopupService`의 등록/수정 로직에서 공통 유틸(`common/util/HtmlSanitizer.java`)을 통해 일괄 적용한다.
 

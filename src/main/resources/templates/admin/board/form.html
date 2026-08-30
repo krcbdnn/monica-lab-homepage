@@ -54,13 +54,14 @@
 
 <script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
 <script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-config.js"></script>
 <script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script src="/js/admin/board-file-upload.js"></script>
 <script src="/js/admin/admin-file-preview.js"></script>
 <script>
     var contentEditor = null;
 
-    var editorReady = ClassicEditor.create(document.querySelector('#content'))
+    var editorReady = ClassicEditor.create(document.querySelector('#content'), AdminCkeditorConfig.EDITOR_CONFIG)
         .then(function (editor) {
             contentEditor = editor;
             AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
