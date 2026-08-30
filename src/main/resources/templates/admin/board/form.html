@@ -39,7 +39,8 @@
         <div class="mb-3">
             <label for="attachmentInput" class="form-label">첨부파일</label>
             <div id="attachmentPreview" class="mb-2" hidden>
-                <a id="attachmentPreviewLink" href="#">현재 등록된 첨부파일 다운로드</a>
+                <span id="attachmentPreviewNameWrap" hidden>현재 첨부파일: <span id="attachmentPreviewName"></span> </span>
+                (<a id="attachmentPreviewLink" href="#">열기/다운로드</a>)
             </div>
             <input type="file" class="form-control" id="attachmentInput">
             <input type="hidden" id="attachment" name="attachment">
@@ -108,6 +109,11 @@
                 document.querySelector('#attachmentPreview'),
                 document.querySelector('#attachmentPreviewLink'),
                 board.attachment);
+            AdminFilePreview.loadAttachmentName(
+                document.querySelector('#attachmentPreviewNameWrap'),
+                document.querySelector('#attachmentPreviewName'),
+                board.attachment,
+                AdminFetch.adminFetch);
         });
     }
 
@@ -142,6 +148,11 @@
                     document.querySelector('#attachmentPreview'),
                     document.querySelector('#attachmentPreviewLink'),
                     url);
+                AdminFilePreview.loadAttachmentName(
+                    document.querySelector('#attachmentPreviewNameWrap'),
+                    document.querySelector('#attachmentPreviewName'),
+                    url,
+                    AdminFetch.adminFetch);
             })
             .catch(function (error) {
                 alert(error.message);

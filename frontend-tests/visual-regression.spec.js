@@ -1764,3 +1764,52 @@ test.describe('P13-T20: 게시글 본문 링크 새 탭/내부 이동', () => {
     expect(page.url()).toContain(`/boards/${linkedBoardId}`);
   });
 });
+
+test.describe('P13-T22: Board 기존 첨부파일 파일명 표시', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('기존 첨부파일이 있는 게시글 수정 화면에 실제 업로드 원본 파일명이 표시된다', async ({ page, context, baseURL }) => {
+    const uploadRes = await context.request.post(`${baseURL}/api/admin/files`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      multipart: {
+        file: { name: '강의자료.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER },
+        fileType: 'ATTACHMENT',
+      },
+    });
+    expect(uploadRes.ok()).toBeTruthy();
+    const uploadedUrl = (await uploadRes.json()).data.url;
+
+    const boardRes = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE', title: '첨부파일 이름 표시 확인 ' + Date.now(),
+        attachment: uploadedUrl, isPublic: true,
+      },
+    });
+    expect(boardRes.ok()).toBeTruthy();
+    boardId = (await boardRes.json()).data.id;
+
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#attachmentPreviewNameWrap')).toBeVisible();
+    await expect(page.locator('#attachmentPreviewName')).toHaveText('강의자료.png');
+    await expect(page.locator('#attachmentPreviewLink')).toHaveAttribute('href', uploadedUrl);
+  });
+});

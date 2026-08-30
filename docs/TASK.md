@@ -730,6 +730,29 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T22. Board/Program 수정 화면 기존 첨부파일 파일명 표시
+- 의존성: P13-T21
+- 산출물: `file/controller/AdminFileController.java`, `file/service/FileService.java`, `static/js/admin/admin-file-preview.js`, `admin/board/form.html`, `admin/program/form.html`, `docs/API.md`, `src/test/java/com/monicalab/file/FileIntegrationTest.java`, `src/test/js/admin/admin-file-preview.test.js`, `src/test/js/admin/board-admin-view.test.js`, `src/test/js/admin/program-admin-view.test.js`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: Board/Program 수정 화면에서 기존 `attachment`가 있어도 고정 문구("현재 등록된 첨부파일 다운로드")만 보여 관리자가 실제 어떤 파일이 연결되어 있는지 식별할 수 없던 문제를 보완한다.
+  1. File 도메인에 `GET /api/admin/files/{id}` 단건 조회를 최소 추가한다. `FileService.get(id)`는 `download()`/`delete()`가 이미 쓰는 내부 `getOrThrow(id)`를 재사용해 `FileResponse.from(...)`으로 감싼다. 신규 DTO/Entity/Repository/Flyway 변경 없음. 존재하지 않으면 기존 `FILE_NOT_FOUND`(404) 그대로 재사용.
+  2. `admin-file-preview.js`에 `extractFileIdFromUrl(url)`(`/api/files/{id}` 형식에서 id 파싱, 형식이 아니면 `null`)과 `loadAttachmentName(nameWrapEl, nameEl, url, adminFetchFn)`(id 파싱 성공 시 `GET /api/admin/files/{id}` 호출 후 `originalName`을 표시)을 추가한다. 기존 `renderLinkPreview`는 무변경이며, 파일명 조회는 이와 완전히 독립적으로 동작해 조회 실패가 링크의 hidden/href 상태에 영향을 주지 않는다.
+  3. Board/Program 폼의 `#attachmentPreview` 마크업에 `#attachmentPreviewNameWrap`(기본 hidden)과 그 안의 `#attachmentPreviewName` span을 추가한다. `loadAttachmentName`이 원본 파일명을 성공적으로 얻었을 때만 `nameWrapEl.hidden = false`로 노출하고, 실패하거나 `originalName`이 없으면 `nameWrapEl`을 hidden 상태로 유지해 "현재 첨부파일: (열기/다운로드)"처럼 이름이 빈 채로 보이는 상태를 방지한다(별도 에러 문구/전역 에러 UI를 추가하지 않고 화면을 조회 이전 상태로 조용히 되돌리는 방식). `storedName`(UUID)은 어디에도 노출하지 않는다.
+  4. `loadAttachmentName` 호출은 Board/Program 각 폼에서 (a) 편집 진입 populate 콜백의 `renderLinkPreview` 호출 직후, (b) 첨부파일 업로드 성공 콜백의 `renderLinkPreview` 갱신 직후, 총 2곳에 추가한다. 이 Promise는 populate의 `Promise.all([...])`에 합류시키지 않고 독립적으로 실행해 파일명 조회 실패가 제목/본문/공개여부 등 나머지 필드 populate를 막지 않도록 한다. `board-file-upload.js`/`program-file-upload.js`(및 Banner와 공유하는 업로드 응답 매핑)는 변경하지 않는다.
+  5. `<input type="file">`에는 어떤 방식으로도 기존 서버 URL/파일명을 강제 주입하지 않는다. `Board`/`Program`의 Entity/DTO/Repository/DB/Flyway는 변경하지 않는다.
+- DoD:
+  - `GET /api/admin/files/{id}` 성공 시 `FileResponse`(`originalName` 포함) 200, 존재하지 않으면 `FILE_NOT_FOUND` 404. 기존 `GET /api/admin/files`(목록)/`POST`/`DELETE /{id}`는 무변경 회귀 통과.
+  - Board/Program 수정 화면에서 기존 `attachment`가 있으면 실제 `originalName`과 열기/다운로드 링크가 함께 표시된다. 값이 없으면(신규 등록 포함) `#attachmentPreview` 블록 전체가 hidden이다.
+  - 파일명 단건 조회가 실패(404/네트워크 오류)하거나 응답에 `originalName`이 없어도 `#attachmentPreviewNameWrap`이 hidden으로 유지되어 화면이 어색하게 보이지 않고, 첨부파일 링크(href)와 폼의 나머지 필드 populate·저장 기능은 정상 동작한다.
+  - 새 첨부파일 업로드 성공 시 표시되는 파일명이 새 `originalName`으로 즉시 갱신된다. 새 파일을 선택하지 않고 저장하면 기존 `attachment` 값이 PUT payload에 그대로 유지된다(기존 hidden input 유지 로직 회귀 확인).
+  - Board/Program이 `admin-file-preview.js`의 동일한 `extractFileIdFromUrl`/`loadAttachmentName`을 재사용하며 중복 로직이 없다.
+  - `Board`/`Program`/`BoardResponse`/`ProgramResponse`/`BoardRequest`/`ProgramRequest`/Entity/Repository/DB/Flyway 무변경.
+  - `docs/API.md`에 `GET /api/admin/files/{id}` 계약이 추가되어 있다. `docs/ARCHITECTURE.md`/`docs/FEATURES.md`/`docs/PRD.md`/`docs/ERD.md`는 무변경.
+  - `./gradlew build` 성공, Java/Node 전체 테스트 통과, 기존 Playwright 전체 회귀 통과 + Board 대표 신규 케이스 1건(실제 업로드한 파일로 파일명이 렌더링됨을 확인) 통과. Program에는 동일 케이스를 중복 추가하지 않는다.
+  - Banner 기존 이미지 미리보기, 공개 상세 이미지 표시 크기, 관리자 게시판 즉시 필터, 첨부파일 삭제 기능, 이미지 압축/리사이즈는 이번 Task 범위에 포함하지 않는다.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

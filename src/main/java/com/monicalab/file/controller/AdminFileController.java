@@ -33,6 +33,11 @@ public class AdminFileController {
         return ApiResponse.success(fileService.list(pageable));
     }
 
+    @GetMapping("/{id}")
+    public ApiResponse<FileResponse> get(@PathVariable Long id) {
+        return ApiResponse.success(fileService.get(id));
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<FileResponse> upload(

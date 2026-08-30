@@ -113,6 +113,26 @@ class FileIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void adminGetByIdReturnsFileMetadataIncludingOriginalName() throws Exception {
+        Long id = uploadPng("강의자료.png");
+
+        mockMvc.perform(get("/api/admin/files/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.originalName").value("강의자료.png"))
+                .andExpect(jsonPath("$.data.url").value("/api/files/" + id));
+    }
+
+    @Test
+    void adminGetByIdWithMissingIdReturnsFileNotFound() throws Exception {
+        mockMvc.perform(get("/api/admin/files/{id}", 999999))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("FILE_NOT_FOUND"));
+    }
+
+    @Test
     void publicDownloadReturnsFileContent() throws Exception {
         Long id = uploadPng("download.png");
 
