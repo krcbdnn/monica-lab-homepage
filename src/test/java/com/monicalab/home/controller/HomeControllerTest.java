@@ -9,9 +9,6 @@ import com.monicalab.banner.repository.BannerRepository;
 import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
-import com.monicalab.page.dto.PageRequest;
-import com.monicalab.page.entity.PageType;
-import com.monicalab.page.service.PageService;
 import com.monicalab.popup.entity.Popup;
 import com.monicalab.popup.repository.PopupRepository;
 import com.monicalab.program.entity.Program;
@@ -48,9 +45,6 @@ class HomeControllerTest extends AbstractIntegrationTest {
     @Autowired
     private ProgramRepository programRepository;
 
-    @Autowired
-    private PageService pageService;
-
     @BeforeEach
     void setUp() {
         bannerRepository.deleteAll();
@@ -69,24 +63,35 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         assertThat(document.select("#banners")).isNotEmpty();
         assertThat(document.select("#popups")).isNotEmpty();
-        assertThat(document.select("#greeting")).isNotEmpty();
         assertThat(document.select("#latest-reviews")).isNotEmpty();
         assertThat(document.select("#latest-notices")).isNotEmpty();
         assertThat(document.select("#latest-gallery")).isNotEmpty();
-        assertThat(document.select("#program-shortcut")).isNotEmpty();
         assertThat(document.select("#quick-menu")).isNotEmpty();
 
         Elements quickMenuLinks = document.select("#quick-menu a");
         assertThat(quickMenuLinks).hasSize(4);
         assertThat(quickMenuLinks.eachAttr("href"))
-                .containsExactly("/pages/GREETING", "/programs", "/boards?boardType=REVIEW", "/boards");
+                .containsExactly("/pages/INTRODUCTION", "/programs", "/boards?boardType=REVIEW", "/boards");
+        assertThat(quickMenuLinks.eachText())
+                .containsExactly("연구소 소개", "프로그램", "강의 후기", "게시판");
+    }
+
+    // P13-T17: 홈 상단 #greeting(인사말 요약), 하단 #program-shortcut(CTA)를 제거했다.
+    // /pages/GREETING 상세 페이지 자체는 유지되며 PageController/PageViewController가 별도로 검증한다.
+    @Test
+    void homeNoLongerRendersGreetingSummaryOrProgramShortcutSections() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#greeting")).isEmpty();
+        assertThat(document.select("#program-shortcut")).isEmpty();
     }
 
     @Test
-    void homeRendersGreetingContentAsUnescapedHtmlAndListsDomainData() throws Exception {
-        pageService.update(PageType.GREETING,
-                new PageRequest("인사말", "<p>안녕하세요</p><script>alert(1)</script>"));
-
+    void homeListsBannerPopupNoticeAndGalleryDomainData() throws Exception {
         bannerRepository.saveAndFlush(Banner.builder()
                 .title("메인 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
         popupRepository.saveAndFlush(Popup.builder()
@@ -108,8 +113,6 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#greeting p").text()).isEqualTo("안녕하세요");
-        assertThat(body).doesNotContain("<script>alert(1)</script>");
         assertThat(document.select("#banners img").attr("src")).isEqualTo("/api/files/1");
         assertThat(document.select("#banners img").attr("loading")).isEqualTo("eager");
         assertThat(document.select("#popups").text()).contains("공지 팝업");

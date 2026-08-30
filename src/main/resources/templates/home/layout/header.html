@@ -3,7 +3,7 @@
 <body>
 <header th:fragment="header" id="site-header">
     <div class="site-header__inner">
-        <a href="/" class="site-header__brand">모니카 연구소</a>
+        <a href="/" class="site-header__brand">모니카영어교육연구소</a>
 
         <button type="button" id="nav-toggle" class="nav-toggle"
                 aria-expanded="false" aria-controls="site-nav">
@@ -13,7 +13,7 @@
 
         <nav id="site-nav" class="site-nav" aria-label="주요 메뉴">
             <ul id="quick-menu" class="site-nav__list">
-                <li><a href="/pages/GREETING">기관소개</a></li>
+                <li><a href="/pages/INTRODUCTION">연구소 소개</a></li>
                 <li><a href="/programs">프로그램</a></li>
                 <li><a th:href="@{/boards(boardType='REVIEW')}">강의 후기</a></li>
                 <li><a href="/boards">게시판</a></li>

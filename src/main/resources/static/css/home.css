@@ -122,6 +122,10 @@
     text-decoration: none;
 }
 
+.site-footer__site a {
+    color: inherit;
+}
+
 /* 모바일: 햄버거 토글 노출, 내비게이션은 토글 전까지 접힘.
    데스크톱/태블릿(768px 이상)은 이 media query 밖의 기본 규칙(#quick-menu 상시 flex)이 그대로 적용되므로
    모바일에서 메뉴를 연 채로 뷰포트가 넓어져도 별도 JS 없이 CSS만으로 항상 노출된다. */
@@ -327,34 +331,6 @@
     margin: 0;
 }
 
-/* 연구소 소개 */
-.institute-intro {
-    padding: var(--space-4) 0;
-    border-bottom: 1px solid var(--color-border);
-}
-
-.institute-intro__body {
-    color: var(--color-text);
-    line-height: 1.75;
-}
-
-.institute-intro__body img {
-    max-width: 100%;
-    height: auto;
-}
-
-.institute-intro__body p {
-    margin: 0 0 var(--space-2);
-}
-
-.institute-intro__more {
-    display: inline-block;
-    margin-top: var(--space-2);
-    color: var(--color-primary);
-    font-weight: 600;
-    text-decoration: none;
-}
-
 /* Program 카드.
    auto-fit이 아니라 auto-fill을 쓴다: 메인은 최신 3건만 노출하는데(HomeController LATEST_PROGRAM_LIMIT)
    1440px에서는 5컬럼까지 들어갈 폭이라 auto-fit이면 남는 트랙이 없어 각 카드가 1fr 전체를 나눠 갖고
@@ -425,39 +401,6 @@
     font-size: 1.0625rem;
     font-weight: 600;
     color: var(--color-text);
-}
-
-/* 하단 CTA (#program-shortcut) */
-.cta {
-    margin-top: var(--space-4);
-    padding: var(--space-5) var(--space-3);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-    text-align: center;
-}
-
-.cta__inner {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.cta__title {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--color-text);
-}
-
-.cta__button {
-    display: inline-block;
-    padding: 0.625rem 1.5rem;
-    border-radius: var(--radius);
-    background: var(--color-primary);
-    color: var(--color-primary-contrast);
-    font-weight: 600;
-    text-decoration: none;
 }
 
 /* P13-T3: 메인 Notice/Gallery.

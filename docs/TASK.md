@@ -607,6 +607,34 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
   - `./gradlew build` 성공, Playwright 전체 통과, Docker 8088 수동 확인(375/768/1024/1440에서 `#latest-reviews` 그리드 overflow 없음, header/footer 4개 링크 표시, `/boards` 필터 nav overflow 없음, REVIEW 상세 이미지가 모바일 폭을 넘지 않음).
   - 게시글 상세 이미지 표시 크기 축소, 기관소개 메뉴 개편은 이번 Task 범위에 포함하지 않는다(별도 후속 Task).
 
+> **P13-T17 재정정**: 위 DoD의 "`#quick-menu`/`.site-footer__nav` 모두 `기관소개 → 프로그램 → 강의 후기 → 게시판`
+> 4개 링크를 가지며" 문구 중 1번째 링크는 P13-T17에서 라벨이 `연구소 소개`, 이동 대상이 `/pages/GREETING`에서
+> `/pages/INTRODUCTION`으로 변경됐다. 4개 링크의 순서·구조(강의 후기가 3번째)는 그대로 유지된다.
+
+---
+
+### P13-T17. 공개 화면 명칭/네비게이션/홈 구성 정리
+- 의존성: P13-T16
+- 산출물: `home/layout/header.html`, `home/layout/footer.html`, `home/layout/default.html`, `home/index.html`, `admin/layout/header.html`, `admin/layout/default.html`, `admin/page/list.html`, `home/controller/HomeController.java`, `static/css/home.css`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 공개 화면의 기관 명칭·네비게이션 라벨·홈 구성을 정리한다. 새 Entity/API/DB 컬럼은 만들지 않는다.
+  1. 공식 한글 명칭을 `모니카영어교육연구소`로 통일한다. 대상: 공개 Header/Footer 브랜드 텍스트, 공개 페이지 `<title>`/fallback title(`home/layout/default.html`), 관리자 Header("모니카영어교육연구소 관리자"), 공개/관리자 Footer 카피라이트(`&copy; 모니카영어교육연구소` — 공식 영문명이 확인되지 않아 새 영문명을 만들지 않고 기존 한글명으로 교체). `com.monicalab` 패키지/클래스/`MonicaLabHomepageApplication` 등 내부 기술 식별자는 변경하지 않는다.
+  2. 공개 Header(`#quick-menu`)/Footer(`.site-footer__nav`)의 "기관소개" 메뉴 라벨을 "연구소 소개"로, 이동 대상을 `/pages/GREETING`에서 `/pages/INTRODUCTION`으로 변경한다. `admin/page/list.html`의 페이지 목록 행 라벨(PageType.INTRODUCTION을 가리키는 고정 UI 문자열)도 "연구소 소개"로 동일하게 통일한다. `PageType.INTRODUCTION`의 DB `title` 데이터, "기관소개 관리"(admin 사이드바/대시보드 quickMenu/CmsPage 도메인 섹션명 전반) 등 도메인 그룹 명칭은 이번 Task에서 변경하지 않는다.
+  3. `home/index.html`의 `#greeting`(인사말 요약) 섹션을 삭제한다. `HomeController`의 `greeting` model attribute, `PageService`/`PageType` 의존성을 함께 제거한다. `/pages/GREETING` 상세 페이지 자체(`PageController`/`PageViewController`)는 유지한다.
+  4. `home/index.html`의 `#program-shortcut`(하단 CTA) 섹션을 삭제한다.
+  5. `home/layout/footer.html`에 화면 텍스트 `www.monicaenglish.com`, `href="https://www.monicaenglish.com"` 링크를 추가한다. 새 창(`target`) 속성은 기존 Footer 링크 정책(모두 현재 창 이동)을 그대로 따라 추가하지 않는다.
+  6. `#greeting`/`#program-shortcut` 제거로 더 이상 참조되지 않는 `static/css/home.css`의 `.institute-intro*`, `.cta`/`.cta__*` 규칙을 제거한다.
+- DoD:
+  - 공개/관리자 화면에서 "모니카 연구소"/"Monika Research Institute" 문자열이 0건이고 "모니카영어교육연구소"로 대체됨을 확인한다(관리자 Header/Footer 포함).
+  - `#quick-menu`/`.site-footer__nav`의 첫 번째 링크 라벨이 "연구소 소개", href가 `/pages/INTRODUCTION`이다. 나머지 3개 링크(프로그램/강의 후기/게시판) 순서·href는 P13-T16과 동일하게 무변경이다. `/pages/GREETING`은 별도로 여전히 200을 반환한다.
+  - `admin/page/list.html`의 PageType.INTRODUCTION 행 라벨이 "연구소 소개"다.
+  - `home/index.html` 응답에 `#greeting`, `#program-shortcut`가 존재하지 않는다. `HomeController`가 더 이상 `PageService`를 참조하지 않는다.
+  - `home/layout/footer.html`에 텍스트 `www.monicaenglish.com` + href `https://www.monicaenglish.com` 링크가 존재하고 `target` 속성이 없다.
+  - `static/css/home.css`에 `.institute-intro`/`.cta` 관련 규칙이 남아있지 않다(grep 0건).
+  - `HomeControllerTest`: 기존 `homeReturns200WithAllRequiredAreasAndFixedQuickMenuLinks`가 `#greeting`/`#program-shortcut` 단언 없이 갱신된 4개 링크 기준으로 통과, `pageService.update(GREETING, ...)` 기반이던 기존 테스트는 greeting 관련 셋업/단언을 제거하고 나머지 도메인 데이터 검증만 남긴 채 통과, `#greeting`/`#program-shortcut` 부재를 확인하는 신규 케이스 통과. P13-T16에서 추가된 `#latest-reviews` 관련 테스트는 무변경 통과(회귀 없음).
+  - Playwright: 헤더/푸터 브랜드 텍스트, "연구소 소개" 라벨/링크, footer 도메인 링크(텍스트/href/target 없음), `#greeting`/`#program-shortcut` 부재, `/pages/GREETING` 200 유지를 검증하는 신규 케이스 통과. 기존 P13-T12/P13-T14/P13-T16 describe와 공개 Popup 레이어 describe는 셀렉터만 `#latest-programs .section-title__link`로 교체된 부분(구 `#program-shortcut a.btn` 대체) 외에는 무변경 통과.
+  - `./gradlew build` 성공, Node 전체 무변경 통과, Playwright 전체 통과, Docker 8088 수동 확인(375/768/1024/1440에서 브랜드명/연구소 소개 링크/footer 도메인 표시, overflow 없음, 강의 후기 섹션/필터/메뉴 회귀 없음).
+  - 조회수 제거, 관리자 첨부파일 미리보기, 게시글 링크/썸네일/자유노출/상세 이미지 크기는 이번 Task 범위에 포함하지 않는다(별도 후속 Task).
+
 ---
 
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술

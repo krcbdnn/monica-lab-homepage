@@ -84,12 +84,19 @@ const PAGES = [
     path: '/',
     label: '메인',
     nav: '#quick-menu',
-    main: '#greeting',
-    button: '#program-shortcut a.btn',
+    main: '#latest-programs',
+    button: '#latest-programs .section-title__link',
   },
   {
     path: '/pages/GREETING',
-    label: '기관소개(인사말)',
+    label: '인사말',
+    nav: null,
+    main: 'h2',
+    button: null,
+  },
+  {
+    path: '/pages/INTRODUCTION',
+    label: '연구소 소개',
     nav: null,
     main: 'h2',
     button: null,
@@ -166,7 +173,7 @@ test.describe('모바일 햄버거 메뉴', () => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#site-nav')).toBeVisible();
     await expect(page.locator('#quick-menu a')).toHaveCount(4);
-    for (const href of ['/pages/GREETING', '/programs', '/boards?boardType=REVIEW', '/boards']) {
+    for (const href of ['/pages/INTRODUCTION', '/programs', '/boards?boardType=REVIEW', '/boards']) {
       await expect(page.locator(`#quick-menu a[href="${href}"]`)).toBeVisible();
     }
 
@@ -742,6 +749,53 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
   });
 });
 
+// P13-T17: 공개 화면 명칭/네비게이션/홈 구성 정리.
+test.describe('P13-T17: 공개 화면 명칭/네비게이션/홈 구성 정리', () => {
+  test('헤더/푸터 브랜드 텍스트가 "모니카영어교육연구소"로 통일되어 있다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.site-header__brand')).toHaveText('모니카영어교육연구소');
+    await expect(page.locator('.site-footer__brand')).toHaveText('모니카영어교육연구소');
+  });
+
+  test('헤더/푸터의 "연구소 소개" 링크가 /pages/INTRODUCTION으로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#quick-menu a[href="/pages/INTRODUCTION"]')).toHaveText('연구소 소개');
+    await expect(page.locator('.site-footer__nav a[href="/pages/INTRODUCTION"]')).toHaveText('연구소 소개');
+
+    await page.locator('#quick-menu a[href="/pages/INTRODUCTION"]').click();
+    await expect(page).toHaveURL(/\/pages\/INTRODUCTION$/);
+  });
+
+  test('footer에 www.monicaenglish.com 텍스트/링크가 존재한다', async ({ page }) => {
+    await page.goto('/');
+    const domainLink = page.locator('.site-footer__site a');
+    await expect(domainLink).toHaveText('www.monicaenglish.com');
+    await expect(domainLink).toHaveAttribute('href', 'https://www.monicaenglish.com');
+    await expect(domainLink).not.toHaveAttribute('target', /.+/);
+  });
+
+  test('홈 화면에 #greeting, #program-shortcut 영역이 더 이상 존재하지 않는다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#greeting')).toHaveCount(0);
+    await expect(page.locator('#program-shortcut')).toHaveCount(0);
+  });
+
+  test('/pages/GREETING 상세 페이지는 그대로 유지된다', async ({ page }) => {
+    const response = await page.goto('/pages/GREETING');
+    expect(response.status()).toBe(200);
+  });
+
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}에서 footer 도메인 링크를 포함해도 overflow가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto('/');
+      const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+    });
+  }
+});
+
 // P13-T14: 게시판/프로그램 목록 필터 · UI · pagination. 실제 Docker DB는 이 세션 전체에서 누적된
 // 데이터가 이미 있을 수 있으므로(격리된 테스트 DB가 아님), "정확히 N페이지"처럼 전체 개수를 못박는
 // 단정은 하지 않는다 - 이번에 새로 만드는 레코드 개수만큼 "최소 이 이상"이라는 사실만 검증한다
@@ -1119,7 +1173,7 @@ test.describe('공개 Popup 레이어', () => {
     await page.goto('/');
     await expect(modalFor(page, titleA)).toBeVisible();
 
-    await page.locator('#program-shortcut a.btn').click();
+    await page.locator('#latest-programs .section-title__link').click();
     await expect(page).toHaveURL(/\/programs$/);
   });
 

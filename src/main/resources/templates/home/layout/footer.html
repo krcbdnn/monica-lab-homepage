@@ -3,14 +3,15 @@
 <body>
 <footer th:fragment="footer" id="site-footer">
     <div class="site-footer__inner">
-        <p class="site-footer__brand">모니카 연구소</p>
+        <p class="site-footer__brand">모니카영어교육연구소</p>
         <nav class="site-footer__nav" aria-label="바로가기 메뉴">
-            <a href="/pages/GREETING">기관소개</a>
+            <a href="/pages/INTRODUCTION">연구소 소개</a>
             <a href="/programs">프로그램</a>
             <a th:href="@{/boards(boardType='REVIEW')}">강의 후기</a>
             <a href="/boards">게시판</a>
         </nav>
-        <p class="site-footer__copyright">&copy; Monika Research Institute</p>
+        <p class="site-footer__site"><a href="https://www.monicaenglish.com">www.monicaenglish.com</a></p>
+        <p class="site-footer__copyright">&copy; 모니카영어교육연구소</p>
     </div>
 </footer>
 </body>
