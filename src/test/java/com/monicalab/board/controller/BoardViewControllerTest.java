@@ -49,7 +49,6 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
                 .boardType(BoardType.NOTICE)
                 .title("상세보기 테스트")
                 .content("내용")
-                .viewCount(0)
                 .isPublic(true)
                 .build()).getId();
 
@@ -61,9 +60,9 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
     @Test
     void listExcludesPrivateBoards() throws Exception {
         boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.NOTICE).title("공개 공지").viewCount(0).isPublic(true).build());
+                .boardType(BoardType.NOTICE).title("공개 공지").isPublic(true).build());
         boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.NOTICE).title("비공개 공지").viewCount(0).isPublic(false).build());
+                .boardType(BoardType.NOTICE).title("비공개 공지").isPublic(false).build());
 
         String body = mockMvc.perform(get("/boards"))
                 .andExpect(status().isOk())
@@ -77,7 +76,7 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
     @Test
     void detailReturnsNotFoundForPrivateBoard() throws Exception {
         Long id = boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.ARCHIVE).title("비공개 자료").viewCount(0).isPublic(false).build()).getId();
+                .boardType(BoardType.ARCHIVE).title("비공개 자료").isPublic(false).build()).getId();
 
         mockMvc.perform(get("/boards/{id}", id))
                 .andExpect(status().isNotFound())
@@ -91,7 +90,6 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
                 .title("썸네일 있는 게시글")
                 .content("내용")
                 .thumbnail("/api/files/1")
-                .viewCount(0)
                 .isPublic(true)
                 .build()).getId();
 
@@ -111,7 +109,6 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
                 .title("자료실 첨부")
                 .content("내용")
                 .attachment("/api/files/1")
-                .viewCount(0)
                 .isPublic(true)
                 .build()).getId();
 
@@ -130,7 +127,6 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
                 .boardType(BoardType.NOTICE)
                 .title("첨부 없는 공지")
                 .content("내용")
-                .viewCount(0)
                 .isPublic(true)
                 .build()).getId();
 
@@ -140,6 +136,25 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
         assertThat(document.select("#attachment-link")).isEmpty();
+    }
+
+    // P13-T19: 조회수 기능 완전 제거. 상세 페이지의 기존 조회수 메타 요소(뱃지 옆의
+    // "조회 N" span)가 더 이상 렌더링되지 않는지 확인한다.
+    @Test
+    void detailDoesNotRenderViewCountMetaElement() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("조회수 없는 상세 확인")
+                .content("내용")
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select(".text-muted.small")).isEmpty();
     }
 
     @Test
@@ -218,12 +233,11 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void listRendersBoardTypeTitleViewCountAndCreatedAtInsideTheItemLink() throws Exception {
+    void listRendersBoardTypeTitleAndCreatedAtInsideTheItemLink() throws Exception {
         Long id = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE)
                 .title("운영 안내")
                 .content("내용")
-                .viewCount(7)
                 .isPublic(true)
                 .build()).getId();
 
@@ -235,9 +249,27 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#board-list > li.list-group-item > a.board-list__link")).hasSize(1);
         assertThat(document.select(".board-list__type").text()).isEqualTo("NOTICE");
         assertThat(document.select(".board-list__title").text()).isEqualTo("운영 안내");
-        assertThat(document.select(".board-list__views").text()).isEqualTo("조회 7");
         assertThat(document.select(".board-list__date").text()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}");
         assertThat(document.select(".board-list__link").attr("href")).isEqualTo("/boards/" + id);
+    }
+
+    // P13-T19: 조회수 기능 완전 제거. 목록 아이템의 조회수 표시 요소(.board-list__views)가
+    // 남아있지 않은지 확인한다(과도하게 넓은 "조회"라는 단어 전체 페이지 텍스트 검사 대신,
+    // 실제로 존재했던 형식/요소만 targeted로 확인).
+    @Test
+    void listDoesNotRenderViewCountElement() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("조회수 없는 목록 확인")
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select(".board-list__views")).isEmpty();
     }
 
     @Test
@@ -330,7 +362,6 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
                     .boardType(BoardType.NOTICE)
                     .title("summer notice " + i)
                     .content("summer content")
-                    .viewCount(0)
                     .isPublic(true)
                     .build());
         }
@@ -342,7 +373,6 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
             boards.add(Board.builder()
                     .boardType(BoardType.NOTICE)
                     .title("board " + i)
-                    .viewCount(0)
                     .isPublic(true)
                     .build());
         }

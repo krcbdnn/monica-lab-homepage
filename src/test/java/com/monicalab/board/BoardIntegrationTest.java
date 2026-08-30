@@ -28,7 +28,6 @@ class BoardIntegrationTest extends AbstractIntegrationTest {
         Board saved = boardRepository.saveAndFlush(Board.builder()
                 .boardType(boardType)
                 .title(boardType + " 게시글")
-                .viewCount(0)
                 .isPublic(true)
                 .build());
 
@@ -47,11 +46,9 @@ class BoardIntegrationTest extends AbstractIntegrationTest {
         BoardResponse response = boardService.create(request);
 
         assertThat(response.isPublic()).isFalse();
-        assertThat(response.viewCount()).isZero();
 
         Board persisted = boardRepository.findById(response.id()).orElseThrow();
         assertThat(persisted.isPublic()).isFalse();
-        assertThat(persisted.getViewCount()).isZero();
     }
 
     @Test

@@ -37,7 +37,6 @@
                 <span class="board-list__row">
                     <span class="badge bg-secondary board-list__type" th:text="${board.boardType()}"></span>
                     <span class="board-list__title" th:text="${board.title()}"></span>
-                    <span class="board-list__views" th:text="'조회 ' + ${board.viewCount()}"></span>
                 </span>
                 <time class="board-list__date" th:datetime="${board.createdAt()}"
                       th:text="${#temporals.format(board.createdAt(), 'yyyy-MM-dd HH:mm')}"></time>

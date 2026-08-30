@@ -11,7 +11,6 @@ public record BoardResponse(
         String content,
         String thumbnail,
         String attachment,
-        int viewCount,
         boolean isPublic,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
@@ -24,7 +23,6 @@ public record BoardResponse(
                 board.getContent(),
                 board.getThumbnail(),
                 board.getAttachment(),
-                board.getViewCount(),
                 board.isPublic(),
                 board.getCreatedAt(),
                 board.getUpdatedAt());

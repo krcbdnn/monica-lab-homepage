@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class BoardService {
 
-    private static final Set<String> ALLOWED_SORT_PROPERTIES = Set.of("createdAt", "title", "viewCount");
+    private static final Set<String> ALLOWED_SORT_PROPERTIES = Set.of("createdAt", "title");
 
     private final BoardRepository boardRepository;
 
@@ -35,7 +35,6 @@ public class BoardService {
                 .content(HtmlSanitizer.sanitize(request.content()))
                 .thumbnail(request.thumbnail())
                 .attachment(request.attachment())
-                .viewCount(0)
                 .isPublic(request.isPublic() != null ? request.isPublic() : false)
                 .build();
 
@@ -63,14 +62,10 @@ public class BoardService {
         return PageResponse.of(page, BoardResponse::from);
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public BoardResponse getPublicById(Long id) {
-        boardRepository.findByIdAndIsPublicTrue(id)
-                .orElseThrow(() -> new CustomException(ErrorCode.BOARD_NOT_FOUND));
-        boardRepository.increaseViewCount(id);
-        Board board = boardRepository.findByIdAndIsPublicTrue(id)
-                .orElseThrow(() -> new CustomException(ErrorCode.BOARD_NOT_FOUND));
-        return BoardResponse.from(board);
+        return BoardResponse.from(boardRepository.findByIdAndIsPublicTrue(id)
+                .orElseThrow(() -> new CustomException(ErrorCode.BOARD_NOT_FOUND)));
     }
 
     @Transactional

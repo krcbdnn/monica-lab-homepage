@@ -1041,22 +1041,26 @@ test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', ()
       }
     });
 
-    test('게시판 분류명/제목/조회수가 한 줄에, 작성일시는 아래 보조 줄에 표시된다', async ({ page }) => {
+    test('게시판 분류명/제목이 한 줄에, 작성일시는 아래 보조 줄에 표시된다', async ({ page }) => {
       await page.goto('/boards');
       const item = page.locator('#board-list li').filter({ hasText: titlePrefix }).first();
 
       const typeBox = await item.locator('.board-list__type').boundingBox();
       const titleBox = await item.locator('.board-list__title').boundingBox();
-      const viewsBox = await item.locator('.board-list__views').boundingBox();
       const dateBox = await item.locator('.board-list__date').boundingBox();
 
-      // 분류명/제목/조회수는 세로 위치가 거의 같은 한 줄이다.
+      // 분류명/제목은 세로 위치가 거의 같은 한 줄이다.
       expect(Math.abs(typeBox.y - titleBox.y)).toBeLessThan(10);
-      expect(Math.abs(titleBox.y - viewsBox.y)).toBeLessThan(10);
-      // 조회수는 제목 바로 오른쪽 근처에 붙어있다(화면 오른쪽 끝으로 밀려나지 않는다).
-      expect(viewsBox.x - (titleBox.x + titleBox.width)).toBeLessThan(80);
       // 작성일시는 그 아래 별도 줄이다.
       expect(dateBox.y).toBeGreaterThan(titleBox.y + 5);
+    });
+
+    // P13-T19: 조회수 기능 완전 제거. 게시판 목록에 기존 형식인 ".board-list__views" 요소/
+    // "조회 N" 표시가 더 이상 없는지 확인한다(페이지 전체 텍스트에서 "조회"라는 단어를 찾는
+    // 과도하게 넓은 assertion은 다른 정상 문구를 오탐할 수 있어 사용하지 않는다).
+    test('게시판 목록에 조회수 표시 요소(.board-list__views)가 더 이상 없다', async ({ page }) => {
+      await page.goto('/boards');
+      await expect(page.locator('.board-list__views')).toHaveCount(0);
     });
 
     test('pagination이 하단 가운데 정렬되고 현재 페이지가 active로 표시된다', async ({ page }) => {

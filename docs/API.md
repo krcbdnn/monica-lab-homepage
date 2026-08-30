@@ -268,16 +268,14 @@ Response 204. 존재하지 않으면 `PROGRAM_NOT_FOUND`(404).
 | attachment | String | N | N | max 255 |
 | isPublic | Boolean | N | Y | POST 생략 시 `false` |
 
-`viewCount`는 서버 관리 필드이므로 Request에 받지 않는다. 생성 시 0이며 공개 상세 조회 시 TASK.md의 조회수 정책에 따라 증가한다.
-
-`BoardResponse`: `id`, `boardType`, `title`, `content`, `thumbnail`, `attachment`, `viewCount`, `isPublic`, `createdAt`, `updatedAt`.
+`BoardResponse`: `id`, `boardType`, `title`, `content`, `thumbnail`, `attachment`, `isPublic`, `createdAt`, `updatedAt`.
 
 ## GET /api/boards
 
 인증: 불필요. `isPublic=true`만 반환한다.
 
 Query: 공통 `page`, `size`, `sort` + `boardType`(optional), `keyword`(optional; 제목/내용).  
-허용 sort: `createdAt`, `title`, `viewCount`. 기본 `createdAt,DESC`.
+허용 sort: `createdAt`, `title`. 기본 `createdAt,DESC`.
 
 Response 200: `PageResponse<BoardResponse>`.
 

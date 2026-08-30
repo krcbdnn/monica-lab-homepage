@@ -51,7 +51,6 @@ class DashboardControllerTest extends AbstractIntegrationTest {
             boardRepository.saveAndFlush(Board.builder()
                     .boardType(BoardType.NOTICE)
                     .title("게시글 " + i)
-                    .viewCount(0)
                     .isPublic(i % 2 == 0)
                     .build());
         }

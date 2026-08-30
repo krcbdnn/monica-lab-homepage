@@ -608,13 +608,6 @@
     color: var(--color-text);
 }
 
-#board-list .board-list__views {
-    flex-shrink: 0;
-    white-space: nowrap;
-    color: var(--color-text-muted);
-    font-size: 0.875rem;
-}
-
 #board-list .board-list__date {
     display: block;
     margin-top: 0.25rem;

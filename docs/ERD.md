@@ -80,7 +80,6 @@ Version 2.0
 | content | LONGTEXT | NULL | 없음 | 내용 |
 | thumbnail | VARCHAR(255) | NULL | 없음 | 대표 이미지(갤러리, 강의 후기), File API URL 문자열 |
 | attachment | VARCHAR(255) | NULL | 없음 | 첨부파일, File API URL 문자열 |
-| view_count | INT | NOT NULL | 없음 | 서버 관리 필드; 생성 시 application-level 기본값 `0` |
 | is_public | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
@@ -193,7 +192,7 @@ Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드
 DB DEFAULT 정책:
 
 - 이 ERD의 `DB DEFAULT` 열에 `없음`으로 표시된 컬럼은 Flyway migration에 `DEFAULT` 절을 추가하지 않는다.
-- API.md에서 POST 생략 기본값으로 정의된 Program `recruit_status=OPEN`, Program/Board `is_public=false`, Banner/Popup `is_visible=false`, Board `view_count=0`은 모두 application-level에서 설정하고 DB DEFAULT는 두지 않는다.
+- API.md에서 POST 생략 기본값으로 정의된 Program `recruit_status=OPEN`, Program/Board `is_public=false`, Banner/Popup `is_visible=false`는 모두 application-level에서 설정하고 DB DEFAULT는 두지 않는다.
 - Admin `role=ROLE_ADMIN`과 BaseEntity `created_at`/`updated_at`도 application-level에서 설정하며 DB DEFAULT는 두지 않는다.
 - NULL/NOT NULL은 각 테이블의 `NULL` 열을 그대로 Flyway V1과 JPA 컬럼 제약에 반영한다.
 
