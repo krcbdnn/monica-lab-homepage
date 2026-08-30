@@ -433,6 +433,14 @@ Response 200: `PageResponse<FileResponse>`.
 
 이 API는 `AdminFileController → FileService → FileRepository → UploadFile` 체인으로 조회하며 P9 `/admin/files` 화면의 데이터 소스다.
 
+## GET /api/admin/files/{id}
+
+인증: ROLE_ADMIN. 단건 조회. `FileService.get()`이 `download()`/`delete()`가 이미 쓰는 내부 조회를 재사용한다.
+
+Response 200: `FileResponse`. 존재하지 않으면 `FILE_NOT_FOUND`(404).
+
+Board/Program 등 다른 도메인은 `thumbnail`/`attachment`에 File.id를 참조하는 FK 없이 URL 문자열만 저장하므로(위 File 섹션 및 ERD.md 참고), 관리자 화면이 이 URL로부터 `originalName` 등 파일 메타데이터를 조회할 때 이 API를 사용한다(P13-T22).
+
 ## POST /api/admin/files
 
 인증: ROLE_ADMIN. `multipart/form-data`.

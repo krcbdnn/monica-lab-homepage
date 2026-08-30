@@ -88,6 +88,11 @@ public class FileService {
     }
 
     @Transactional(readOnly = true)
+    public FileResponse get(Long id) {
+        return FileResponse.from(getOrThrow(id));
+    }
+
+    @Transactional(readOnly = true)
     public FileDownload download(Long id) {
         UploadFile uploadFile = getOrThrow(id);
         Path path = Path.of(uploadRoot, uploadFile.getPath());

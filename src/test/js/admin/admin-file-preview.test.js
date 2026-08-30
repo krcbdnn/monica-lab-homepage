@@ -7,7 +7,9 @@ const assert = require('node:assert/strict');
 const {
     normalizeUrl,
     renderImagePreview,
-    renderLinkPreview
+    renderLinkPreview,
+    extractFileIdFromUrl,
+    loadAttachmentName
 } = require('../../../main/resources/static/js/admin/admin-file-preview.js');
 
 function createElementStub() {
@@ -21,6 +23,22 @@ function createElementStub() {
         removeAttribute: function (name) {
             delete attrs[name];
         }
+    };
+}
+
+function createTextElementStub() {
+    return {hidden: false, textContent: ''};
+}
+
+function fakeAdminFetch(response) {
+    return function () {
+        return Promise.resolve(response);
+    };
+}
+
+function rejectingAdminFetch(error) {
+    return function () {
+        return Promise.reject(error);
     };
 }
 
@@ -128,4 +146,82 @@ test('renderLinkPreview hides the container for a whitespace-only string', () =>
 
     assert.equal(container.hidden, true);
     assert.equal('href' in link.attrs, false);
+});
+
+test('extractFileIdFromUrl extracts the numeric id from a well-formed /api/files/{id} url', () => {
+    assert.equal(extractFileIdFromUrl('/api/files/42'), '42');
+});
+
+test('extractFileIdFromUrl trims whitespace before matching', () => {
+    assert.equal(extractFileIdFromUrl('  /api/files/7  '), '7');
+});
+
+test('extractFileIdFromUrl returns null for a non-matching path, empty, or null/undefined', () => {
+    assert.equal(extractFileIdFromUrl('/other/path'), null);
+    assert.equal(extractFileIdFromUrl('/api/files/abc'), null);
+    assert.equal(extractFileIdFromUrl(''), null);
+    assert.equal(extractFileIdFromUrl(null), null);
+    assert.equal(extractFileIdFromUrl(undefined), null);
+});
+
+test('loadAttachmentName sets the original name and reveals the wrap on success', async () => {
+    const nameWrap = createTextElementStub();
+    const name = createTextElementStub();
+    const adminFetch = fakeAdminFetch({
+        ok: true,
+        json: () => Promise.resolve({success: true, data: {originalName: '강의자료.pdf'}})
+    });
+
+    await loadAttachmentName(nameWrap, name, '/api/files/42', adminFetch);
+
+    assert.equal(name.textContent, '강의자료.pdf');
+    assert.equal(nameWrap.hidden, false);
+});
+
+test('loadAttachmentName keeps the wrap hidden without calling fetch when the url does not match /api/files/{id}', async () => {
+    const nameWrap = createTextElementStub();
+    const name = createTextElementStub();
+    let called = false;
+    const adminFetch = function () {
+        called = true;
+        return Promise.resolve({ok: true, json: () => Promise.resolve({})});
+    };
+
+    await loadAttachmentName(nameWrap, name, '', adminFetch);
+
+    assert.equal(called, false);
+    assert.equal(nameWrap.hidden, true);
+    assert.equal(name.textContent, '');
+});
+
+test('loadAttachmentName keeps the wrap hidden (not an error text) when the lookup responds not-ok', async () => {
+    const nameWrap = createTextElementStub();
+    const name = createTextElementStub();
+    const adminFetch = fakeAdminFetch({ok: false});
+
+    await loadAttachmentName(nameWrap, name, '/api/files/999', adminFetch);
+
+    assert.equal(nameWrap.hidden, true);
+    assert.equal(name.textContent, '');
+});
+
+test('loadAttachmentName keeps the wrap hidden when the response has no originalName', async () => {
+    const nameWrap = createTextElementStub();
+    const name = createTextElementStub();
+    const adminFetch = fakeAdminFetch({ok: true, json: () => Promise.resolve({success: true, data: {}})});
+
+    await loadAttachmentName(nameWrap, name, '/api/files/5', adminFetch);
+
+    assert.equal(nameWrap.hidden, true);
+    assert.equal(name.textContent, '');
+});
+
+test('loadAttachmentName resolves (does not throw) and keeps the wrap hidden when adminFetch rejects', async () => {
+    const nameWrap = createTextElementStub();
+    const name = createTextElementStub();
+    const adminFetch = rejectingAdminFetch(new Error('network error'));
+
+    await assert.doesNotReject(loadAttachmentName(nameWrap, name, '/api/files/5', adminFetch));
+    assert.equal(nameWrap.hidden, true);
+    assert.equal(name.textContent, '');
 });

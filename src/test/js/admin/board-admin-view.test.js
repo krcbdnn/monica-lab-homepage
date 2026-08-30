@@ -140,7 +140,30 @@ test('templates/admin/board/form.html refreshes the preview immediately after a 
 
 test('templates/admin/board/form.html attachment link has no target="_blank" (server already responds with Content-Disposition: attachment)', () => {
     const html = readTemplate('admin/board/form.html');
-    assert.match(html, /<a id="attachmentPreviewLink" href="#">현재 등록된 첨부파일 다운로드<\/a>/);
+    assert.match(html, /<a id="attachmentPreviewLink" href="#">열기\/다운로드<\/a>/);
+});
+
+// P13-T22: 기존 attachment의 원본 파일명을 GET /api/admin/files/{id}로 조회해 표시한다.
+// nameWrap은 조회 성공 전까지/실패 시 hidden으로 남아 "현재 첨부파일: (열기/다운로드)"처럼
+// 이름이 빈 채로 보이지 않는다.
+test('templates/admin/board/form.html has a hidden-by-default attachment name wrap next to the download link', () => {
+    const html = readTemplate('admin/board/form.html');
+    assert.match(html, /<span id="attachmentPreviewNameWrap" hidden>현재 첨부파일: <span id="attachmentPreviewName"><\/span> <\/span>/);
+});
+
+test('templates/admin/board/form.html loads the attachment original name when prefilling an edited board', () => {
+    const html = readTemplate('admin/board/form.html');
+    assert.match(html, /AdminFilePreview\.loadAttachmentName\(\s*document\.querySelector\('#attachmentPreviewNameWrap'\),\s*document\.querySelector\('#attachmentPreviewName'\),\s*board\.attachment,\s*AdminFetch\.adminFetch\);/);
+});
+
+test('templates/admin/board/form.html reloads the attachment original name after a new attachment upload succeeds', () => {
+    const html = readTemplate('admin/board/form.html');
+    const attachmentHandlerIndex = html.indexOf("#attachmentInput').addEventListener('change'");
+    const loadNameCallIndex = html.indexOf('AdminFilePreview.loadAttachmentName', attachmentHandlerIndex);
+
+    assert.notEqual(attachmentHandlerIndex, -1);
+    assert.ok(loadNameCallIndex > attachmentHandlerIndex,
+        'attachment change handler must call loadAttachmentName after a successful upload');
 });
 
 test('templates/admin/board/form.html thumbnail "open in new tab" link uses target="_blank" with rel="noopener noreferrer"', () => {
