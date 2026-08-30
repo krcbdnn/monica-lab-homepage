@@ -102,10 +102,10 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .build());
         Board notice = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("최신 공지 제목")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
         Board gallery = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.GALLERY).title("최신 갤러리 제목")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -353,7 +353,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
     void latestNoticesRendersTitleAndDateAndLinksToBoardDetail() throws Exception {
         Board notice = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("공지 목록 확인용 제목")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -398,7 +398,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
         Board gallery = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.GALLERY).title("갤러리 목록 확인용 제목")
                 .thumbnail("/api/files/2")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -418,7 +418,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
     void latestGalleryShowsPlaceholderWhenThumbnailMissing() throws Exception {
         boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.GALLERY).title("썸네일 없는 갤러리")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -481,7 +481,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
         Board review = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.REVIEW).title("강의 후기 목록 확인용 제목")
                 .thumbnail("/api/files/3")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -501,7 +501,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
     void latestReviewsShowsPlaceholderWhenThumbnailMissing() throws Exception {
         boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.REVIEW).title("썸네일 없는 후기")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -540,7 +540,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
     private Board publicReview(String title) {
         return Board.builder()
                 .boardType(BoardType.REVIEW).title(title)
-                .viewCount(0).isPublic(true).build();
+                .isPublic(true).build();
     }
 
     private Program publicProgram(String title) {

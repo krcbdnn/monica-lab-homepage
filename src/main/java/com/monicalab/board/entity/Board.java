@@ -40,21 +40,17 @@ public class Board extends BaseEntity {
     @Column(name = "attachment", length = 255)
     private String attachment;
 
-    @Column(name = "view_count", nullable = false)
-    private int viewCount;
-
     @Column(name = "is_public", nullable = false)
     private boolean isPublic;
 
     @Builder
     private Board(BoardType boardType, String title, String content, String thumbnail, String attachment,
-            int viewCount, boolean isPublic) {
+            boolean isPublic) {
         this.boardType = boardType;
         this.title = title;
         this.content = content;
         this.thumbnail = thumbnail;
         this.attachment = attachment;
-        this.viewCount = viewCount;
         this.isPublic = isPublic;
     }
 

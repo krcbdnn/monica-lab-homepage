@@ -242,6 +242,10 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 작업 내용: 상세 조회 시 조회수 증가(동시성 고려: `@Query` UPDATE 또는 낙관적 락). (content sanitize와 공개여부 제어는 P6-T2에서, 대표이미지/첨부파일 연동은 P6-T4A에서 각각 이미 처리하므로 이 Task는 조회수 증가에만 집중한다)
 - DoD: 동시 요청 100회 시 조회수 정확히 100 증가(부하 테스트 또는 동시성 단위 테스트)
 
+> **P13-T19 재정정**: 이 Task에서 도입한 조회수 증가 기능(`view_count` 컬럼, `increaseViewCount`,
+> 상세 조회 시 UPDATE)은 P13-T19에서 완전히 제거됐다. 상세 조회(`BoardService.getPublicById`)는
+> 이제 순수 조회이며 DB UPDATE가 발생하지 않는다.
+
 ### P6-T4A. Board 썸네일/첨부파일 연동
 - 의존성: P6-T2, P2-T4
 - 산출물: `templates/admin/board/form.html`(대표이미지/첨부파일 업로드 UI), `board/dto/BoardRequest.java`(수정, 도메인 검증 반영)
@@ -570,6 +574,11 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
   - 신규 Playwright 케이스: Board 필터 active 시각 상태(computed font-weight), Board 목록 UI(분류명/제목/조회수 한 줄, 작성일시 아래 줄) boundingBox 확인, Board/Program pagination 중앙 정렬과 현재 페이지 `is-active`, `pageJump` 폼 제출 후 URL이 `pageJump=2`를 유지한 채(리다이렉트 설계가 아니므로 `page=1`로 바뀌는 것을 기대하지 않음) 2페이지 active/내용이 표시됨, 375/768/1024/1440에서 Board/Program 목록+pagination에 overflow 없음. 기존 P13-T12 썸네일/`ul>li>a` 회귀, 긴 제목 회귀 describe는 무변경 통과.
   - `./gradlew build`/Playwright 전체 통과, Docker 8088 수동 확인(375/768/1024/1440에서 필터 active, 목록 UI, pagination 그룹/직접 이동).
 
+> **P13-T19 재정정**: 위 DoD의 "Board 목록의 분류명/제목/**조회수**/작성일시 렌더링"과 "Board 목록 UI(분류명/
+> 제목/**조회수** 한 줄, 작성일시 아래 줄)" 요구는 P13-T19에서 조회수 기능 자체가 완전히 제거되면서
+> supersede됐다. `#board-list` 아이템의 분류명/제목/작성일시 구조(및 P13-T18의 첨부파일/썸네일
+> 미리보기와 무관한 부분)는 조회수 표시만 빠진 채 그대로 유지된다.
+
 ---
 
 ### P13-T15. 공개 Popup 제목 영역 배경색 개선
@@ -654,6 +663,28 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
   - `./gradlew build` 성공, Node/Java 전체 무변경 통과(Java는 API/DTO/Entity 변경이 없어 회귀만 확인), Playwright 전체 통과, Docker 8088 수동 확인.
   - Banner의 동일한 문제는 확인만 하고 이번 Task에서 고치지 않는다(후속 Task 후보로 기록). 조회수 제거, 기존 파일 삭제 기능, 링크/썸네일/상세 이미지 크기 등은 이번 Task 범위에 포함하지 않는다.
   - DB/Entity/DTO/API/Flyway 변경 없음.
+
+---
+
+### P13-T19. Board 조회수(viewCount) 기능 완전 제거
+- 의존성: P13-T18
+- 산출물: `board/entity/Board.java`, `board/dto/BoardResponse.java`, `board/repository/BoardRepository.java`, `board/repository/BoardRepositoryImpl.java`, `board/service/BoardService.java`, `db/migration/V2__drop_board_view_count.sql`(신규), `admin/board/list.html`, `home/board/list.html`, `home/board/detail.html`, `static/css/home.css`, `src/test/java/com/monicalab/board/**`(다수, 아래 DoD 참고), `src/test/java/com/monicalab/admin/controller/DashboardControllerTest.java`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `src/test/java/com/monicalab/support/ProductionRuntimeConfigTest.java`, `src/test/js/admin/board-admin-view.test.js`, `frontend-tests/visual-regression.spec.js`, `docs/ERD.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/FEATURES.md`
+- 작업 내용: UI에서 숨기는 수준이 아니라 조회수 기능을 Entity/DB부터 완전히 제거한다.
+  1. `Board.viewCount`/`view_count` 컬럼, `BoardResponse.viewCount`, `BoardRepository.increaseViewCount()`, `BoardRepositoryImpl`의 `viewCount` 정렬 분기, `BoardService`의 `viewCount` 초기화·`ALLOWED_SORT_PROPERTIES`의 `viewCount`를 전부 제거한다. `BoardService.getPublicById()`는 확인→증가→재조회 3단계에서 `findByIdAndIsPublicTrue()` 단일 조회로 단순화하고 `@Transactional(readOnly = true)`로 바꾼다(더 이상 DB UPDATE가 발생하지 않는다).
+  2. 기존 `V1__baseline_schema.sql`은 수정하지 않고 신규 `V2__drop_board_view_count.sql`(`ALTER TABLE board DROP COLUMN view_count;`)을 추가한다. 기존 `view_count` 데이터는 폐기되며 다른 컬럼에는 영향이 없다.
+  3. `sort=viewCount`는 `ALLOWED_SORT_PROPERTIES`에서 제거되는 것만으로 기존 `INVALID_INPUT_VALUE`(400) 정책에 자동으로 편입된다(별도 예외 분기 불필요).
+  4. `admin/board/list.html`의 `<th>조회수</th>`/조회수 셀 생성 로직, `home/board/list.html`/`home/board/detail.html`의 "조회 N" 표시, `static/css/home.css`의 `.board-list__views` 규칙을 제거한다.
+  5. `BoardViewCountConcurrencyTest.java`는 파일 전체를 삭제한다. 그 외 조회수 관련 테스트는 fixture만 정리하거나(단순 `.viewCount(...)` 호출 제거), 조회수 자체를 검증하던 테스트는 삭제 후 "상세 GET 반복 호출에도 `updatedAt` 불변 + 응답에 `viewCount` 필드 없음"을 확인하는 회귀 테스트로 교체한다. `sort=viewCount` 거부를 확인하는 신규 테스트를 관리자/공개 API 각각에 추가한다. `ProductionRuntimeConfigTest`에 V2 migration 적용 성공 + `information_schema.columns`로 `view_count` 컬럼 부재를 확인하는 테스트를 추가한다.
+- DoD:
+  - `Board`/`BoardResponse`/`BoardRepository`/`BoardRepositoryImpl`/`BoardService` 어디에도 `viewCount`/`view_count` 문자열이 없다(`V1` 원문 제외).
+  - 빈 Testcontainers MariaDB에 V1+V2 적용 후 `ddl-auto=validate`로 정상 기동, `flyway_schema_history`에 버전 2가 success로 기록, `information_schema.columns`에 `board.view_count` 없음.
+  - `GET /api/boards/{id}`를 동일 게시글에 2회 이상 호출해도 `board.updatedAt`이 불변(회귀 테스트로 확인). 응답 JSON에 `viewCount` 키가 없다.
+  - `sort=viewCount`(관리자 `/api/admin/boards`, 공개 `/api/boards` 모두)는 `INVALID_INPUT_VALUE`(400).
+  - 공개 게시판 목록/상세, 관리자 게시판 목록 어디에도 조회수 표시 요소(`.board-list__views`, `<th>조회수</th>`, viewCount 셀 생성 로직)가 없다(targeted 요소 검증, 페이지 전체 텍스트의 "조회" 단어 존재 여부 같은 과도하게 넓은 assertion은 사용하지 않는다).
+  - 게시판 목록/상세/필터/페이지네이션은 조회수 제거 전과 동일하게 정상 동작(기존 P13-T14/P13-T16 관련 테스트 무변경 통과로 회귀 확인).
+  - `docs/ERD.md`/`docs/API.md`/`docs/ARCHITECTURE.md`/`docs/FEATURES.md` 갱신. `docs/PRD.md`는 관련 언급이 없어 무변경. `docs/TASK.md`의 P6-T4/P13-T14는 원문을 유지한 채 재정정 각주로 보완.
+  - `./gradlew build` 성공, Java/Node/Playwright 전체 통과, Docker 8088 수동 확인.
+  - Banner/링크(외부·내부)/강의후기·수강신청·갤러리 목록 썸네일/메인 자유노출/상세 이미지 크기/드래그 레이아웃 편집 등은 이번 Task 범위에 포함하지 않는다.
 
 ---
 

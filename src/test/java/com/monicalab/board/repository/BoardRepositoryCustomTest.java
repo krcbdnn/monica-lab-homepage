@@ -25,7 +25,6 @@ class BoardRepositoryCustomTest extends AbstractIntegrationTest {
                 .boardType(BoardType.NOTICE)
                 .title("여름 방학 공지")
                 .content("공지 안내")
-                .viewCount(0)
                 .isPublic(true)
                 .build());
 
@@ -33,7 +32,6 @@ class BoardRepositoryCustomTest extends AbstractIntegrationTest {
                 .boardType(BoardType.GALLERY)
                 .title("특별 전시")
                 .content("여름 사진 갤러리")
-                .viewCount(0)
                 .isPublic(true)
                 .build());
 
@@ -41,7 +39,6 @@ class BoardRepositoryCustomTest extends AbstractIntegrationTest {
                 .boardType(BoardType.NOTICE)
                 .title("겨울 방학 공지")
                 .content("공지 안내")
-                .viewCount(0)
                 .isPublic(true)
                 .build());
     }
@@ -79,7 +76,6 @@ class BoardRepositoryCustomTest extends AbstractIntegrationTest {
                 .boardType(BoardType.NOTICE)
                 .title("여름 비공개 공지")
                 .content("비공개 안내")
-                .viewCount(0)
                 .isPublic(false)
                 .build());
 

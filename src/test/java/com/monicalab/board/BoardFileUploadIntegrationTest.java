@@ -71,7 +71,6 @@ class BoardFileUploadIntegrationTest extends AbstractIntegrationTest {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.ARCHIVE)
                 .title("자료 포함 게시글")
-                .viewCount(0)
                 .isPublic(false)
                 .build());
 

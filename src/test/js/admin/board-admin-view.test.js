@@ -48,9 +48,13 @@ test('templates/admin/board/list.html does not include a recruit-status style to
     assert.doesNotMatch(html, /recruitStatus/);
 });
 
-test('templates/admin/board/list.html displays the read-only view count column', () => {
+// P13-T19: 조회수 기능 완전 제거. 관리자 목록의 조회수 컬럼(헤더/셀 생성 로직)과
+// viewCount 참조가 더 이상 존재하지 않는지 확인한다.
+test('templates/admin/board/list.html no longer displays a view count column or references viewCount', () => {
     const html = readTemplate('admin/board/list.html');
-    assert.match(html, /viewCountTd\.textContent = board\.viewCount/);
+    assert.doesNotMatch(html, /<th>조회수<\/th>/);
+    assert.doesNotMatch(html, /viewCountTd/);
+    assert.doesNotMatch(html, /viewCount/);
 });
 
 test('templates/admin/board/form.html inherits the common admin layout', () => {

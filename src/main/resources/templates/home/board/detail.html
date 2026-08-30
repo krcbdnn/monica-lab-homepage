@@ -8,7 +8,6 @@
 <div id="board-detail-content" class="container" style="margin-top: 40px;">
     <div class="mb-2">
         <span class="badge bg-secondary" th:text="${board.boardType()}"></span>
-        <span class="text-muted small" th:text="'조회 ' + ${board.viewCount()}"></span>
     </div>
 
     <h2 th:text="${board.title()}"></h2>

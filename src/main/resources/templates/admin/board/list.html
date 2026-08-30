@@ -34,7 +34,6 @@
         <tr>
             <th>제목</th>
             <th>구분</th>
-            <th>조회수</th>
             <th>공개 여부</th>
             <th>관리</th>
         </tr>
@@ -73,10 +72,6 @@
             var typeTd = document.createElement('td');
             typeTd.textContent = board.boardType;
             tr.appendChild(typeTd);
-
-            var viewCountTd = document.createElement('td');
-            viewCountTd.textContent = board.viewCount;
-            tr.appendChild(viewCountTd);
 
             var publicTd = document.createElement('td');
             publicTd.textContent = board.isPublic ? '공개' : '비공개';

@@ -55,8 +55,7 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
         mockMvc.perform(admin(post("/api/admin/boards")).content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.isPublic").value(false))
-                .andExpect(jsonPath("$.data.viewCount").value(0));
+                .andExpect(jsonPath("$.data.isPublic").value(false));
     }
 
     @Test
@@ -85,7 +84,6 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
         Board privateBoard = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.ARCHIVE)
                 .title("비공개 자료")
-                .viewCount(0)
                 .isPublic(false)
                 .build());
 
@@ -99,31 +97,26 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.title").value("비공개 자료"));
     }
 
+    // P13-T19: viewCount 필드/컬럼 제거로 더 이상 지원하는 정렬 필드가 아니다. 허용 목록에 없는
+    // 정렬 필드에 대한 기존 정책(INVALID_INPUT_VALUE 400)을 그대로 따르는지만 확인한다.
     @Test
-    void adminDetailDoesNotIncreaseViewCount() throws Exception {
-        Board board = boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.NOTICE).title("관리자 조회 대상").viewCount(0).isPublic(true).build());
-
-        mockMvc.perform(admin(get("/api/admin/boards/{id}", board.getId())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.viewCount").value(0));
-
-        mockMvc.perform(admin(get("/api/admin/boards/{id}", board.getId())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.viewCount").value(0));
+    void adminListRejectsSortByViewCountAsInvalidInputValue() throws Exception {
+        mockMvc.perform(admin(get("/api/admin/boards")).param("sort", "viewCount,DESC"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
     }
 
     @Test
     void adminSearchAppliesBoardTypeAndKeywordAndIncludesPrivateBoards() throws Exception {
         Board matching = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("여름 공지 비공개")
-                .viewCount(0).isPublic(false).build());
+                .isPublic(false).build());
         boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.GALLERY).title("여름 갤러리 공개")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
         boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("겨울 공지 공개")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         mockMvc.perform(admin(get("/api/admin/boards"))
                         .param("boardType", "NOTICE")
@@ -139,7 +132,6 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE)
                 .title("원래 제목")
-                .viewCount(0)
                 .isPublic(false)
                 .build());
 
@@ -162,7 +154,6 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE)
                 .title("원래 제목")
-                .viewCount(0)
                 .isPublic(false)
                 .build());
 
@@ -178,7 +169,6 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE)
                 .title("상태 변경 대상")
-                .viewCount(0)
                 .isPublic(false)
                 .build());
 
@@ -193,7 +183,6 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
         Board board = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE)
                 .title("삭제 대상")
-                .viewCount(0)
                 .isPublic(false)
                 .build());
 

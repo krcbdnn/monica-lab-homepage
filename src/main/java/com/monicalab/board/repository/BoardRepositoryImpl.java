@@ -64,7 +64,6 @@ public class BoardRepositoryImpl implements BoardRepositoryCustom {
             boolean asc = order.isAscending();
             switch (order.getProperty()) {
                 case "title" -> orders.add(asc ? board.title.asc() : board.title.desc());
-                case "viewCount" -> orders.add(asc ? board.viewCount.asc() : board.viewCount.desc());
                 case "createdAt" -> orders.add(asc ? board.createdAt.asc() : board.createdAt.desc());
                 default -> {
                 }
