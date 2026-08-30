@@ -165,8 +165,8 @@ test.describe('모바일 햄버거 메뉴', () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#site-nav')).toBeVisible();
-    await expect(page.locator('#quick-menu a')).toHaveCount(3);
-    for (const href of ['/pages/GREETING', '/programs', '/boards']) {
+    await expect(page.locator('#quick-menu a')).toHaveCount(4);
+    for (const href of ['/pages/GREETING', '/programs', '/boards?boardType=REVIEW', '/boards']) {
       await expect(page.locator(`#quick-menu a[href="${href}"]`)).toBeVisible();
     }
 
@@ -199,7 +199,7 @@ test.describe('모바일 햄버거 메뉴', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.locator('#site-nav')).toBeVisible();
-    await expect(page.locator('#quick-menu a')).toHaveCount(3);
+    await expect(page.locator('#quick-menu a')).toHaveCount(4);
   });
 });
 
@@ -646,6 +646,27 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
     await expect(page).toHaveURL(/\/boards\?boardType=GALLERY$/);
   });
 
+  // P13-T16: #latest-programs 바로 아래 #latest-reviews 섹션 및 header/footer "강의 후기" 링크 추가.
+  test('"강의 후기" 섹션 제목을 클릭하면 /boards?boardType=REVIEW로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-reviews .section-title__link').click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW$/);
+  });
+
+  test('footer에도 "강의 후기" 링크가 /boards?boardType=REVIEW로 존재한다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.site-footer__nav a[href="/boards?boardType=REVIEW"]')).toBeVisible();
+  });
+
+  test('"강의 후기" 섹션은 "최신 프로그램" 섹션 바로 다음, "공지사항" 섹션 이전에 위치한다', async ({ page }) => {
+    await page.goto('/');
+    const programsBox = await page.locator('#latest-programs').boundingBox();
+    const reviewsBox = await page.locator('#latest-reviews').boundingBox();
+    const noticesBox = await page.locator('#latest-notices').boundingBox();
+    expect(reviewsBox.y).toBeGreaterThan(programsBox.y);
+    expect(noticesBox.y).toBeGreaterThan(reviewsBox.y);
+  });
+
   test.describe('/programs 목록 썸네일', () => {
     let xsrfToken;
     let programIdWithThumb;
@@ -758,6 +779,20 @@ test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', ()
   test('boardType 없이 /boards에 진입하면 "전체" 필터가 active다', async ({ page }) => {
     await page.goto('/boards');
     await expect(page.locator('#board-type-filter .filter-nav__link.is-active')).toHaveText('전체');
+  });
+
+  // P13-T16: #board-type-filter에 "강의 후기"(REVIEW) 필터 추가. active/query parameter 계약은
+  // 위 "공지사항" 케이스와 동일하게 유지된다.
+  test('"강의 후기" 필터가 active일 때 다른 필터보다 굵게 표시된다', async ({ page }) => {
+    await page.goto('/boards?boardType=REVIEW');
+
+    const active = page.locator('#board-type-filter .filter-nav__link.is-active');
+    const inactive = page.locator('#board-type-filter .filter-nav__link:not(.is-active)').first();
+    await expect(active).toHaveText('강의 후기');
+
+    const activeWeight = Number(await active.evaluate((el) => getComputedStyle(el).fontWeight));
+    const inactiveWeight = Number(await inactive.evaluate((el) => getComputedStyle(el).fontWeight));
+    expect(activeWeight).toBeGreaterThan(inactiveWeight);
   });
 
   test.describe('목록 UI 및 pagination', () => {

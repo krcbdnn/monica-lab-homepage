@@ -90,6 +90,26 @@
         <p th:if="${latestPrograms.isEmpty()}" class="empty-state">등록된 프로그램이 없습니다.</p>
     </section>
 
+    <section id="latest-reviews" class="section">
+        <h2 class="section-title"><a th:href="@{/boards(boardType='REVIEW')}" class="section-title__link">강의 후기</a></h2>
+
+        <ul th:if="${!latestReviews.isEmpty()}" class="gallery-grid">
+            <li th:each="review : ${latestReviews}" class="gallery-card">
+                <a th:href="@{/boards/{id}(id=${review.id()})}" class="gallery-card__link">
+                    <div class="gallery-card__thumb">
+                        <img th:if="${review.thumbnail() != null}" th:src="${review.thumbnail()}"
+                             th:alt="${review.title()}" loading="lazy">
+                        <div th:unless="${review.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                             aria-hidden="true"></div>
+                    </div>
+                    <p class="gallery-card__title" th:text="${review.title()}"></p>
+                </a>
+            </li>
+        </ul>
+
+        <p th:if="${latestReviews.isEmpty()}" class="empty-state">등록된 강의 후기가 없습니다.</p>
+    </section>
+
     <section id="latest-notices" class="section">
         <h2 class="section-title"><a th:href="@{/boards(boardType='NOTICE')}" class="section-title__link">공지사항</a></h2>
 

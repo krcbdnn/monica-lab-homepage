@@ -585,6 +585,30 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T16. 게시판 강의 후기 유형 추가 및 메인/메뉴 노출
+- 의존성: P13-T12, P13-T14
+- 산출물: `board/entity/BoardType.java`, `home/controller/HomeController.java`, `home/index.html`, `home/board/list.html`, `home/layout/header.html`, `home/layout/footer.html`, `admin/board/list.html`, `admin/board/form.html`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `src/test/java/com/monicalab/board/controller/AdminBoardControllerTest.java`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 관리자가 외부에서 받은 강의 후기(주로 이미지)를 등록해 홍보하고 방문자는 조회만 하는 기능을 신규 Entity/API 없이 기존 `Board` 도메인 확장으로 구현한다. 별점/댓글/사용자 작성/승인 대기/작성자 인증 등은 구현하지 않는다.
+  1. `BoardType`에 `REVIEW`를 추가한다(`NOTICE, GALLERY, ARCHIVE, REVIEW`). `board_type`이 `VARCHAR(20) NOT NULL`(DB 레벨 CHECK/ENUM 제약 없음)이라 Flyway migration은 필요 없다. `BoardService`/`AdminBoardController`/`BoardController`/`BoardRequest`/`BoardResponse`는 이미 `boardType`에 대해 완전히 제네릭하므로 변경하지 않는다.
+  2. `admin/board/list.html`의 검색 필터, `admin/board/form.html`의 등록/수정 폼 `<select>`에 `REVIEW`(`강의 후기`) 옵션을 추가한다. 기존 CKEditor 이미지 업로드, 대표 이미지/첨부파일 업로드(`/api/admin/files`), `isPublic` 공개 여부 CRUD는 그대로 재사용하고 변경하지 않는다.
+  3. `HomeController`에 `LATEST_REVIEW_LIMIT = 3`(기존 `LATEST_BOARD_LIMIT = 5`와는 별도 상수) 및 `latestReviewPageable()`을 추가하고, `boardService.getPublicList(BoardType.REVIEW, null, latestReviewPageable())` 결과를 `latestReviews` 모델 속성으로 제공한다.
+  4. `home/index.html`의 `#latest-programs` 섹션 바로 다음, `#latest-notices` 섹션 이전에 `#latest-reviews` 섹션을 추가한다. `#latest-gallery`의 기존 `.gallery-grid`/`.gallery-card__*` class를 그대로 재사용하고(신규 CSS 없음), section-title 링크는 `/boards?boardType=REVIEW`로 연결한다. 후기가 없으면 기존 `empty-state` 패턴을 재사용한다.
+  5. `home/board/list.html`의 `#board-type-filter`에 "강의 후기"(`boardType=REVIEW`) 앵커를 추가한다. 기존 P13-T14의 active 판정(`th:classappend` + `boardType.name()` 비교) 및 `keyword` 쿼리 파라미터 유지 계약은 그대로 따른다.
+  6. `home/layout/header.html`의 `#quick-menu`, `home/layout/footer.html`의 `.site-footer__nav`에 "프로그램" 다음, "게시판" 이전 순서로 "강의 후기"(`/boards?boardType=REVIEW`) 링크를 추가한다. `home/program/list.html`의 `#program-type-filter`(COURSE/SPECIAL, P13-T14 계약 대상)는 절대 변경하지 않으며, `Program` 엔티티에 후기 데이터를 넣지 않는다.
+- DoD:
+  - `BoardType.REVIEW`로 관리자 등록/수정/삭제/공개 전환이 기존 `/api/admin/boards`로 정상 동작하고, `/boards?boardType=REVIEW`가 공개 목록/상세를 정상 렌더링하며 비공개 후기는 노출되지 않는다.
+  - 메인 `/`에서 `#latest-programs` 바로 다음에 `#latest-reviews`가 위치하고 최신 3건(`LATEST_REVIEW_LIMIT`)만 노출되며, 0건이면 empty-state가 표시된다.
+  - `#quick-menu`/`.site-footer__nav` 모두 `기관소개 → 프로그램 → 강의 후기 → 게시판` 4개 링크를 가지며 "강의 후기"는 `/boards?boardType=REVIEW`로 이동한다. 기존 `homeReturns200WithAllRequiredAreasAndFixedQuickMenuLinks` 테스트와 모바일 햄버거 메뉴 Playwright 테스트는 4개 링크 기준으로 갱신되어 통과한다.
+  - `#board-type-filter`에 "강의 후기" 필터가 추가되고 기존 active/쿼리 파라미터 계약대로 동작한다. `#program-type-filter`(COURSE/SPECIAL)는 DOM/코드 무변경.
+  - `admin/board/list.html`/`form.html`에서 REVIEW 선택 시 기존 CKEditor/대표 이미지/첨부파일/공개여부 CRUD가 NOTICE/GALLERY/ARCHIVE와 동일하게 동작. 별점/댓글/사용자 작성/승인 대기 관련 코드는 추가되지 않는다.
+  - Flyway 신규 migration 파일 없음.
+  - Java 테스트: `BoardIntegrationTest`의 기존 `@ParameterizedTest @EnumSource(BoardType.class)` 왕복 테스트가 `REVIEW`도 자동으로 커버함을 활용하고, 등록/수정/삭제/공개 여부 자체의 공통 동작은 기존 Board 테스트가 이미 보장하므로 중복 작성하지 않는다. 대신 (a) `HomeControllerTest`에 `#latest-reviews` 렌더링/최신 3건 제한/썸네일·placeholder/empty-state/section-title 링크 테스트를 신규 추가하고, (b) `AdminBoardControllerTest`에 "관리자가 REVIEW로 등록 → 비공개 상태에서는 공개 목록에 없음 → 공개 전환 → 공개 목록/상세 노출"이라는 핵심 경로 스모크 테스트 1건만 추가한다.
+  - Playwright: `#latest-reviews` 섹션 노출 및 위치(`#latest-programs`와 `#latest-notices` 사이), section-title 클릭 시 `/boards?boardType=REVIEW` 이동, footer "강의 후기" 링크 노출, `#board-type-filter`의 REVIEW active 상태, 모바일 햄버거 메뉴의 4개 링크 검증(갱신)까지 신규/수정 테스트로 확인한다. 기존 P13-T12/P13-T14 describe와 `#program-type-filter` 관련 테스트는 무변경 통과.
+  - `./gradlew build` 성공, Playwright 전체 통과, Docker 8088 수동 확인(375/768/1024/1440에서 `#latest-reviews` 그리드 overflow 없음, header/footer 4개 링크 표시, `/boards` 필터 nav overflow 없음, REVIEW 상세 이미지가 모바일 폭을 넘지 않음).
+  - 게시글 상세 이미지 표시 크기 축소, 기관소개 메뉴 개편은 이번 Task 범위에 포함하지 않는다(별도 후속 Task).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

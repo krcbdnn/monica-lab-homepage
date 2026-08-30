@@ -17,6 +17,8 @@
            th:classappend="${boardType != null and boardType.name() == 'GALLERY'} ? ' is-active'">갤러리</a>
         <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
            th:classappend="${boardType != null and boardType.name() == 'ARCHIVE'} ? ' is-active'">자료실</a>
+        <a th:href="@{/boards(boardType='REVIEW', keyword=${keyword})}" class="filter-nav__link"
+           th:classappend="${boardType != null and boardType.name() == 'REVIEW'} ? ' is-active'">강의 후기</a>
     </nav>
 
     <form method="get" th:action="@{/boards}" class="row g-2 mb-4">

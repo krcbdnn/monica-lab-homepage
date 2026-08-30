@@ -255,13 +255,13 @@ Response 204. 존재하지 않으면 `PROGRAM_NOT_FOUND`(404).
 
 # Board
 
-`boardType`: `NOTICE`, `GALLERY`, `ARCHIVE`
+`boardType`: `NOTICE`, `GALLERY`, `ARCHIVE`, `REVIEW`
 
 `BoardRequest`
 
 | field | type | POST required | PUT required | default / Validation |
 |---|---|---:|---:|---|
-| boardType | String(enum) | Y | Y | NOTICE/GALLERY/ARCHIVE |
+| boardType | String(enum) | Y | Y | NOTICE/GALLERY/ARCHIVE/REVIEW |
 | title | String | Y | Y | `@NotBlank`, max 200 |
 | content | String | N | N | 저장 전 HtmlSanitizer 적용 |
 | thumbnail | String | N | N | max 255 |
