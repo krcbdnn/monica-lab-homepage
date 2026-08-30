@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html th:replace="~{home/layout/default :: layout(~{::#index-content}, '모니카 연구소')}" lang="ko"
+<html th:replace="~{home/layout/default :: layout(~{::#index-content}, '모니카영어교육연구소')}" lang="ko"
       xmlns:th="http://www.thymeleaf.org">
 <head>
-    <title>모니카 연구소</title>
+    <title>모니카영어교육연구소</title>
 </head>
 <body>
 <div id="index-content" class="container" style="margin-top: 40px;">
@@ -56,13 +56,6 @@
                 <button type="button" class="popup-modal__hide-today">오늘 하루 보지 않기</button>
             </div>
         </div>
-    </section>
-
-    <section id="greeting" class="institute-intro">
-        <h2 class="section-title" th:text="${greeting.title()}"></h2>
-        <div class="institute-intro__body" th:if="${greeting.content() != null}" th:utext="${greeting.content()}"></div>
-        <p th:unless="${greeting.content() != null}" class="text-muted">등록된 인사말이 없습니다.</p>
-        <a th:if="${greeting.content() != null}" href="/pages/GREETING" class="institute-intro__more">자세히 보기</a>
     </section>
 
     <section id="latest-programs" class="section">
@@ -144,13 +137,6 @@
         </ul>
 
         <p th:if="${latestGallery.isEmpty()}" class="empty-state">등록된 갤러리가 없습니다.</p>
-    </section>
-
-    <section id="program-shortcut" class="cta">
-        <div class="cta__inner">
-            <h2 class="cta__title">지금 프로그램을 확인해보세요</h2>
-            <a href="/programs" class="btn cta__button">프로그램 살펴보기</a>
-        </div>
     </section>
 
     <script th:src="@{/js/home/hero-carousel.js}"></script>

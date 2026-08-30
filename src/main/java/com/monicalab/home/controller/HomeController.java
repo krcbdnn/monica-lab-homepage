@@ -3,8 +3,6 @@ package com.monicalab.home.controller;
 import com.monicalab.banner.service.BannerService;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
-import com.monicalab.page.entity.PageType;
-import com.monicalab.page.service.PageService;
 import com.monicalab.popup.service.PopupService;
 import com.monicalab.program.service.ProgramService;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +22,6 @@ public class HomeController {
 
     private final BannerService bannerService;
     private final PopupService popupService;
-    private final PageService pageService;
     private final BoardService boardService;
     private final ProgramService programService;
 
@@ -32,7 +29,6 @@ public class HomeController {
     public String index(Model model) {
         model.addAttribute("banners", bannerService.getPublicList());
         model.addAttribute("popups", popupService.getPublicList());
-        model.addAttribute("greeting", pageService.getByType(PageType.GREETING));
         model.addAttribute("latestPrograms",
                 programService.getPublicList(null, null, latestProgramPageable()).getContent());
         model.addAttribute("latestReviews",
