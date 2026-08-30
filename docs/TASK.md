@@ -770,7 +770,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
   - 이미지 caption(`figcaption` 텍스트 leak)과 `img[alt]` 미보존은 발견사항으로만 기록하고 이번 DoD에 포함하지 않는다.
   - `./gradlew build` 성공, Java/Node 전체 테스트 통과, Playwright 전체 회귀 통과.
   - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
-  - ImageResize(px/% preset), Font Size/Family/Color/Background Color, 문단 Alignment는 각각 별도 후속 Task(P13-T24A/B, P13-T25, P13-T26) 후보로 남긴다.
+  - ImageResize, Font Size/Family/Color/Background Color, 문단 Alignment 확장은 P13-T24A 사전 조사(2026-08-30) 결과 보류하기로 결정했다. 최신 CKEditor 설치 방식으로 전환할 경우 라이선스 검토, Cloud 계정/비용 가능성 또는 자체호스팅 관리 등 현재 프로젝트에 불필요한 운영 복잡도가 추가되며, 해당 고급 편집 기능은 핵심 요구사항이 아니므로 추가 마이그레이션을 진행하지 않는다. 현재 CKEditor 5 41.4.2 classic CDN을 유지하고, 이 Task(P13-T23)에서 구현한 이미지 정렬/반응형 기능을 현재 편집 기능 범위의 최종 상태로 본다. 향후 요구사항이나 라이선스·운영 조건이 달라질 경우 재검토한다.
 
 ---
 
