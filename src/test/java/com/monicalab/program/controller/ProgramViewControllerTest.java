@@ -97,6 +97,30 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         Document document = Jsoup.parse(body);
         assertThat(document.select("#apply-link")).isNotEmpty();
         assertThat(document.select("#apply-link").attr("href")).isEqualTo("https://forms.gle/abc123");
+        assertThat(document.select("#apply-link").attr("target")).isEqualTo("_blank");
+        assertThat(document.select("#apply-link").attr("rel")).isEqualTo("noopener noreferrer");
+    }
+
+    @Test
+    void detailShowsAttachmentLinkWithTargetBlankAndRelNoopenerWhenPresent() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("첨부파일 있는 프로그램")
+                .content("내용")
+                .attachment("/api/files/1")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements link = document.select("#program-detail-content a[href=/api/files/1]");
+        assertThat(link).hasSize(1);
+        assertThat(link.attr("target")).isEqualTo("_blank");
+        assertThat(link.attr("rel")).isEqualTo("noopener noreferrer");
     }
 
     @Test

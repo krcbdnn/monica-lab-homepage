@@ -19,7 +19,7 @@
     <p th:unless="${board.content() != null}" class="text-muted">등록된 내용이 없습니다.</p>
 
     <div th:if="${board.attachment() != null}" class="mt-3">
-        <a id="attachment-link" th:href="${board.attachment()}" target="_blank">첨부파일 다운로드</a>
+        <a id="attachment-link" th:href="${board.attachment()}" target="_blank" rel="noopener noreferrer">첨부파일 다운로드</a>
     </div>
 
     <a th:href="@{/boards}" class="btn btn-secondary mt-3">목록으로</a>

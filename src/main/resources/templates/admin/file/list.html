@@ -64,6 +64,7 @@
             var nameLink = document.createElement('a');
             nameLink.href = file.url;
             nameLink.target = '_blank';
+            nameLink.rel = 'noopener noreferrer';
             nameLink.textContent = file.originalName;
             nameTd.appendChild(nameLink);
             tr.appendChild(nameTd);

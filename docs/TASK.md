@@ -710,6 +710,26 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T21. 새 탭 링크 보안 속성 일관성 보완
+- 의존성: P13-T20
+- 산출물: `home/board/detail.html`, `home/program/detail.html`, `admin/file/list.html`, `src/test/java/com/monicalab/board/controller/BoardViewControllerTest.java`, `src/test/java/com/monicalab/program/controller/ProgramViewControllerTest.java`, `src/test/js/admin/file-admin-view.test.js`, `docs/ARCHITECTURE.md`
+- 작업 내용: P13-T20에서 범위 밖으로 기록한, `target="_blank"`를 사용하면서 `rel="noopener noreferrer"`가 누락된 위치를 전수 조사하여 보완한다.
+  1. 프로젝트 전체(`target="_blank"` HTML 속성 + JS `.target = '_blank'` 프로퍼티 할당)를 조사한 결과 6곳 중 4곳에서 `rel` 누락을 확인했다: `home/board/detail.html`의 `#attachment-link`, `home/program/detail.html`의 첨부파일 링크(id 없음)와 `#apply-link`, `admin/file/list.html`의 JS 동적 생성 `nameLink`(관리자 파일 목록, 파일명 클릭 시 새 탭 다운로드). 나머지 2곳(`admin/board/form.html`, `admin/program/form.html`의 `#thumbnailPreviewLink`)은 P13-T18에서 이미 `rel="noopener noreferrer"`가 정상 적용되어 있어 무변경.
+  2. 위 4곳 모두 `target="_blank"` 옆에 `rel="noopener noreferrer"`를 추가한다(정적 마크업 3곳, `admin/file/list.html`의 JS `nameLink` 1곳은 `nameLink.rel = 'noopener noreferrer';` 추가). 기존 `href` 값/속성 순서 외 다른 마크업은 변경하지 않는다.
+  3. `HtmlSanitizer`, Service 계층, API Response DTO, DB 스키마, `ContentLinkRenderer`(CKEditor 본문 링크 처리, P13-T20)는 이번 Task와 무관하며 변경하지 않는다.
+  4. Playwright 신규 테스트는 추가하지 않는다(정적 속성 변경이라 Java/Node 테스트로 계약을 충분히 검증할 수 있다는 판단). 기존 Playwright 전체는 회귀 확인 목적으로만 실행한다.
+- DoD:
+  - `#attachment-link`(Board 상세), 첨부파일 링크(Program 상세), `#apply-link`(Program 상세), `nameLink`(관리자 파일 목록) 4곳 모두 `target="_blank"`와 `rel="noopener noreferrer"`를 함께 가진다.
+  - 위 4곳의 기존 `href` 값은 변경 전과 동일하다(회귀 없음).
+  - `BoardViewControllerTest`/`ProgramViewControllerTest`에 각 링크의 `target`/`rel` 속성을 함께 검증하는 테스트가 있다.
+  - `file-admin-view.test.js`에 `admin/file/list.html`의 `nameLink.target`/`nameLink.rel` 설정을 검증하는 테스트가 있다.
+  - 이미 정상이었던 `#thumbnailPreviewLink`(admin board/program form)와 `ContentLinkRenderer` 대상 CKEditor 본문 링크는 무변경이며 기존 테스트가 그대로 통과한다.
+  - `docs/ARCHITECTURE.md`에 "새 탭 링크는 항상 `rel="noopener noreferrer"`를 함께 사용한다"는 공통 보안 규칙이 짧게 추가되어 있다. `docs/FEATURES.md`/`docs/PRD.md`/`docs/API.md`/`docs/ERD.md`는 기능·API·스키마 변경이 없어 무변경.
+  - `./gradlew build` 성공, Java/Node 전체 테스트 통과, 기존 Playwright 전체 스위트 회귀 통과(신규 Playwright 테스트는 추가하지 않음).
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

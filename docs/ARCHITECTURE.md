@@ -375,6 +375,12 @@ CKEditor5 본문에 삽입된 `<a href>` 링크는 외부/내부 여부에 따�
 - `Board`, `Program`, `Page` 상세 화면과 `Popup` 노출 화면, 총 4곳의 공개 뷰가 대상이다. 각 공개 `*ViewController`(`HomeController` 포함)가 `ContentLinkRenderer`로 미리 변환한 HTML을 view 전용 model attribute(`renderedContent`, Popup은 `popupRenderedContents` Map)로 전달하고, 템플릿은 `th:utext`로 이 값만 출력한다.
 - DB에 저장되는 `content`, 관리자 CMS 응답(API Response DTO), CKEditor 재편집 시 로드되는 원본 데이터에는 이 변환을 적용하지 않는다. 즉 `HtmlSanitizer`가 담당하는 저장 시점 XSS 방지 화이트리스트와는 별개의, 표시 전용(read-time) 후처리다.
 
+### 새 탭 링크 공통 규칙
+
+CKEditor 본문 링크뿐 아니라, 첨부파일 다운로드·외부 신청 링크·관리자 파일 목록 등 직접 마크업/JS로 생성하는 새 탭 링크에도 동일하게 적용한다.
+
+- `target="_blank"`를 사용하는 모든 링크는 `rel="noopener noreferrer"`를 항상 함께 부여한다(`window.opener`를 통한 tabnabbing 방지).
+
 ---
 
 # Common
