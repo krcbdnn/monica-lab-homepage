@@ -27,11 +27,18 @@
         </div>
         <div class="mb-3">
             <label for="thumbnailInput" class="form-label">썸네일 이미지</label>
+            <div id="thumbnailPreview" class="mb-2" hidden>
+                <img id="thumbnailPreviewImage" class="admin-file-preview__thumb" src="" alt="현재 등록된 썸네일 이미지">
+                <div><a id="thumbnailPreviewLink" href="#" target="_blank" rel="noopener noreferrer">새 창에서 보기</a></div>
+            </div>
             <input type="file" class="form-control" id="thumbnailInput" accept="image/*">
             <input type="hidden" id="thumbnail" name="thumbnail">
         </div>
         <div class="mb-3">
             <label for="attachmentInput" class="form-label">첨부파일</label>
+            <div id="attachmentPreview" class="mb-2" hidden>
+                <a id="attachmentPreviewLink" href="#">현재 등록된 첨부파일 다운로드</a>
+            </div>
             <input type="file" class="form-control" id="attachmentInput">
             <input type="hidden" id="attachment" name="attachment">
         </div>
@@ -57,6 +64,7 @@
 <script src="/js/admin/common-fetch.js"></script>
 <script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script src="/js/admin/program-file-upload.js"></script>
+<script src="/js/admin/admin-file-preview.js"></script>
 <script>
     var contentEditor = null;
 
@@ -101,6 +109,16 @@
             document.querySelector('#googleFormUrl').value = program.googleFormUrl || '';
             document.querySelector('#recruitStatus').value = program.recruitStatus;
             document.querySelector('#isPublic').checked = program.isPublic;
+
+            AdminFilePreview.renderImagePreview(
+                document.querySelector('#thumbnailPreview'),
+                document.querySelector('#thumbnailPreviewImage'),
+                document.querySelector('#thumbnailPreviewLink'),
+                program.thumbnail);
+            AdminFilePreview.renderLinkPreview(
+                document.querySelector('#attachmentPreview'),
+                document.querySelector('#attachmentPreviewLink'),
+                program.attachment);
         });
     }
 
@@ -112,6 +130,11 @@
         AdminProgramFileUpload.uploadFile(file, AdminProgramFileUpload.THUMBNAIL_FILE_TYPE, AdminFetch.adminFetch)
             .then(function (url) {
                 document.querySelector('#thumbnail').value = url;
+                AdminFilePreview.renderImagePreview(
+                    document.querySelector('#thumbnailPreview'),
+                    document.querySelector('#thumbnailPreviewImage'),
+                    document.querySelector('#thumbnailPreviewLink'),
+                    url);
             })
             .catch(function (error) {
                 alert(error.message);
@@ -126,6 +149,10 @@
         AdminProgramFileUpload.uploadFile(file, AdminProgramFileUpload.ATTACHMENT_FILE_TYPE, AdminFetch.adminFetch)
             .then(function (url) {
                 document.querySelector('#attachment').value = url;
+                AdminFilePreview.renderLinkPreview(
+                    document.querySelector('#attachmentPreview'),
+                    document.querySelector('#attachmentPreviewLink'),
+                    url);
             })
             .catch(function (error) {
                 alert(error.message);
