@@ -1813,3 +1813,94 @@ test.describe('P13-T22: Board 기존 첨부파일 파일명 표시', () => {
     await expect(page.locator('#attachmentPreviewLink')).toHaveAttribute('href', uploadedUrl);
   });
 });
+
+test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  // 관리자 편집기에서 정렬 버튼 노출 -> 실제 정렬 적용 -> 저장 -> DB/API 재조회 -> 수정 화면 재진입 시
+  // 스타일 유지 -> 공개 상세 화면에서 동일 정렬 적용 -> 375/768/1024/1440 overflow/겹침 없음까지
+  // 하나의 흐름으로 검증한다(Board 대표 1건, Program/Page/Popup은 HtmlSanitizer/CSS 공용 로직이므로
+  // 반복하지 않는다).
+  test('CKEditor에서 이미지를 왼쪽 정렬로 저장하면 재조회/공개 화면/반응형까지 유지된다', async ({ page, context, baseURL }) => {
+    await page.goto('/admin/boards/new');
+    await page.locator('#boardType').selectOption('NOTICE');
+    await page.locator('#title').fill('이미지 정렬 round-trip 확인 ' + Date.now());
+
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('이 게시글은 이미지 정렬 확인용 본문입니다. '.repeat(15));
+
+    const uploadButton = page
+      .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
+      .first();
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await uploadButton.click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({
+      name: 'align-test.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && img.getAttribute('src') && img.getAttribute('src').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+
+    // 업로드 직후 이미지는 block 타입(<figure class="image">)이다. 위젯을 선택하면 balloon toolbar가
+    // 뜨고, 그 안에서 "Left aligned image" 버튼(alignLeft, ckeditor-config.js에서 노출)을 클릭한다.
+    await page.locator('.ck-editor__editable img').click();
+    await page.locator('button[data-cke-tooltip-text="Left aligned image"]').click();
+    await page.waitForSelector('.ck-editor__editable figure.image-style-align-left', { timeout: 10000 });
+
+    await page.locator('#isPublic').check();
+    await Promise.all([
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+
+    const listRes = await context.request.get(
+      `${baseURL}/api/admin/boards?page=0&size=1&sort=createdAt,DESC`);
+    const listBody = await listRes.json();
+    boardId = listBody.data.content[0].id;
+
+    // DB/API를 거친 재조회: 수정 화면 재진입 시 정렬이 CKEditor 안에서 그대로 복원되는지 확인.
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await page.waitForSelector('.ck-editor__editable figure.image-style-align-left', { timeout: 10000 });
+
+    // 공개 상세 화면에서 동일 정렬이 반영되는지 확인.
+    await page.goto(`/boards/${boardId}`);
+    const publicImage = page.locator('#board-detail-content .ckeditor-content .image-style-align-left img');
+    await expect(publicImage).toBeVisible();
+
+    // float containment: float 이미지 다음에 이어지는 "목록으로" 버튼이 이미지와 겹치지 않는지 확인.
+    const imageBox = await publicImage.boundingBox();
+    const backLinkBox = await page.locator('#board-detail-content a:has-text("목록으로")').boundingBox();
+    expect(backLinkBox.y).toBeGreaterThanOrEqual(imageBox.y + imageBox.height - 1);
+
+    // 375/768/1024/1440에서 가로 overflow가 없는지 확인.
+    for (const width of [375, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      const overflowCheck = await page.evaluate(() => {
+        const el = document.querySelector('#board-detail-content');
+        return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+      });
+      expect(overflowCheck.scrollWidth).toBeLessThanOrEqual(overflowCheck.clientWidth + 1);
+    }
+  });
+});

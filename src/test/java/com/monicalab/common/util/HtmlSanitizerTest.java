@@ -122,4 +122,87 @@ class HtmlSanitizerTest {
 
         assertThat(result).contains("href=\"/boards/1\"");
     }
+
+    @Test
+    void preservesDefaultFigureImageClass() {
+        String result = HtmlSanitizer.sanitize("<figure class=\"image\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("<figure class=\"image\">")
+                .contains("<img src=\"/api/files/1\">");
+    }
+
+    @Test
+    void preservesImageStyleSideClass() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image image-style-side\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("class=\"image image-style-side\"");
+    }
+
+    @Test
+    void preservesImageStyleAlignLeftRightCenterClasses() {
+        assertThat(HtmlSanitizer.sanitize(
+                "<figure class=\"image image-style-align-left\"><img src=\"/api/files/1\"></figure>"))
+                .contains("class=\"image image-style-align-left\"");
+        assertThat(HtmlSanitizer.sanitize(
+                "<figure class=\"image image-style-align-right\"><img src=\"/api/files/1\"></figure>"))
+                .contains("class=\"image image-style-align-right\"");
+        assertThat(HtmlSanitizer.sanitize(
+                "<figure class=\"image image-style-align-center\"><img src=\"/api/files/1\"></figure>"))
+                .contains("class=\"image image-style-align-center\"");
+    }
+
+    @Test
+    void removesDisallowedClassTokenButKeepsAllowedTokensInSameAttribute() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image evil-class\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("class=\"image\"")
+                .doesNotContain("evil-class");
+    }
+
+    @Test
+    void removesClassAttributeEntirelyWhenNoTokenIsAllowed() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"evil-class another-evil\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("<figure>")
+                .doesNotContain("class=")
+                .doesNotContain("evil-class");
+    }
+
+    @Test
+    void removesEventHandlerAttributeOnFigureWhileKeepingAllowedClass() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image\" onmouseover=\"alert(1)\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("class=\"image\"")
+                .doesNotContainIgnoringCase("onmouseover")
+                .doesNotContain("alert(1)");
+    }
+
+    @Test
+    void removesScriptTagInsideFigure() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image\"><img src=\"/api/files/1\"><script>alert(1)</script></figure>");
+
+        assertThat(result).doesNotContainIgnoringCase("<script")
+                .doesNotContain("alert(1)")
+                .contains("class=\"image\"");
+    }
+
+    @Test
+    void preservesBareInlineImageWithoutFigureWrapper() {
+        String result = HtmlSanitizer.sanitize("<p>before <img src=\"/api/files/1\"> after</p>");
+
+        assertThat(result).isEqualTo("<p>before <img src=\"/api/files/1\"> after</p>");
+    }
+
+    @Test
+    void figureWithoutClassAttributeIsUnaffected() {
+        String result = HtmlSanitizer.sanitize("<figure><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("<figure>")
+                .doesNotContain("class=");
+    }
 }

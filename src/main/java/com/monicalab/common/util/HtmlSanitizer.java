@@ -1,5 +1,8 @@
 package com.monicalab.common.util;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -21,14 +24,24 @@ public final class HtmlSanitizer {
     // 2차로 이 패턴을 적용한다.
     private static final Pattern INTERNAL_IMAGE_SRC = Pattern.compile("^/api/files/\\d+$");
 
+    // P13-T23: CKEditor 5 41.4.2 classic build의 실제 getData() 출력을 헤드리스로 직접 확인해 결정한
+    // 최소 허용 목록이다(추측 금지). ImageStyle이 block 이미지에 붙이는 class는 항상 <figure>에만
+    // 나타나고 <img>에는 붙지 않으며(inline 스타일은 <figure> 자체가 없는 bare <img>로 표현되어 애초에
+    // class가 필요 없음을 실측 확인), 값은 이 5개 토큰 조합으로만 나타난다. class 값 전체를 정규식으로
+    // 검증하지 않고 whitespace로 분리한 토큰 단위로 화이트리스트 대조 후 안전한 토큰만 남긴다.
+    private static final Set<String> ALLOWED_FIGURE_CLASS_TOKENS = Set.of(
+            "image", "image-style-side",
+            "image-style-align-left", "image-style-align-right", "image-style-align-center");
+
     private static final Safelist SAFELIST = Safelist.none()
             .addTags(
                     "p", "br", "strong", "em", "u",
                     "h1", "h2", "h3", "h4", "h5", "h6",
                     "table", "tr", "td", "th",
-                    "a", "img")
+                    "a", "img", "figure")
             .addAttributes("a", "href")
             .addAttributes("img", "src")
+            .addAttributes("figure", "class")
             .addProtocols("a", "href", "http", "https", "mailto")
             .addProtocols("img", "src", "http", "https")
             .preserveRelativeLinks(true);
@@ -41,7 +54,8 @@ public final class HtmlSanitizer {
             return null;
         }
         String cleaned = Jsoup.clean(html, DUMMY_BASE_URI, SAFELIST);
-        return restrictRelativeImageSources(cleaned);
+        String restrictedSources = restrictRelativeImageSources(cleaned);
+        return restrictFigureClasses(restrictedSources);
     }
 
     private static String restrictRelativeImageSources(String cleanedHtml) {
@@ -51,6 +65,21 @@ public final class HtmlSanitizer {
             boolean isAbsoluteHttp = src.startsWith("http://") || src.startsWith("https://");
             if (!isAbsoluteHttp && !INTERNAL_IMAGE_SRC.matcher(src).matches()) {
                 img.removeAttr("src");
+            }
+        }
+        return doc.body().html();
+    }
+
+    private static String restrictFigureClasses(String cleanedHtml) {
+        Document doc = Jsoup.parseBodyFragment(cleanedHtml);
+        for (Element figure : doc.select("figure[class]")) {
+            List<String> safeTokens = Arrays.stream(figure.attr("class").trim().split("\\s+"))
+                    .filter(ALLOWED_FIGURE_CLASS_TOKENS::contains)
+                    .toList();
+            if (safeTokens.isEmpty()) {
+                figure.removeAttr("class");
+            } else {
+                figure.attr("class", String.join(" ", safeTokens));
             }
         }
         return doc.body().html();

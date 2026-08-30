@@ -15,7 +15,7 @@
     <img th:if="${board.thumbnail() != null}" th:src="${board.thumbnail()}" th:alt="${board.title()}"
          class="img-fluid mb-3" loading="lazy">
 
-    <div th:if="${board.content() != null}" th:utext="${renderedContent}"></div>
+    <div class="ckeditor-content" th:if="${board.content() != null}" th:utext="${renderedContent}"></div>
     <p th:unless="${board.content() != null}" class="text-muted">등록된 내용이 없습니다.</p>
 
     <div th:if="${board.attachment() != null}" class="mt-3">

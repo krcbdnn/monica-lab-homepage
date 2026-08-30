@@ -786,3 +786,58 @@
     font-size: 0.875rem;
     cursor: pointer;
 }
+
+/* P13-T23: 관리자가 CKEditor 이미지 정렬(ImageStyle: side/alignLeft/alignRight/alignCenter)을
+   적용했을 때 공개 화면에 그대로 반영되게 하는 최소 CSS. CKEditor 5 41.4.2가 자체 편집 화면에
+   쓰는 공식 규칙(번들에서 직접 확인한 값)을 이 프로젝트의 --space-2 토큰으로 옮겨 적용했다.
+   .ckeditor-content는 Board/Program/Page 상세의 CKEditor 본문 영역, .popup-modal__body는
+   Popup 노출 영역이며 둘 다 동일한 규칙을 공유한다. float 기반 정렬(side/alignLeft/alignRight)이
+   부모 영역의 높이를 무너뜨리지 않도록 display: flow-root로 containment를 건다
+   (overflow:hidden과 달리 의도한 콘텐츠를 잘라내지 않는다). */
+.ckeditor-content,
+.popup-modal__body {
+    display: flow-root;
+}
+
+.ckeditor-content .image,
+.popup-modal__body .image {
+    clear: both;
+    margin: var(--space-2) auto;
+    text-align: center;
+}
+
+/* .popup-modal__body는 이미 위쪽의 .popup-modal__body img 규칙(fit-content 순환 참조 방지용 고정 px
+   캡)을 갖고 있다. 여기서 .image img에 max-width:100%를 추가하면 특이도가 더 높아 그 규칙을 덮어써
+   버리므로(모든 이미지가 이제 <figure class="image"> 안에 들어오게 되는 이번 변경 때문에 실제로
+   충돌한다), Board/Program/Page 상세(.ckeditor-content)에만 한정한다. */
+.ckeditor-content .image img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+}
+
+.ckeditor-content .image-style-side,
+.popup-modal__body .image-style-side {
+    float: right;
+    max-width: 50%;
+    margin-left: var(--space-2);
+}
+
+.ckeditor-content .image-style-align-left,
+.popup-modal__body .image-style-align-left {
+    float: left;
+    margin-right: var(--space-2);
+}
+
+.ckeditor-content .image-style-align-right,
+.popup-modal__body .image-style-align-right {
+    float: right;
+    margin-left: var(--space-2);
+}
+
+.ckeditor-content .image-style-align-center,
+.popup-modal__body .image-style-align-center {
+    margin-left: auto;
+    margin-right: auto;
+}

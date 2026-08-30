@@ -22,6 +22,7 @@
 
 <script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
 <script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-config.js"></script>
 <script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script>
     var contentEditor = null;
@@ -32,7 +33,7 @@
         errorMessage.style.display = 'block';
     }
 
-    var editorReady = ClassicEditor.create(document.querySelector('#editor'))
+    var editorReady = ClassicEditor.create(document.querySelector('#editor'), AdminCkeditorConfig.EDITOR_CONFIG)
         .then(function (editor) {
             contentEditor = editor;
             AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
