@@ -320,6 +320,27 @@ class HomeControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void popupRendersExternalContentLinkWithTargetBlankAndRelNoopener() throws Exception {
+        Popup popup = popupRepository.saveAndFlush(Popup.builder()
+                .title("외부 링크 포함 팝업")
+                .content("<p>안내 <a href=\"https://example.com\">외부 링크</a></p>")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements link = document.select("#popup-modal-" + popup.getId() + " a[href=https://example.com]");
+        assertThat(link).hasSize(1);
+        assertThat(link.attr("target")).isEqualTo("_blank");
+        assertThat(link.attr("rel")).isEqualTo("noopener noreferrer");
+    }
+
+    @Test
     void popupOverlayAndAllModalsAreHiddenInServerRenderedMarkupRegardlessOfCount() throws Exception {
         popupRepository.saveAndFlush(Popup.builder()
                 .title("첫 번째 팝업")

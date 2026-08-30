@@ -3,8 +3,13 @@ package com.monicalab.home.controller;
 import com.monicalab.banner.service.BannerService;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
+import com.monicalab.common.util.ContentLinkRenderer;
+import com.monicalab.popup.dto.PopupResponse;
 import com.monicalab.popup.service.PopupService;
 import com.monicalab.program.service.ProgramService;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -27,8 +32,10 @@ public class HomeController {
 
     @GetMapping("/")
     public String index(Model model) {
+        List<PopupResponse> popups = popupService.getPublicList();
         model.addAttribute("banners", bannerService.getPublicList());
-        model.addAttribute("popups", popupService.getPublicList());
+        model.addAttribute("popups", popups);
+        model.addAttribute("popupRenderedContents", popupRenderedContents(popups));
         model.addAttribute("latestPrograms",
                 programService.getPublicList(null, null, latestProgramPageable()).getContent());
         model.addAttribute("latestReviews",
@@ -50,5 +57,13 @@ public class HomeController {
 
     private PageRequest latestReviewPageable() {
         return PageRequest.of(0, LATEST_REVIEW_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"));
+    }
+
+    private Map<Long, String> popupRenderedContents(List<PopupResponse> popups) {
+        Map<Long, String> renderedContents = new HashMap<>();
+        for (PopupResponse popup : popups) {
+            renderedContents.put(popup.id(), ContentLinkRenderer.externalLinksOpenInNewTab(popup.content()));
+        }
+        return renderedContents;
     }
 }

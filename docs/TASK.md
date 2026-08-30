@@ -688,6 +688,28 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T20. CKEditor 본문 링크 새 탭/내부 이동 처리
+- 의존성: P13-T19
+- 산출물: `common/util/ContentLinkRenderer.java`(신규), `board/controller/BoardViewController.java`, `program/controller/ProgramViewController.java`, `page/controller/PageViewController.java`, `home/controller/HomeController.java`, `home/board/detail.html`, `home/program/detail.html`, `home/page/detail.html`, `home/index.html`, `src/test/java/com/monicalab/common/util/ContentLinkRendererTest.java`(신규), `src/test/java/com/monicalab/common/util/HtmlSanitizerTest.java`, `src/test/java/com/monicalab/board/controller/BoardViewControllerTest.java`, `src/test/java/com/monicalab/program/controller/ProgramViewControllerTest.java`, `src/test/java/com/monicalab/page/controller/PageViewControllerTest.java`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `frontend-tests/visual-regression.spec.js`, `docs/ARCHITECTURE.md`, `docs/FEATURES.md`
+- 작업 내용: Board/Program/Page/Popup의 CKEditor 본문에 삽입된 `<a href>` 링크를, 외부 링크는 새 탭에서, 내부 링크는 같은 탭에서 열리도록 공개 화면 렌더링 시점에 처리한다.
+  1. `common/util/ContentLinkRenderer.java`를 `HtmlSanitizer`와 동일한 순수 정적 유틸 스타일로 신설한다. `externalLinksOpenInNewTab(String html)`은 jsoup으로 `<a href>`를 순회해 `href`가 `http://`/`https://`/`//`(대소문자 무관)로 시작하면 `target="_blank" rel="noopener noreferrer"`를 부여하고, 그 외(상대 경로/`mailto:`/`#anchor`)는 그대로 둔다. `null` 입력은 `null`을 반환한다.
+  2. 각 공개 `*ViewController`(`BoardViewController`, `ProgramViewController`, `PageViewController`, `HomeController`)에서 `ContentLinkRenderer`를 호출해 미리 변환한 HTML을 view 전용 model attribute로 전달한다: Board/Program/Page 상세는 `renderedContent`, Popup(복수 노출)은 `Map<Long, String> popupRenderedContents`. Thymeleaf 3.1 restricted expression evaluation 제약으로 템플릿에서 `T(...)` 정적 메서드를 직접 호출하지 않고, 항상 Controller에서 계산된 값만 `th:utext`로 출력한다.
+  3. 4개 템플릿(`home/board/detail.html`, `home/program/detail.html`, `home/page/detail.html`, `home/index.html`의 popup 블록)의 `th:utext` 대상을 `board.content()`/`program.content()`/`page.content()`/`popup.content()`에서 위 model attribute로 교체한다.
+  4. `HtmlSanitizer`(저장 시점 XSS 화이트리스트), `BoardService`/`ProgramService`/`PageService`/`PopupService`의 sanitize 호출, 관리자 API Response DTO, DB 저장 `content`, CKEditor 재편집 시 로드되는 원본 데이터는 변경하지 않는다. 기존 저장 데이터도 재저장/마이그레이션 없이 렌더링 시점에 자동 적용된다.
+  5. 기존 `home/board/detail.html`의 `#attachment-link`, `home/program/detail.html`의 첨부파일 링크·`#apply-link`는 이미 `target="_blank"`이나 `rel="noopener noreferrer"`가 없다는 것이 확인되었으나, 이번 Task 범위에는 포함하지 않는다(범위 밖, 후속 fix Task 후보).
+- DoD:
+  - `ContentLinkRendererTest`: http/https/`//`(대소문자 무관 포함) 외부 링크에 `target="_blank" rel="noopener noreferrer"` 부여, 상대 경로/`mailto:`/`#anchor` 내부 링크는 무변경, `null` 입력 시 `null` 반환, 외부/내부 링크가 섞인 경우 독립적으로 분류, `<p>`/`<table>`/`<img src="/api/files/...">` 등 링크 이외 CKEditor HTML이 jsoup 재파싱 후에도 동일하게 보존, 변환 결과에 다시 적용해도 동일 결과(idempotent)임을 검증.
+  - `HtmlSanitizerTest`에 상대 경로 `<a href>`가 sanitize 후에도 보존되는 테스트가 추가되어 있다(기존 커버리지 공백 보완, `HtmlSanitizer` 자체는 무변경).
+  - `BoardViewControllerTest`/`ProgramViewControllerTest`/`PageViewControllerTest`/`HomeControllerTest`(Popup)에 각 도메인 상세/노출 화면에서 외부 링크가 `target="_blank" rel="noopener noreferrer"`로 렌더링됨을 확인하는 연결 테스트가 최소 1개씩 있다.
+  - `frontend-tests/visual-regression.spec.js`에 Board 도메인 한정으로 정확히 2개의 신규 Playwright 테스트가 추가되어 있다: 외부 링크 클릭 시 `context.waitForEvent('page')`로 새 탭이 열림을 확인, 내부 링크 클릭 시 같은 탭에서 해당 게시글 상세로 정상 이동함을 확인. 다른 도메인(Program/Page/Popup)에는 중복 추가하지 않는다.
+  - 관리자 API Response(JSON)와 CKEditor 재편집 시 로드되는 `content` 원본에는 `target`/`rel` 속성이 추가되지 않는다(변환이 저장 데이터/API 계약에 반영되지 않음을 확인).
+  - `docs/ARCHITECTURE.md`(콘텐츠 링크 처리 정책 신설)/`docs/FEATURES.md`(링크 삽입 항목 1줄 보완) 갱신. `docs/PRD.md`/`docs/API.md`/`docs/ERD.md`는 API 계약·스키마 변경이 없어 무변경.
+  - `./gradlew build` 성공, Java/Node/Playwright 전체 통과, Docker 8088 수동 확인.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+  - 기존 attachment/apply-link의 `rel="noopener noreferrer"` 누락은 이번 Task 범위에 포함하지 않는다(범위 밖, 후속 fix Task 후보로 기록).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
