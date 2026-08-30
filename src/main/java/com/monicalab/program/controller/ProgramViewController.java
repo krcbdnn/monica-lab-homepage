@@ -1,6 +1,7 @@
 package com.monicalab.program.controller;
 
 import com.monicalab.common.dto.PageResponse;
+import com.monicalab.common.util.ContentLinkRenderer;
 import com.monicalab.common.util.PaginationSupport;
 import com.monicalab.program.dto.ProgramResponse;
 import com.monicalab.program.entity.ProgramType;
@@ -38,7 +39,9 @@ public class ProgramViewController {
 
     @GetMapping("/programs/{id}")
     public String detail(@PathVariable Long id, Model model) {
-        model.addAttribute("program", programService.getPublicById(id));
+        ProgramResponse program = programService.getPublicById(id);
+        model.addAttribute("program", program);
+        model.addAttribute("renderedContent", ContentLinkRenderer.externalLinksOpenInNewTab(program.content()));
         return "home/program/detail";
     }
 }

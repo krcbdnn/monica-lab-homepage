@@ -7,7 +7,7 @@
 <body>
 <div id="page-detail-content" class="container" style="margin-top: 40px;">
     <h2 th:text="${page.title()}"></h2>
-    <div th:if="${page.content() != null}" th:utext="${page.content()}"></div>
+    <div th:if="${page.content() != null}" th:utext="${renderedContent}"></div>
     <p th:unless="${page.content() != null}" class="text-muted">등록된 내용이 없습니다.</p>
 </div>
 </body>

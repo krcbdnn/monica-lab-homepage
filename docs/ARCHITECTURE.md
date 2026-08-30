@@ -365,6 +365,16 @@ CKEditor5로 작성된 콘텐츠는 HTML 형태로 저장되며, Thymeleaf에서
 - `script`, `iframe`, `on*` 이벤트 속성, `javascript:` 스킴 링크는 모두 제거한다.
 - 정제는 `PageService`, `ProgramService`, `BoardService`, `PopupService`의 등록/수정 로직에서 공통 유틸(`common/util/HtmlSanitizer.java`)을 통해 일괄 적용한다.
 
+## 콘텐츠 링크 처리 정책
+
+CKEditor5 본문에 삽입된 `<a href>` 링크는 외부/내부 여부에 따라 다르게 열려야 한다(외부는 새 탭, 내부는 같은 탭). 다음 정책을 따른다.
+
+- 링크 판별 기준: `href`가 `http://`, `https://`, `//`로 시작하면 외부 링크, 그 외(상대 경로, `mailto:`, `#anchor` 등)는 내부/비외부 링크로 간주한다.
+- 판별 및 속성 부여는 저장 시점이 아닌 공개 화면 렌더링 시점에 수행한다(공통 유틸 `common/util/ContentLinkRenderer.java`). 이미 저장된 기존 콘텐츠도 별도 마이그레이션이나 재저장 없이 자동 적용된다.
+- 외부 링크에는 `target="_blank" rel="noopener noreferrer"`를 부여하고, 내부 링크는 변경하지 않는다.
+- `Board`, `Program`, `Page` 상세 화면과 `Popup` 노출 화면, 총 4곳의 공개 뷰가 대상이다. 각 공개 `*ViewController`(`HomeController` 포함)가 `ContentLinkRenderer`로 미리 변환한 HTML을 view 전용 model attribute(`renderedContent`, Popup은 `popupRenderedContents` Map)로 전달하고, 템플릿은 `th:utext`로 이 값만 출력한다.
+- DB에 저장되는 `content`, 관리자 CMS 응답(API Response DTO), CKEditor 재편집 시 로드되는 원본 데이터에는 이 변환을 적용하지 않는다. 즉 `HtmlSanitizer`가 담당하는 저장 시점 XSS 방지 화이트리스트와는 별개의, 표시 전용(read-time) 후처리다.
+
 ---
 
 # Common

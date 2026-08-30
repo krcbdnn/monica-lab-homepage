@@ -103,6 +103,46 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void detailRendersExternalContentLinkWithTargetBlankAndRelNoopener() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("외부 링크 포함 게시글")
+                .content("<p>본문 <a href=\"https://example.com\">외부 링크</a></p>")
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements link = document.select("#board-detail-content a[href=https://example.com]");
+        assertThat(link).hasSize(1);
+        assertThat(link.attr("target")).isEqualTo("_blank");
+        assertThat(link.attr("rel")).isEqualTo("noopener noreferrer");
+    }
+
+    @Test
+    void detailRendersInternalContentLinkWithoutTargetBlank() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("내부 링크 포함 게시글")
+                .content("<p>본문 <a href=\"/boards/1\">내부 링크</a></p>")
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements link = document.select("#board-detail-content a[href=/boards/1]");
+        assertThat(link).hasSize(1);
+        assertThat(link.attr("target")).isEmpty();
+        assertThat(link.attr("rel")).isEmpty();
+    }
+
+    @Test
     void detailShowsAttachmentLinkWhenPresent() throws Exception {
         Long id = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.ARCHIVE)

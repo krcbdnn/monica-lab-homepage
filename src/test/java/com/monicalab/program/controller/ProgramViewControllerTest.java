@@ -59,6 +59,27 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void detailRendersExternalContentLinkWithTargetBlankAndRelNoopener() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("외부 링크 포함 프로그램")
+                .content("<p>본문 <a href=\"https://example.com\">외부 링크</a></p>")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements link = document.select("#program-detail-content a[href=https://example.com]");
+        assertThat(link).hasSize(1);
+        assertThat(link.attr("target")).isEqualTo("_blank");
+        assertThat(link.attr("rel")).isEqualTo("noopener noreferrer");
+    }
+
+    @Test
     void detailShowsApplyLinkWhenGoogleFormUrlIsPresent() throws Exception {
         Long id = programRepository.saveAndFlush(Program.builder()
                 .programType(ProgramType.COURSE)

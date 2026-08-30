@@ -52,7 +52,8 @@
                         th:attr="id='popup-modal-title-' + ${popup.id()}"></h2>
                     <button type="button" class="popup-modal__close" aria-label="팝업 닫기">×</button>
                 </div>
-                <div class="popup-modal__body" th:if="${popup.content() != null}" th:utext="${popup.content()}"></div>
+                <div class="popup-modal__body" th:if="${popup.content() != null}"
+                     th:utext="${popupRenderedContents.get(popup.id())}"></div>
                 <button type="button" class="popup-modal__hide-today">오늘 하루 보지 않기</button>
             </div>
         </div>

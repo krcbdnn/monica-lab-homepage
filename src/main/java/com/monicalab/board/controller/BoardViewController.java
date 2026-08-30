@@ -4,6 +4,7 @@ import com.monicalab.board.dto.BoardResponse;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
 import com.monicalab.common.dto.PageResponse;
+import com.monicalab.common.util.ContentLinkRenderer;
 import com.monicalab.common.util.PaginationSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -38,7 +39,9 @@ public class BoardViewController {
 
     @GetMapping("/boards/{id}")
     public String detail(@PathVariable Long id, Model model) {
-        model.addAttribute("board", boardService.getPublicById(id));
+        BoardResponse board = boardService.getPublicById(id);
+        model.addAttribute("board", board);
+        model.addAttribute("renderedContent", ContentLinkRenderer.externalLinksOpenInNewTab(board.content()));
         return "home/board/detail";
     }
 }

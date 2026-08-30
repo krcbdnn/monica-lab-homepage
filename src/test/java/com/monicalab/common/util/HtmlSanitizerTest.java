@@ -115,4 +115,11 @@ class HtmlSanitizerTest {
                 .doesNotContainIgnoringCase("onerror")
                 .doesNotContain("alert(1)");
     }
+
+    @Test
+    void preservesRelativeInternalLinkHref() {
+        String result = HtmlSanitizer.sanitize("<a href=\"/boards/1\">내부 게시글</a>");
+
+        assertThat(result).contains("href=\"/boards/1\"");
+    }
 }

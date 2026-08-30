@@ -1688,3 +1688,79 @@ test.describe('공개 Popup 레이어', () => {
     });
   });
 });
+
+test.describe('P13-T20: 게시글 본문 링크 새 탭/내부 이동', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+  let linkedBoardId;
+
+  async function createBoard(context, baseURL, title, content) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title, content, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+    linkedBoardId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+    if (linkedBoardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${linkedBoardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('본문의 외부 링크를 클릭하면 새 탭에서 열린다', async ({ page, context, baseURL }) => {
+    boardId = await createBoard(
+      context, baseURL,
+      '외부 링크 새 탭 확인 ' + Date.now(),
+      '<p>본문 <a href="https://example.com">외부 링크</a></p>'
+    );
+
+    await page.goto(`/boards/${boardId}`);
+    const link = page.locator('#board-detail-content a[href="https://example.com"]');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+
+    const [newPage] = await Promise.all([
+      context.waitForEvent('page'),
+      link.click(),
+    ]);
+    await newPage.waitForLoadState();
+    expect(newPage.url()).toContain('example.com');
+    await newPage.close();
+  });
+
+  test('본문의 내부 링크를 클릭하면 같은 탭에서 해당 게시글로 이동한다', async ({ page, context, baseURL }) => {
+    linkedBoardId = await createBoard(context, baseURL, '내부 링크 대상 게시글 ' + Date.now(), '내용');
+    boardId = await createBoard(
+      context, baseURL,
+      '내부 링크 같은 탭 확인 ' + Date.now(),
+      `<p>본문 <a href="/boards/${linkedBoardId}">내부 링크</a></p>`
+    );
+
+    await page.goto(`/boards/${boardId}`);
+    const link = page.locator(`#board-detail-content a[href="/boards/${linkedBoardId}"]`);
+    await expect(link).not.toHaveAttribute('target', '_blank');
+    await expect(link).not.toHaveAttribute('rel', 'noopener noreferrer');
+
+    await link.click();
+    await page.waitForURL(`**/boards/${linkedBoardId}`);
+    expect(page.url()).toContain(`/boards/${linkedBoardId}`);
+  });
+});
