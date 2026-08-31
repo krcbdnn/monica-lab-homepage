@@ -295,6 +295,133 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select(".board-list__link").attr("href")).isEqualTo("/boards/" + id);
     }
 
+    // P13-T27: GALLERY/REVIEW는 이미지 중심 게시판 타입이라 메인 페이지(#latest-gallery/#latest-reviews)와
+    // 동일한 .gallery-grid/.gallery-card 마크업(#board-grid)으로 표시하고, 기존 텍스트 목록(#board-list)은
+    // 렌더링하지 않는다. NOTICE/ARCHIVE/전체는 반대로 #board-list만 렌더링하고 #board-grid는 렌더링하지 않는다.
+    @Test
+    void listRendersGalleryGridInsteadOfTextListWhenBoardTypeIsGallery() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY)
+                .title("갤러리 그리드 확인")
+                .content("내용")
+                .thumbnail("/api/files/11")
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards").param("boardType", "GALLERY"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("ul#board-grid.gallery-grid")).isNotEmpty();
+        assertThat(document.select("#board-grid > li.gallery-card > a.gallery-card__link")).hasSize(1);
+        assertThat(document.select("#board-grid .gallery-card__thumb img").attr("src")).isEqualTo("/api/files/11");
+        assertThat(document.select("#board-grid .gallery-card__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#board-grid .gallery-card__title").text()).isEqualTo("갤러리 그리드 확인");
+        assertThat(document.select("#board-grid .gallery-card__link").attr("href")).isEqualTo("/boards/" + id);
+        assertThat(document.select("#board-list")).isEmpty();
+    }
+
+    @Test
+    void listRendersGalleryGridInsteadOfTextListWhenBoardTypeIsReview() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW)
+                .title("강의 후기 그리드 확인")
+                .content("내용")
+                .thumbnail("/api/files/12")
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards").param("boardType", "REVIEW"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("ul#board-grid.gallery-grid")).isNotEmpty();
+        assertThat(document.select("#board-grid .gallery-card__thumb img").attr("src")).isEqualTo("/api/files/12");
+        assertThat(document.select("#board-grid .gallery-card__title").text()).isEqualTo("강의 후기 그리드 확인");
+        assertThat(document.select("#board-grid .gallery-card__link").attr("href")).isEqualTo("/boards/" + id);
+        assertThat(document.select("#board-list")).isEmpty();
+    }
+
+    @Test
+    void listKeepsTextListInsteadOfGalleryGridWhenBoardTypeIsNoticeArchiveOrAll() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지 텍스트 목록 유지 확인").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.ARCHIVE).title("자료실 텍스트 목록 유지 확인").isPublic(true).build());
+
+        for (String boardType : new String[] {"NOTICE", "ARCHIVE", null}) {
+            var requestBuilder = get("/boards");
+            if (boardType != null) {
+                requestBuilder = requestBuilder.param("boardType", boardType);
+            }
+            String body = mockMvc.perform(requestBuilder)
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+            Document document = Jsoup.parse(body);
+            assertThat(document.select("ul#board-list.list-group")).isNotEmpty();
+            assertThat(document.select("#board-grid")).isEmpty();
+        }
+    }
+
+    @Test
+    void listShowsPlaceholderWhenThumbnailIsNull() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY)
+                .title("썸네일 null 게시글")
+                .content("내용")
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/boards").param("boardType", "GALLERY"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#board-grid .gallery-card__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#board-grid .gallery-card__thumb img")).isEmpty();
+    }
+
+    @Test
+    void listShowsPlaceholderWhenThumbnailIsEmptyString() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY)
+                .title("썸네일 빈 문자열 게시글")
+                .content("내용")
+                .thumbnail("")
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/boards").param("boardType", "GALLERY"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#board-grid .gallery-card__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#board-grid .gallery-card__thumb img")).isEmpty();
+    }
+
+    @Test
+    void listShowsPlaceholderWhenThumbnailIsWhitespaceOnly() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY)
+                .title("썸네일 공백 문자열 게시글")
+                .content("내용")
+                .thumbnail("   ")
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/boards").param("boardType", "GALLERY"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#board-grid .gallery-card__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#board-grid .gallery-card__thumb img")).isEmpty();
+    }
+
     // P13-T19: 조회수 기능 완전 제거. 목록 아이템의 조회수 표시 요소(.board-list__views)가
     // 남아있지 않은지 확인한다(과도하게 넓은 "조회"라는 단어 전체 페이지 텍스트 검사 대신,
     // 실제로 존재했던 형식/요소만 targeted로 확인).

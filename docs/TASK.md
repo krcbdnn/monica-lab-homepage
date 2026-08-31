@@ -839,6 +839,27 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T27. 공개 게시판 목록 갤러리/강의후기 썸네일 그리드
+- 의존성: P13-T16, P13-T22
+- 산출물: `home/board/list.html`, `src/test/java/com/monicalab/board/controller/BoardViewControllerTest.java`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: `/boards?boardType=GALLERY`/`REVIEW`처럼 이미지 중심 게시판 타입을 텍스트 전용 목록으로 보여주던 문제를, 메인 페이지(`home/index.html`)의 `#latest-gallery`/`#latest-reviews`가 이미 쓰는 `.gallery-grid`/`.gallery-card*` 마크업·CSS를 그대로 재사용해 해소한다.
+  1. `home/board/list.html`의 목록 컨테이너를 최상위에서 1회만 분기한다: `boardType`이 `GALLERY`/`REVIEW`면 `#board-grid`(`.gallery-grid`, 메인 페이지와 동일한 `.gallery-card`/`.gallery-card__link`/`.gallery-card__thumb`/`.gallery-card__thumb-placeholder`/`.gallery-card__title`)를 렌더링하고, 그 외(NOTICE/ARCHIVE/전체)는 기존 `#board-list` 텍스트 목록을 그대로 렌더링한다. item 단위 분기나 신규 fragment는 만들지 않는다(서버가 이미 `boardType`으로 필터링해 페이지 내 item 타입이 항상 동일하므로 컨테이너 1회 분기로 충분).
+  2. thumbnail 표시는 메인 페이지의 단순 `!= null` 체크보다 안전한 `home/program/list.html`의 기존 패턴 `#strings.isEmpty(#strings.trim(board.thumbnail()))`을 채택해 null/빈 문자열/공백 문자열 모두 placeholder로 대체한다(깨진 `<img src="">` 방지).
+  3. `Controller`/`Service`/`Entity`/`DTO`/`API`/`DB`/`Flyway`/`home.css`/`home/fragments/pagination.html`/필터 nav/검색 폼/`home/board/detail.html`/admin 화면/메인 페이지(`home/index.html`)는 전혀 변경하지 않는다. 상세 카드 링크는 기존 `@{/boards/{id}(id=${board.id()})}` 방식을 그대로 사용한다.
+- DoD:
+  - `boardType=GALLERY`/`REVIEW`에서 `#board-grid`(`.gallery-grid`/`.gallery-card` 구조)만 렌더링되고 `#board-list`는 렌더링되지 않는다. NOTICE/ARCHIVE/전체에서는 반대로 `#board-list`만 렌더링되고 `#board-grid`는 렌더링되지 않는다(`BoardViewControllerTest` MockMvc+Jsoup 검증, `ProgramViewControllerTest`의 기존 검증 패턴 재사용).
+  - thumbnail이 null/빈 문자열/공백 문자열이면 `#board-grid`에서 `.gallery-card__thumb-placeholder`가 표시되고 `<img>`는 렌더링되지 않는다. 정상 URL이면 `<img src>`/`loading="lazy"`가 정확히 반영된다(`BoardViewControllerTest`).
+  - Playwright: GALLERY/REVIEW 필터에서 실제 브라우저 렌더링으로 썸네일 카드 노출과 정확한 `src` 확인, 카드 클릭 시 상세 페이지로 정상 이동, 썸네일 없는 카드도 무너지지 않고 placeholder + 전체 클릭 가능, NOTICE/전체는 `#board-list` 유지, 공백 없는 긴 제목이 있는 GALLERY 카드에서 가로 스크롤 없음, 375px/1440px 대표 2개 viewport에서 GALLERY 그리드 overflow 없음을 확인한다(4개 viewport 전부 중복 실행하지 않음).
+  - pagination/필터/`keyword` 유지 계약은 Controller와 `pagination.html` fragment를 변경하지 않았으므로 기존 P13-T14 Playwright/Java 테스트 무변경 재실행으로 회귀를 확인한다(신규 케이스 추가하지 않음).
+  - "상세 → 목록 복귀 시 boardType/keyword/page 유지"는 현재 `home/board/detail.html`의 "목록으로" 링크가 파라미터 없이 `/boards`로 고정되어 있어 애초에 구현되어 있지 않은 것으로 재확인됐다(관련 테스트 없음). 이 Task는 `detail.html`을 변경하지 않으므로 기존 동작 그대로이며, 이 문제 자체는 이번 범위에 포함하지 않고 별도 후속 Task 후보로만 기록한다.
+  - `home.css`는 변경하지 않는다(diff 0) — 기존 `.gallery-grid`/`.gallery-card*` 스타일만으로 반응형(auto-fill grid, aspect-ratio, line-clamp)이 충분함을 확인했다.
+  - `Board`/`BoardResponse`/`BoardRequest`/Entity/Repository/DB/Flyway/API 무변경.
+  - `./gradlew build` 성공, Java 전체 테스트 통과(신규 케이스 포함), Node 전체 테스트 통과(무변경), Playwright 전체 회귀 통과.
+  - 메인 페이지 카드 재설계, NOTICE/ARCHIVE 디자인 변경, 전체 목록 혼합형 카드 도입, 상세 CKEditor 이미지 크기, pagination 구조 재설계는 이번 Task 범위에 포함하지 않는다.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
