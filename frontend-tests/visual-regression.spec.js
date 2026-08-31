@@ -1943,3 +1943,66 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
     ).toBeVisible();
   });
 });
+
+test.describe('P13-T24: Banner 수정 화면 기존 이미지 미리보기', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let bannerId;
+
+  async function createBannerWithImage(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/banners`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { title, image: '/api/files/900401', sortOrder: 0, isVisible: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    bannerId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (bannerId) {
+      await context.request.delete(`${baseURL}/api/admin/banners/${bannerId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('Banner 수정 화면 진입 시 기존 이미지 미리보기가 표시된다', async ({ page, context, baseURL }) => {
+    bannerId = await createBannerWithImage(context, baseURL, 'Banner 이미지 미리보기 확인 ' + Date.now());
+    await page.goto(`/admin/banners/${bannerId}/edit`);
+
+    await expect(page.locator('#imagePreview')).toBeVisible();
+    await expect(page.locator('#imagePreviewImage')).toHaveAttribute('src', '/api/files/900401');
+    await expect(page.locator('#imagePreviewLink')).toHaveAttribute('href', '/api/files/900401');
+    await expect(page.locator('#imagePreviewLink')).toHaveAttribute('target', '_blank');
+    await expect(page.locator('#imagePreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('신규 등록 화면에서는 미리보기 영역이 표시되지 않는다', async ({ page }) => {
+    await page.goto('/admin/banners/new');
+
+    await expect(page.locator('#imagePreview')).toBeHidden();
+  });
+
+  test('새 이미지 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL }) => {
+    bannerId = await createBannerWithImage(context, baseURL, 'Banner 새 이미지 갱신 확인 ' + Date.now());
+    await page.goto(`/admin/banners/${bannerId}/edit`);
+    await expect(page.locator('#imagePreviewImage')).toHaveAttribute('src', '/api/files/900401');
+
+    await page.setInputFiles('#imageInput', {
+      name: 'new-banner.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+
+    await expect(page.locator('#image')).not.toHaveValue('/api/files/900401');
+    const newUrl = await page.locator('#image').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#imagePreviewImage')).toHaveAttribute('src', newUrl);
+    await expect(page.locator('#imagePreview')).toBeVisible();
+  });
+});

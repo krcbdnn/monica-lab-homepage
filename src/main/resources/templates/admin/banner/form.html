@@ -16,6 +16,10 @@
         </div>
         <div class="mb-3">
             <label for="imageInput" class="form-label">배너 이미지</label>
+            <div id="imagePreview" class="mb-2" hidden>
+                <img id="imagePreviewImage" class="admin-file-preview__thumb" src="" alt="현재 등록된 배너 이미지">
+                <div><a id="imagePreviewLink" href="#" target="_blank" rel="noopener noreferrer">새 창에서 보기</a></div>
+            </div>
             <input type="file" class="form-control" id="imageInput" accept="image/*">
             <input type="hidden" id="image" name="image">
         </div>
@@ -36,6 +40,7 @@
 
 <script src="/js/admin/common-fetch.js"></script>
 <script src="/js/admin/banner-file-upload.js"></script>
+<script src="/js/admin/admin-file-preview.js"></script>
 <script>
     var errorMessage = document.querySelector('#errorMessage');
 
@@ -66,6 +71,12 @@
                 document.querySelector('#linkUrl').value = banner.linkUrl || '';
                 document.querySelector('#sortOrder').value = banner.sortOrder;
                 document.querySelector('#isVisible').checked = banner.isVisible;
+
+                AdminFilePreview.renderImagePreview(
+                    document.querySelector('#imagePreview'),
+                    document.querySelector('#imagePreviewImage'),
+                    document.querySelector('#imagePreviewLink'),
+                    banner.image);
             });
     }
 
@@ -77,6 +88,11 @@
         AdminBannerFileUpload.uploadFile(file, AdminBannerFileUpload.IMAGE_FILE_TYPE, AdminFetch.adminFetch)
             .then(function (url) {
                 document.querySelector('#image').value = url;
+                AdminFilePreview.renderImagePreview(
+                    document.querySelector('#imagePreview'),
+                    document.querySelector('#imagePreviewImage'),
+                    document.querySelector('#imagePreviewLink'),
+                    url);
             })
             .catch(function (error) {
                 alert(error.message);
