@@ -150,3 +150,44 @@ test('templates/admin/program/form.html thumbnail "open in new tab" link uses ta
     const html = readTemplate('admin/program/form.html');
     assert.match(html, /<a id="thumbnailPreviewLink" href="#" target="_blank" rel="noopener noreferrer">/);
 });
+
+// P13-T26: thumbnail/attachment는 Program이 가진 URL 참조만 비우는 "제거"(detach) 버튼을 갖는다.
+// File 레코드/실제 파일 삭제(DELETE /api/admin/files/{id})와는 무관하며, 버튼은 각 preview
+// container 내부에 위치해 container가 hidden될 때 함께 사라진다(별도 가시성 로직 불필요).
+test('templates/admin/program/form.html has a "제거" button inside the thumbnail preview container (so it hides together with the preview)', () => {
+    const html = readTemplate('admin/program/form.html');
+    const previewStart = html.indexOf('<div id="thumbnailPreview"');
+    const previewEnd = html.indexOf('<input type="file" class="form-control" id="thumbnailInput"');
+    const buttonIndex = html.indexOf('<button type="button" id="thumbnailRemoveButton" class="btn btn-outline-secondary btn-sm">제거</button>');
+
+    assert.notEqual(buttonIndex, -1);
+    assert.ok(buttonIndex > previewStart && buttonIndex < previewEnd,
+        'remove button must be nested inside the thumbnail preview container');
+});
+
+test('templates/admin/program/form.html has a "제거" button inside the attachment preview container (so it hides together with the preview)', () => {
+    const html = readTemplate('admin/program/form.html');
+    const previewStart = html.indexOf('<div id="attachmentPreview"');
+    const previewEnd = html.indexOf('<input type="file" class="form-control" id="attachmentInput">');
+    const buttonIndex = html.indexOf('<button type="button" id="attachmentRemoveButton" class="btn btn-outline-secondary btn-sm">제거</button>');
+
+    assert.notEqual(buttonIndex, -1);
+    assert.ok(buttonIndex > previewStart && buttonIndex < previewEnd,
+        'remove button must be nested inside the attachment preview container');
+});
+
+test('templates/admin/program/form.html thumbnail remove button clears the hidden input and hides the preview via the existing renderImagePreview(\'\') path', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.match(html, /document\.querySelector\('#thumbnailRemoveButton'\)\.addEventListener\('click', function \(\) \{\s*document\.querySelector\('#thumbnail'\)\.value = '';\s*AdminFilePreview\.renderImagePreview\(\s*document\.querySelector\('#thumbnailPreview'\),\s*document\.querySelector\('#thumbnailPreviewImage'\),\s*document\.querySelector\('#thumbnailPreviewLink'\),\s*''\);\s*\}\);/);
+});
+
+test('templates/admin/program/form.html attachment remove button clears the hidden input and hides the preview via the existing renderLinkPreview(\'\')/loadAttachmentName(\'\') path', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.match(html, /document\.querySelector\('#attachmentRemoveButton'\)\.addEventListener\('click', function \(\) \{\s*document\.querySelector\('#attachment'\)\.value = '';\s*AdminFilePreview\.renderLinkPreview\(\s*document\.querySelector\('#attachmentPreview'\),\s*document\.querySelector\('#attachmentPreviewLink'\),\s*''\);\s*AdminFilePreview\.loadAttachmentName\(\s*document\.querySelector\('#attachmentPreviewNameWrap'\),\s*document\.querySelector\('#attachmentPreviewName'\),\s*'',\s*AdminFetch\.adminFetch\);\s*\}\);/);
+});
+
+test('templates/admin/program/form.html never references the physical file DELETE endpoint (제거 is a detach-only action)', () => {
+    const html = readTemplate('admin/program/form.html');
+    assert.doesNotMatch(html, /DELETE/);
+    assert.doesNotMatch(html, /\/api\/admin\/files/);
+});

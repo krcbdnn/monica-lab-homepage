@@ -967,6 +967,154 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
   });
 });
 
+// P13-T26: Board/Program 수정 화면에서 기존 thumbnail/attachment를 "제거"(detach)할 수 있게 한다.
+// "제거"는 Board/Program이 가진 URL 참조만 비우는 동작이며, File 레코드/실제 파일 삭제
+// (DELETE /api/admin/files/{id})와는 무관하다 - form.html이 그 endpoint를 전혀 참조하지 않는다는
+// 점은 Node 정적 테스트(board-admin-view.test.js/program-admin-view.test.js)로 이미 확인했으므로,
+// 여기서는 별도 network spy 없이 실제 저장 round-trip과 상호 비영향만 검증한다.
+test.describe('P13-T26: 관리자 Board/Program 기존 썸네일/첨부파일 제거', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+  let programId;
+
+  async function createBoardWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE', title,
+        thumbnail: '/api/files/900601', attachment: '/api/files/900602',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  async function createProgramWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE', title, content: '내용',
+        thumbnail: '/api/files/900701', attachment: '/api/files/900702',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+    programId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+    if (programId) {
+      await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('Board: 썸네일/첨부파일 제거 버튼을 각각 클릭하면 hidden input이 비고 해당 preview만 사라지며 서로 영향을 주지 않는다', async ({ page, context, baseURL }) => {
+    boardId = await createBoardWithFiles(context, baseURL, 'Board 제거 상호 비영향 확인 ' + Date.now());
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await expect(page.locator('#thumbnail')).toHaveValue('');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    // thumbnail만 제거했으므로 attachment preview는 그대로 유지되어야 한다.
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+    await expect(page.locator('#attachment')).toHaveValue('/api/files/900602');
+
+    await page.locator('#attachmentRemoveButton').click();
+    await expect(page.locator('#attachment')).toHaveValue('');
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+
+  test('Board: 제거 후 저장하면 PUT payload에서 thumbnail/attachment가 null이 되고, 재진입 시 두 preview 모두 hidden으로 유지된다', async ({ page, context, baseURL }) => {
+    boardId = await createBoardWithFiles(context, baseURL, 'Board 제거 저장 round-trip 확인 ' + Date.now());
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await page.locator('#attachmentRemoveButton').click();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/boards/${boardId}`) && req.method() === 'PUT'),
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('#boardForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBeNull();
+    expect(payload.attachment).toBeNull();
+
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+
+  test('Board: 썸네일 제거 후 새 파일을 업로드하면 정상적으로 새 URL이 설정되고, 다시 제거하면 hidden 상태로 돌아간다', async ({ page, context, baseURL }) => {
+    boardId = await createBoardWithFiles(context, baseURL, 'Board 제거 후 재업로드 확인 ' + Date.now());
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+
+    await page.setInputFiles('#thumbnailInput', {
+      name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+
+    // 업로드는 비동기(change 핸들러 안에서 fetch 완료 후 값이 채워짐) - 값이 채워질 때까지
+    // expect의 폴링을 이용해 기다린 뒤(P13-T18 테스트와 동일 패턴) inputValue를 읽는다.
+    await expect(page.locator('#thumbnail')).not.toHaveValue('');
+    const newUrl = await page.locator('#thumbnail').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', newUrl);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await expect(page.locator('#thumbnail')).toHaveValue('');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+  });
+
+  test('Program: 썸네일/첨부파일 제거 → 저장 → 재진입 round-trip', async ({ page, context, baseURL }) => {
+    programId = await createProgramWithFiles(context, baseURL, 'Program 제거 저장 round-trip 확인 ' + Date.now());
+    await page.goto(`/admin/programs/${programId}/edit`);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await page.locator('#attachmentRemoveButton').click();
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/programs/${programId}`) && req.method() === 'PUT'),
+      page.waitForURL(/\/admin\/programs$/, { timeout: 10000 }),
+      page.locator('#programForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBeNull();
+    expect(payload.attachment).toBeNull();
+
+    await page.goto(`/admin/programs/${programId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+});
+
 // P13-T14: 게시판/프로그램 목록 필터 · UI · pagination. 실제 Docker DB는 이 세션 전체에서 누적된
 // 데이터가 이미 있을 수 있으므로(격리된 테스트 DB가 아님), "정확히 N페이지"처럼 전체 개수를 못박는
 // 단정은 하지 않는다 - 이번에 새로 만드는 레코드 개수만큼 "최소 이 이상"이라는 사실만 검증한다

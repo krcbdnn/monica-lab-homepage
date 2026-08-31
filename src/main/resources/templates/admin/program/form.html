@@ -29,7 +29,10 @@
             <label for="thumbnailInput" class="form-label">썸네일 이미지</label>
             <div id="thumbnailPreview" class="mb-2" hidden>
                 <img id="thumbnailPreviewImage" class="admin-file-preview__thumb" src="" alt="현재 등록된 썸네일 이미지">
-                <div><a id="thumbnailPreviewLink" href="#" target="_blank" rel="noopener noreferrer">새 창에서 보기</a></div>
+                <div>
+                    <a id="thumbnailPreviewLink" href="#" target="_blank" rel="noopener noreferrer">새 창에서 보기</a>
+                    <button type="button" id="thumbnailRemoveButton" class="btn btn-outline-secondary btn-sm">제거</button>
+                </div>
             </div>
             <input type="file" class="form-control" id="thumbnailInput" accept="image/*">
             <input type="hidden" id="thumbnail" name="thumbnail">
@@ -39,6 +42,7 @@
             <div id="attachmentPreview" class="mb-2" hidden>
                 <span id="attachmentPreviewNameWrap" hidden>현재 첨부파일: <span id="attachmentPreviewName"></span> </span>
                 (<a id="attachmentPreviewLink" href="#">열기/다운로드</a>)
+                <button type="button" id="attachmentRemoveButton" class="btn btn-outline-secondary btn-sm">제거</button>
             </div>
             <input type="file" class="form-control" id="attachmentInput">
             <input type="hidden" id="attachment" name="attachment">
@@ -169,6 +173,28 @@
             .catch(function (error) {
                 alert(error.message);
             });
+    });
+
+    document.querySelector('#thumbnailRemoveButton').addEventListener('click', function () {
+        document.querySelector('#thumbnail').value = '';
+        AdminFilePreview.renderImagePreview(
+            document.querySelector('#thumbnailPreview'),
+            document.querySelector('#thumbnailPreviewImage'),
+            document.querySelector('#thumbnailPreviewLink'),
+            '');
+    });
+
+    document.querySelector('#attachmentRemoveButton').addEventListener('click', function () {
+        document.querySelector('#attachment').value = '';
+        AdminFilePreview.renderLinkPreview(
+            document.querySelector('#attachmentPreview'),
+            document.querySelector('#attachmentPreviewLink'),
+            '');
+        AdminFilePreview.loadAttachmentName(
+            document.querySelector('#attachmentPreviewNameWrap'),
+            document.querySelector('#attachmentPreviewName'),
+            '',
+            AdminFetch.adminFetch);
     });
 
     document.querySelector('#programForm').addEventListener('submit', function (event) {

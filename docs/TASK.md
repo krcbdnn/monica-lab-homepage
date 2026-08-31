@@ -816,6 +816,29 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T26. 관리자 Board/Program 기존 썸네일/첨부파일 제거(detach)
+- 의존성: P13-T22(파일명 표시), P13-T25
+- 산출물: `admin/board/form.html`, `admin/program/form.html`, `src/test/js/admin/board-admin-view.test.js`, `src/test/js/admin/program-admin-view.test.js`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: P13-T18/P13-T22에서 Board/Program 수정 화면에 도입한 기존 thumbnail/attachment 미리보기(열기·다운로드·파일명 표시·새 파일 교체)에 이어, 관리자가 기존 값을 명시적으로 "제거"할 수 있게 한다. 여기서 "제거"는 Board/Program이 가진 **URL 참조만 비우는 detach 동작**이며, File DB 레코드나 실제 디스크 파일은 전혀 삭제하지 않는다(`DELETE /api/admin/files/{id}`는 File 레코드+실제 파일을 영구 삭제하는 별개 기능이고, Board/Program·File 사이에 FK가 없어 하나의 File URL이 다른 콘텐츠에서 재사용 중일 수 있으므로 이번 Task 흐름에서는 절대 호출하지 않는다).
+  1. `thumbnailPreview`/`attachmentPreview` 컨테이너 **내부**에 "제거" `<button type="button">`을 추가한다(각 컨테이너의 기존 `hidden` 토글 로직에 자연히 종속되어, 값이 없으면 버튼도 자동으로 숨겨진다 — 별도 가시성 상태 관리 불필요). 문구는 "제거"를 사용해 목록 화면의 영구 "삭제"(`btn btn-outline-danger`, `confirm` 동반)와 구분하고, 스타일은 더 약한 `btn btn-outline-secondary btn-sm`을 사용한다. 별도 `confirm`은 추가하지 않는다(저장 전까지는 로컬 상태일 뿐인 다른 필드 수정과 동일한 성격).
+  2. 제거 버튼 클릭 핸들러는 해당 hidden input(`#thumbnail`/`#attachment`)을 빈 문자열로 설정하고, 기존 `AdminFilePreview.renderImagePreview(...)`/`renderLinkPreview(...)`/`loadAttachmentName(...)`를 빈 문자열 인자로 재호출한다 — 세 함수 모두 falsy 값에 대해 컨테이너를 hidden 처리하는 분기를 이미 갖고 있고(`loadAttachmentName('')`은 fetch 자체를 호출하지 않고 즉시 hidden 유지), 이 경로는 `admin-file-preview.test.js`가 이미 커버하고 있어 **`static/js/admin/admin-file-preview.js`는 변경하지 않는다**(diff 0).
+  3. 클릭 자체는 서버 요청을 발생시키지 않는다 — 기존 "저장" 버튼을 눌러야 PUT payload에 반영되는 다른 모든 필드와 동일한 모델이다. 저장하지 않고 페이지를 이탈하면 서버 값은 그대로 유지된다.
+  4. `Board`/`Program` Entity/DTO/Repository/Service/Controller/API/DB/Flyway는 변경하지 않는다 — `thumbnail`/`attachment`는 이미 nullable이고 `update()`가 항상 요청값으로 완전 치환하므로, PUT payload가 `null`이면 DB 값도 그대로 `null`이 된다(기존 계약 재확인, 신규 계약 아님). Banner는 이번 Task 범위에 포함하지 않는다.
+- DoD:
+  - Board/Program 수정 화면에서 기존 thumbnail/attachment가 있을 때만 "제거" 버튼이 보이고(값이 없으면 preview 컨테이너와 함께 자동으로 숨겨짐), 클릭 시 즉시 hidden input이 비워지고 해당 preview(버튼 포함)만 사라진다. 다른 쪽 필드(thumbnail↔attachment)에는 영향이 없다.
+  - 제거 후 저장하면 PUT payload의 해당 필드가 `null`이고, 저장 후 수정 화면 재진입 시 해당 preview가 hidden으로 유지된다(Board는 상호 비영향 확인 포함, Program은 대표 round-trip 1건).
+  - **기존 thumbnail/attachment가 있는 수정 화면에서 제거 버튼을 누르지 않고 그대로 저장하면 기존 값이 PUT payload에 그대로 유지된다**(P13-T18이 이미 검증하던 시나리오와 동일 — 제거 기능 추가로 인한 회귀가 없음을 기존 P13-T18 Playwright 테스트 무변경 재실행으로 확인).
+  - 제거 후 새 파일 업로드 시 정상적으로 새 URL이 설정되고, 업로드 후 다시 제거하면 hidden 상태로 돌아간다(하나의 흐름으로 확인).
+  - `static/js/admin/admin-file-preview.js`는 무변경(diff 0). Board/Program 두 폼이 완전히 동일한 패턴(동일 DOM 구조·동일 핸들러 로직)을 사용한다.
+  - `DELETE /api/admin/files/{id}`가 이 흐름에서 호출되지 않는다 — `admin/board/form.html`/`admin/program/form.html`이 `DELETE`/`/api/admin/files` 문자열을 전혀 포함하지 않음을 정적 테스트로 확인한다(별도 network spy 불필요).
+  - `Board`/`Program`/`BoardResponse`/`ProgramResponse`/`BoardRequest`/`ProgramRequest`/Entity/Repository/DB/Flyway 무변경.
+  - `./gradlew build` 성공, Java 전체 테스트 무변경 통과(백엔드 변경 없음, 신규 Java 테스트 추가하지 않음), Node 전체 테스트 통과, Playwright 전체 회귀 통과(기존 P13-T18/P13-T22 테스트 포함).
+  - 이번 Task를 위한 375/768/1024/1440 반응형 신규 테스트는 추가하지 않는다(P13-T18/T22도 관리자 폼에는 해당 패턴을 요구하지 않았다).
+  - Banner의 이미지 제거, 물리 파일 삭제, 이미지 압축/리사이즈는 이번 Task 범위에 포함하지 않는다.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
