@@ -1863,9 +1863,21 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
     }, { timeout: 15000 });
 
     // 업로드 직후 이미지는 block 타입(<figure class="image">)이다. 위젯을 선택하면 balloon toolbar가
-    // 뜨고, 그 안에서 "Left aligned image" 버튼(alignLeft, ckeditor-config.js에서 노출)을 클릭한다.
+    // 뜨고, P13-T25부터는 6개 정렬 style이 "이미지 정렬" dropdown 1개로 묶여 있다(ckeditor-config.js).
     await page.locator('.ck-editor__editable img').click();
-    await page.locator('button[data-cke-tooltip-text="Left aligned image"]').click();
+
+    // dropdown이 정확히 1개이고(정렬 버튼이 balloon toolbar에 평면으로 나열되지 않음), 화살표를 눌러
+    // 연 패널 안에 기존 6개 style이 한글 라벨로 전부 존재하는지 확인한다.
+    await expect(page.locator('.ck-balloon-panel .ck-dropdown')).toHaveCount(1);
+    await page.locator('.ck-balloon-panel .ck-splitbutton__arrow').click();
+    const panel = page.locator('.ck-dropdown__panel:not(.ck-hidden)');
+    const expectedLabels = ['글 안에 배치', '기본', '글 옆에 배치', '왼쪽 정렬', '가운데 정렬', '오른쪽 정렬'];
+    for (const label of expectedLabels) {
+      await expect(panel.locator(`[data-cke-tooltip-text="${label}"]`)).toBeVisible();
+    }
+
+    // 패널 안에서 "왼쪽 정렬"(alignLeft) 항목을 클릭한다.
+    await panel.locator('[data-cke-tooltip-text="왼쪽 정렬"]').click();
     await page.waitForSelector('.ck-editor__editable figure.image-style-align-left', { timeout: 10000 });
 
     await page.locator('#isPublic').check();
@@ -1902,5 +1914,32 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
       });
       expect(overflowCheck.scrollWidth).toBeLessThanOrEqual(overflowCheck.clientWidth + 1);
     }
+  });
+
+  // P13-T25: dropdown 도입 이전(P13-T23)에 이미 저장돼 있었을 법한 HTML이 새 config에서도 그대로
+  // 복원되는지 확인한다. API로 직접 저장해(UI를 거치지 않음) "기존 저장 HTML 자체는 이번 변경으로
+  // 건드리지 않는다"는 것과, dropdown UI로도 그 style이 정확히 업캐스트되는지를 함께 검증한다.
+  test('P13-T23 시절에 저장된 정렬 HTML이 dropdown UI에서도 그대로 복원되고 공개 화면도 무변경이다', async ({ page, context, baseURL }) => {
+    const boardRes = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: 'P13-T25 기존 저장 HTML 회귀 확인 ' + Date.now(),
+        content: '<p>본문</p><figure class="image image-style-align-right"><img src="/api/files/900501"></figure>',
+        isPublic: true,
+      },
+    });
+    expect(boardRes.ok()).toBeTruthy();
+    boardId = (await boardRes.json()).data.id;
+
+    // 수정 화면 재진입 시 dropdown UI에서도 정확히 같은 style(alignRight)로 복원되는지 확인.
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await page.waitForSelector('.ck-editor__editable figure.image-style-align-right', { timeout: 10000 });
+
+    // 공개 화면도 P13-T23과 동일하게 렌더링되는지 확인(CSS/sanitizer 무변경).
+    await page.goto(`/boards/${boardId}`);
+    await expect(
+      page.locator('#board-detail-content .ckeditor-content .image-style-align-right img')
+    ).toBeVisible();
   });
 });
