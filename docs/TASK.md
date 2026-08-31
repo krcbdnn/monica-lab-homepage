@@ -797,7 +797,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 ---
 
 ### P13-T25. 관리자 CKEditor 이미지 정렬 dropdown 정리
-- 의존성: P13-T24(Banner 관리자 수정 화면 기존 이미지 미리보기 — 계획 당시에는 P13-T24 → P13-T25 순으로 병합할 예정이었으나, T24 작업이 지연되어 실제로는 P13-T25가 먼저 병합되었고 P13-T24는 이후 별도 PR로 완료·병합되었다.)
+- 의존성: P13-T24(Banner 관리자 수정 화면 기존 이미지 미리보기 — 계획 당시에는 P13-T24 → P13-T25 순으로 진행할 예정이었으나, P13-T24 작업이 지연되어 P13-T25가 먼저 병합되었다. P13-T24는 이후 별도 작업으로 진행한다.)
 - 산출물: `static/js/admin/ckeditor-config.js`, `src/test/js/admin/ckeditor-config.test.js`, `frontend-tests/visual-regression.spec.js`
 - 작업 내용: 사전 조사(정렬+크기 결합 style은 저장→재편집 round-trip에서 데이터 유실이 실측으로 재현되어 보류, 이미지 크기 preset/ImageResize도 기존대로 보류) 결과에 따라, **기존 6개 ImageStyle(inline/block/side/alignLeft/alignCenter/alignRight)의 semantics는 전혀 바꾸지 않고** balloon toolbar에 평면 나열된 6개 버튼을 "이미지 정렬" dropdown 1개로만 정리한다.
   1. `ckeditor-config.js`의 `image.toolbar`를 `{ name: 'imageStyle:dropdown', title: '이미지 정렬', items: [...6개], defaultItem: 'imageStyle:block' }` 형태로 재구성한다. CDN URL/버전/plugin/build/npm은 전혀 변경하지 않는다.
