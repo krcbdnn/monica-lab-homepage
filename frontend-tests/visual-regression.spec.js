@@ -1251,6 +1251,114 @@ test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', ()
   });
 });
 
+// P13-T27: /boards?boardType=GALLERY|REVIEW는 이미지 중심 게시판이라 메인 페이지와 동일한
+// .gallery-grid/.gallery-card 마크업(#board-grid)으로 표시하고, NOTICE/ARCHIVE/전체는 기존
+// #board-list 텍스트 목록을 그대로 유지한다. Controller/pagination fragment를 건드리지 않았으므로
+// 필터/keyword/page 유지 회귀는 기존 P13-T14 describe의 무변경 재실행으로 충분히 커버된다.
+test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일 그리드', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  async function createBoard(context, baseURL, boardType, title, thumbnail) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType, title, thumbnail, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('GALLERY 필터에서 #board-grid 썸네일 카드가 실제로 노출되고, 카드 클릭 시 상세로 이동한다', async ({ page, context, baseURL }) => {
+    const title = 'P13-T27 갤러리 그리드 확인 ' + Date.now();
+    boardId = await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900801');
+    await page.goto('/boards?boardType=GALLERY');
+
+    await expect(page.locator('#board-grid')).toBeVisible();
+    await expect(page.locator('#board-list')).toHaveCount(0);
+
+    const card = page.locator('#board-grid .gallery-card').filter({ hasText: title });
+    await expect(card.locator('.gallery-card__thumb img')).toHaveAttribute('src', '/api/files/900801');
+
+    await card.locator('.gallery-card__link').click();
+    await expect(page).toHaveURL(`/boards/${boardId}`);
+  });
+
+  test('REVIEW 필터에서도 #board-grid 썸네일 카드가 노출된다', async ({ page, context, baseURL }) => {
+    const title = 'P13-T27 강의 후기 그리드 확인 ' + Date.now();
+    boardId = await createBoard(context, baseURL, 'REVIEW', title, '/api/files/900802');
+    await page.goto('/boards?boardType=REVIEW');
+
+    await expect(page.locator('#board-grid')).toBeVisible();
+    await expect(page.locator('#board-list')).toHaveCount(0);
+    const card = page.locator('#board-grid .gallery-card').filter({ hasText: title });
+    await expect(card.locator('.gallery-card__thumb img')).toHaveAttribute('src', '/api/files/900802');
+  });
+
+  test('NOTICE 필터와 전체 목록은 기존 #board-list 텍스트 목록을 유지하고 #board-grid는 노출되지 않는다', async ({ page, context, baseURL }) => {
+    const title = 'P13-T27 공지 텍스트 목록 유지 확인 ' + Date.now();
+    boardId = await createBoard(context, baseURL, 'NOTICE', title, null);
+
+    await page.goto('/boards?boardType=NOTICE');
+    await expect(page.locator('#board-list')).toBeVisible();
+    await expect(page.locator('#board-grid')).toHaveCount(0);
+
+    await page.goto('/boards');
+    await expect(page.locator('#board-list')).toBeVisible();
+    await expect(page.locator('#board-grid')).toHaveCount(0);
+  });
+
+  test('썸네일이 없는 GALLERY 게시글은 카드가 무너지지 않고 placeholder로 표시되며 카드 전체 클릭이 가능하다', async ({ page, context, baseURL }) => {
+    const title = 'P13-T27 썸네일 없음 확인 ' + Date.now();
+    boardId = await createBoard(context, baseURL, 'GALLERY', title, null);
+    await page.goto('/boards?boardType=GALLERY');
+
+    const card = page.locator('#board-grid .gallery-card').filter({ hasText: title });
+    await expect(card.locator('.gallery-card__thumb-placeholder')).toBeVisible();
+    await expect(card.locator('.gallery-card__thumb img')).toHaveCount(0);
+
+    await card.locator('.gallery-card__link').click();
+    await expect(page).toHaveURL(`/boards/${boardId}`);
+  });
+
+  test('공백 없는 긴 제목이 있는 GALLERY 카드에서도 가로 스크롤이 생기지 않는다', async ({ page, context, baseURL }) => {
+    const title = 'P13T27LongGalleryTitle' + 'A'.repeat(150) + Date.now();
+    boardId = await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900803');
+    await page.goto('/boards?boardType=GALLERY');
+
+    const overflowX = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+  });
+
+  test('375px/1440px에서 GALLERY 썸네일 그리드에 가로 overflow가 없다', async ({ page, context, baseURL }) => {
+    boardId = await createBoard(context, baseURL, 'GALLERY', 'P13-T27 반응형 확인 ' + Date.now(), '/api/files/900801');
+
+    for (const viewport of [{ width: 375, height: 812 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto('/boards?boardType=GALLERY');
+      const overflowX = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+    }
+  });
+});
+
 // P13-T15: header/title 색상 조합이 WCAG 최소 대비(4.5:1)를 만족하는지 계산하기 위한 헬퍼.
 // exact hex 값을 고정하지 않고 computed rgb()를 그대로 상대휘도 공식에 대입한다.
 function popupParseRgb(rgbString) {
