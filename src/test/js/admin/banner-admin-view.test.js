@@ -124,3 +124,35 @@ test('templates/admin/banner/form.html still wires the existing image upload han
     assert.match(html, /\/js\/admin\/banner-file-upload\.js/);
     assert.match(html, /AdminBannerFileUpload\.uploadFile\(file, AdminBannerFileUpload\.IMAGE_FILE_TYPE, AdminFetch\.adminFetch\)/);
 });
+
+// P13-T24: P13-T18에서 Board/Program에 도입한 AdminFilePreview.renderImagePreview 패턴을
+// Banner에도 동일하게 적용한다(신규 등록 화면에서는 hidden, 기존 image가 있으면 미리보기 표시).
+test('templates/admin/banner/form.html loads the shared admin-file-preview.js helper', () => {
+    const html = readTemplate('admin/banner/form.html');
+    assert.match(html, /\/js\/admin\/admin-file-preview\.js/);
+});
+
+test('templates/admin/banner/form.html preview container is hidden by default (new-banner screen has no existing image)', () => {
+    const html = readTemplate('admin/banner/form.html');
+    assert.match(html, /<div id="imagePreview" class="mb-2" hidden>/);
+});
+
+test('templates/admin/banner/form.html renders the existing image preview when prefilling an edited banner', () => {
+    const html = readTemplate('admin/banner/form.html');
+    assert.match(html, /AdminFilePreview\.renderImagePreview\(\s*document\.querySelector\('#imagePreview'\),\s*document\.querySelector\('#imagePreviewImage'\),\s*document\.querySelector\('#imagePreviewLink'\),\s*banner\.image\);/);
+});
+
+test('templates/admin/banner/form.html refreshes the preview immediately after a new image upload succeeds', () => {
+    const html = readTemplate('admin/banner/form.html');
+    const uploadHandlerIndex = html.indexOf("#imageInput').addEventListener('change'");
+    const previewCallIndex = html.indexOf('AdminFilePreview.renderImagePreview', uploadHandlerIndex);
+
+    assert.notEqual(uploadHandlerIndex, -1);
+    assert.ok(previewCallIndex > uploadHandlerIndex,
+        'image change handler must call renderImagePreview after a successful upload');
+});
+
+test('templates/admin/banner/form.html "open in new tab" link uses target="_blank" with rel="noopener noreferrer"', () => {
+    const html = readTemplate('admin/banner/form.html');
+    assert.match(html, /<a id="imagePreviewLink" href="#" target="_blank" rel="noopener noreferrer">/);
+});

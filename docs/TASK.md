@@ -774,8 +774,30 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T24. Banner 관리자 수정 화면 기존 이미지 미리보기
+- 의존성: P13-T23
+- 산출물: `admin/banner/form.html`, `src/test/js/admin/banner-admin-view.test.js`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: P13-T18에서 Board/Program 수정 화면에 도입한 `AdminFilePreview.renderImagePreview` 패턴(기존 파일을 `<input type="file">`에 강제 주입하지 않고, 별도 `<img>`/링크 미리보기로 표시)을 Banner에도 동일하게 적용한다. P13-T18 DoD에 "Banner의 동일한 문제는 확인만 하고 고치지 않는다(후속 Task 후보로 기록)"로 남아 있던 항목을 해소한다.
+  1. `admin/banner/form.html`의 이미지 입력 위에 `#imagePreview`(기본 `hidden`) 블록을 추가한다: `<img id="imagePreviewImage">` + `<a id="imagePreviewLink" target="_blank" rel="noopener noreferrer">새 창에서 보기</a>` — Board/Program의 `#thumbnailPreview` 블록과 동일한 DOM 구조.
+  2. `static/js/admin/admin-file-preview.js`(기존 파일, 수정하지 않음)를 로드해 편집 진입 populate 콜백(`banner.image` 채우는 자리)에서 `AdminFilePreview.renderImagePreview(...)`를 호출한다.
+  3. `#imageInput`의 `change` 성공 콜백(업로드 후 hidden input 갱신 자리)에서 동일하게 `renderImagePreview(...)`를 재호출해 미리보기를 즉시 갱신한다.
+  4. 신규 등록 화면(`editingBannerId` 없음)은 populate 콜백 자체가 실행되지 않으므로 미리보기가 항상 `hidden` 상태로 유지된다(별도 분기 불필요, Board/Program과 동일한 원리).
+  5. `Banner` Entity/DTO/Repository/Service/Controller, DB/Flyway, `admin-file-preview.js` 자체, `banner-file-upload.js`(업로드 계약)는 변경하지 않는다.
+- DoD:
+  - Banner 수정 화면 진입 시 기존 `image`가 있으면 `<img>` 미리보기와 "새 창에서 보기"(`target="_blank" rel="noopener noreferrer"`) 링크가 렌더링된다. 값이 없으면(신규 등록 포함) `#imagePreview`가 hidden이다.
+  - `<input type="file">`에는 어떤 방식으로도 기존 서버 URL을 강제 주입하지 않는다(코드 리뷰로 확인).
+  - 새 이미지를 업로드하면 미리보기가 즉시 새 URL로 갱신된다.
+  - `banner-admin-view.test.js`: 미리보기 스크립트 로드, 신규 등록 화면 기본 hidden, 편집 진입 시 populate 콜백에서 렌더 호출, 업로드 성공 시 렌더 갱신 호출, "새 창에서 보기" 링크의 `target`/`rel` 속성을 정적 테스트로 검증. 기존 18개 테스트 무변경 통과(신규 5개 추가로 총 23개).
+  - Playwright: 기존 이미지가 있는 배너 수정 진입 시 미리보기 visible + 실제 URL 일치, 신규 등록 화면에서 hidden, 새 이미지 업로드 시 미리보기 즉시 갱신을 신규 케이스로 확인한다.
+  - `Banner` Entity/DTO/API/DB/Flyway 무변경. `admin-file-preview.js` 무변경(diff 0).
+  - `./gradlew build` 성공, Java/Node 전체 무변경 통과(백엔드 변경 없음), Playwright 전체 회귀 통과.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+  - 기존 첨부파일/이미지 삭제 기능, 게시판 목록(갤러리/강의후기) 썸네일 표시, CKEditor 관련 작업은 이번 Task 범위에 포함하지 않는다(각각 별도 후속 Task 후보로 남긴다).
+
+---
+
 ### P13-T25. 관리자 CKEditor 이미지 정렬 dropdown 정리
-- 의존성: P13-T24(Banner 관리자 수정 화면 기존 이미지 미리보기 — 확정된 번호이나 이 Task 작업 시점 기준 아직 커밋/병합 전. 병합 순서는 P13-T24 → P13-T25를 따른다.)
+- 의존성: P13-T24(Banner 관리자 수정 화면 기존 이미지 미리보기 — 계획 당시에는 P13-T24 → P13-T25 순으로 병합할 예정이었으나, T24 작업이 지연되어 실제로는 P13-T25가 먼저 병합되었고 P13-T24는 이후 별도 PR로 완료·병합되었다.)
 - 산출물: `static/js/admin/ckeditor-config.js`, `src/test/js/admin/ckeditor-config.test.js`, `frontend-tests/visual-regression.spec.js`
 - 작업 내용: 사전 조사(정렬+크기 결합 style은 저장→재편집 round-trip에서 데이터 유실이 실측으로 재현되어 보류, 이미지 크기 preset/ImageResize도 기존대로 보류) 결과에 따라, **기존 6개 ImageStyle(inline/block/side/alignLeft/alignCenter/alignRight)의 semantics는 전혀 바꾸지 않고** balloon toolbar에 평면 나열된 6개 버튼을 "이미지 정렬" dropdown 1개로만 정리한다.
   1. `ckeditor-config.js`의 `image.toolbar`를 `{ name: 'imageStyle:dropdown', title: '이미지 정렬', items: [...6개], defaultItem: 'imageStyle:block' }` 형태로 재구성한다. CDN URL/버전/plugin/build/npm은 전혀 변경하지 않는다.
