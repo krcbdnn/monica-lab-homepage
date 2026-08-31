@@ -774,6 +774,26 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T25. 관리자 CKEditor 이미지 정렬 dropdown 정리
+- 의존성: P13-T24(Banner 관리자 수정 화면 기존 이미지 미리보기 — 확정된 번호이나 이 Task 작업 시점 기준 아직 커밋/병합 전. 병합 순서는 P13-T24 → P13-T25를 따른다.)
+- 산출물: `static/js/admin/ckeditor-config.js`, `src/test/js/admin/ckeditor-config.test.js`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 사전 조사(정렬+크기 결합 style은 저장→재편집 round-trip에서 데이터 유실이 실측으로 재현되어 보류, 이미지 크기 preset/ImageResize도 기존대로 보류) 결과에 따라, **기존 6개 ImageStyle(inline/block/side/alignLeft/alignCenter/alignRight)의 semantics는 전혀 바꾸지 않고** balloon toolbar에 평면 나열된 6개 버튼을 "이미지 정렬" dropdown 1개로만 정리한다.
+  1. `ckeditor-config.js`의 `image.toolbar`를 `{ name: 'imageStyle:dropdown', title: '이미지 정렬', items: [...6개], defaultItem: 'imageStyle:block' }` 형태로 재구성한다. CDN URL/버전/plugin/build/npm은 전혀 변경하지 않는다.
+  2. `image.styles.options`에 6개 style을 `{ name, title }`만으로 재선언해 한글 라벨을 부여한다(`className`/`modelElements`/`icon`은 명시하지 않아 CKEditor 기본값을 그대로 재사용 — 헤드리스 실행으로 다운캐스트 결과가 P13-T23과 byte 단위로 동일함을 확인). 최종 한글 라벨: `inline`="글 안에 배치", `block`="기본", `side`="글 옆에 배치", `alignLeft`="왼쪽 정렬", `alignCenter`="가운데 정렬", `alignRight`="오른쪽 정렬". 원래 제시된 "기본(가운데)"(block)는 "기본"으로 조정했다 — `block`과 `alignCenter`가 현재 공개 CSS(`home.css`의 `.ckeditor-content .image`/`.image-style-align-center`)에서 완전히 동일하게 렌더링됨을 확인했고(`alignCenter`가 추가하는 `margin-left/right:auto`가 `block`의 기존 `margin:var(--space-2) auto`와 중복), 두 라벨 모두 "가운데"를 쓰면 서로 다른 옵션처럼 오해할 수 있어 `block`의 라벨에서만 뺐다.
+  3. `HtmlSanitizer.java`/`HtmlSanitizerTest.java`, `static/css/home.css`, Board/Program/Page/Popup 4개 관리자 `form.html`, 3개 공개 `detail.html`은 전혀 변경하지 않는다(4개 폼은 이미 공용 `ckeditor-config.js`를 로드하므로 이 파일 하나만 고치면 자동 반영된다). 이미지 크기 기능, `ImageResize`는 추가하지 않는다.
+- DoD:
+  - 이미지 balloon toolbar에 정렬 관련 버튼이 dropdown 1개로만 나타나고(평면 버튼 6개가 최상위에 없음), 화살표를 열면 패널 안에 기존 6개 style이 위 한글 라벨로 전부 존재한다(`ckeditor-config.test.js` 정적 검증 + Playwright 실제 DOM 확인).
+  - `image.styles.options`의 각 항목이 `name`/`title`만 갖고 `className`/`modelElements`를 명시하지 않는다(`ckeditor-config.test.js`).
+  - P13-T23이 실제 만들었던 6개 style 각각의 저장 HTML(`<figure class="image">`, `image-style-side`, `image-style-align-left/center/right`, bare `<img>`)이 dropdown 도입 전후로 byte 단위 동일하다(헤드리스 실행으로 검증, 코드 변경 없음).
+  - `HtmlSanitizer`가 P13-T23 시절 저장한 정렬 HTML을 그대로 처리하며 무변경이다(사전 조사에서 확인, 이 Task에서 sanitizer 코드 자체를 건드리지 않음).
+  - Board 대표 Playwright: 이미지 선택 → dropdown 열기 → 패널에 6개 항목 한글 라벨 노출 확인 → "왼쪽 정렬" 선택 → 저장 → API로 얻은 id로 수정 화면 재진입 시 dropdown UI에서도 정렬이 그대로 복원됨 → 공개 화면 정렬 반영 → float containment/375·768·1024·1440 overflow 없음까지 하나의 흐름으로 확인한다(P13-T23 테스트를 dropdown 인터랙션에 맞게 갱신). 별도로 P13-T23 시절(dropdown 도입 이전)에 저장됐을 법한 HTML을 API로 직접 심어 새 dropdown UI에서도 정확히 같은 style로 복원되고 공개 화면도 무변경임을 확인하는 케이스를 추가한다. Program/Page/Popup에는 중복 추가하지 않는다.
+  - 기존 반응형(375/768/1024/1440) Playwright 스위트 전체 무변경 통과.
+  - 이미지 크기 preset, `ImageResize`, Font 계열, 문단 `Alignment` plugin은 이 Task에 포함되지 않는다(코드 리뷰로 확인, 계속 보류 상태 유지).
+  - `./gradlew build` 성공, Java/Node 전체 테스트 통과, Playwright 전체 회귀 통과.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
