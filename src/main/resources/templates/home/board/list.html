@@ -31,6 +31,10 @@
         </div>
     </form>
 
+    <!-- P13-T28: 상세 링크에 boardType/keyword/page(boards.page, 0-based 실제 결과 페이지)를
+         실어 보내 "목록으로" 복귀 시 현재 목록 상태를 재현할 수 있게 한다. pageJump(1회성 입력값)는
+         절대 실어 보내지 않는다 - 실제 위치의 canonical 값은 pageJump가 아니라 PaginationSupport가
+         계산해 준 boards.page다. -->
     <!-- P13-T27: GALLERY/REVIEW는 이미지 중심 게시판 타입이라 메인 페이지(home/index.html)의
          #latest-gallery/#latest-reviews와 동일한 .gallery-grid/.gallery-card* 마크업(CSS는
          home.css 그대로 재사용, 신규 CSS 없음)으로 표시한다. 서버가 이미 boardType으로 필터링해
@@ -41,7 +45,8 @@
     <ul id="board-grid" class="gallery-grid"
         th:if="${boardType != null and (boardType.name() == 'GALLERY' or boardType.name() == 'REVIEW')}">
         <li class="gallery-card" th:each="board : ${boards.content}">
-            <a th:href="@{/boards/{id}(id=${board.id()})}" class="gallery-card__link">
+            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, keyword=${keyword}, page=${boards.page})}"
+               class="gallery-card__link">
                 <div class="gallery-card__thumb">
                     <img th:unless="${#strings.isEmpty(#strings.trim(board.thumbnail()))}"
                          th:src="${board.thumbnail()}" th:alt="${board.title()}" loading="lazy">
@@ -57,7 +62,8 @@
     <ul id="board-list" class="list-group mb-4"
         th:unless="${boardType != null and (boardType.name() == 'GALLERY' or boardType.name() == 'REVIEW')}">
         <li class="list-group-item" th:each="board : ${boards.content}">
-            <a th:href="@{/boards/{id}(id=${board.id()})}" class="board-list__link">
+            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, keyword=${keyword}, page=${boards.page})}"
+               class="board-list__link">
                 <span class="board-list__row">
                     <span class="badge bg-secondary board-list__type" th:text="${board.boardType()}"></span>
                     <span class="board-list__title" th:text="${board.title()}"></span>

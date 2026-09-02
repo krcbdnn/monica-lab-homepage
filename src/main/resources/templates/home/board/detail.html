@@ -22,7 +22,15 @@
         <a id="attachment-link" th:href="${board.attachment()}" target="_blank" rel="noopener noreferrer">첨부파일 다운로드</a>
     </div>
 
-    <a th:href="@{/boards}" class="btn btn-secondary mt-3">목록으로</a>
+    <!-- P13-T28: boardType/keyword/page 셋 다 없으면(파라미터 없이 /boards/{id}를 직접 연 경우)
+         기존과 동일하게 순수 /boards로 복귀한다. Thymeleaf @{}는 null 값을 파라미터 자체 생략이
+         아니라 빈 값(key=)으로 렌더링하므로(실측 확인, pagination.html 기존 주석과 동일한 동작),
+         "파라미터가 아예 없는 /boards"를 보장하려면 이렇게 명시적으로 분기해야 한다. 셋 중 일부만
+         있는 경우(예: boardType만 있고 keyword/page는 없음)는 기존 필터 nav와 동일하게 빈 값
+         파라미터가 함께 렌더링되어도 안전하다(그 값들은 /boards가 이미 null/빈 값으로 처리한다). -->
+    <a th:href="${boardType == null and keyword == null and page == null} ? @{/boards}
+                : @{/boards(boardType=${boardType}, keyword=${keyword}, page=${page})}"
+       class="btn btn-secondary mt-3">목록으로</a>
 </div>
 </body>
 </html>

@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @AutoConfigureMockMvc
 class BoardViewControllerTest extends AbstractIntegrationTest {
@@ -292,7 +294,9 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select(".board-list__type").text()).isEqualTo("NOTICE");
         assertThat(document.select(".board-list__title").text()).isEqualTo("운영 안내");
         assertThat(document.select(".board-list__date").text()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}");
-        assertThat(document.select(".board-list__link").attr("href")).isEqualTo("/boards/" + id);
+        // P13-T28: 상세 링크에 목록 복귀 상태(boardType/keyword/page)가 쿼리 파라미터로 함께
+        // 실리므로 정확히 "/boards/{id}"가 아니라 그 값으로 시작하는지만 확인한다.
+        assertThat(document.select(".board-list__link").attr("href")).startsWith("/boards/" + id);
     }
 
     // P13-T27: GALLERY/REVIEW는 이미지 중심 게시판 타입이라 메인 페이지(#latest-gallery/#latest-reviews)와
@@ -318,7 +322,8 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#board-grid .gallery-card__thumb img").attr("src")).isEqualTo("/api/files/11");
         assertThat(document.select("#board-grid .gallery-card__thumb img").attr("loading")).isEqualTo("lazy");
         assertThat(document.select("#board-grid .gallery-card__title").text()).isEqualTo("갤러리 그리드 확인");
-        assertThat(document.select("#board-grid .gallery-card__link").attr("href")).isEqualTo("/boards/" + id);
+        // P13-T28: 상세 링크에 목록 복귀 상태가 쿼리 파라미터로 함께 실리므로 "startsWith"로 확인한다.
+        assertThat(document.select("#board-grid .gallery-card__link").attr("href")).startsWith("/boards/" + id);
         assertThat(document.select("#board-list")).isEmpty();
     }
 
@@ -340,7 +345,7 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("ul#board-grid.gallery-grid")).isNotEmpty();
         assertThat(document.select("#board-grid .gallery-card__thumb img").attr("src")).isEqualTo("/api/files/12");
         assertThat(document.select("#board-grid .gallery-card__title").text()).isEqualTo("강의 후기 그리드 확인");
-        assertThat(document.select("#board-grid .gallery-card__link").attr("href")).isEqualTo("/boards/" + id);
+        assertThat(document.select("#board-grid .gallery-card__link").attr("href")).startsWith("/boards/" + id);
         assertThat(document.select("#board-list")).isEmpty();
     }
 
@@ -420,6 +425,120 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         Document document = Jsoup.parse(body);
         assertThat(document.select("#board-grid .gallery-card__thumb-placeholder")).isNotEmpty();
         assertThat(document.select("#board-grid .gallery-card__thumb img")).isEmpty();
+    }
+
+    // P13-T28: 상세 → 목록 복귀 시 boardType/keyword/page(canonical, pageJump 아님)를 보존한다.
+    // href의 query parameter 순서에 의존하지 않도록 UriComponentsBuilder로 파싱해 값 단위로 검증한다.
+    private static MultiValueMap<String, String> queryParamsOf(String href) {
+        return UriComponentsBuilder.fromUriString(href).build().getQueryParams();
+    }
+
+    @Test
+    void listItemLinkInGalleryGridCarriesBoardTypeKeywordAndPageForListReturnState() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY)
+                .title("abc 복귀 상태 확인용 갤러리")
+                .content("내용")
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards")
+                        .param("boardType", "GALLERY")
+                        .param("keyword", "abc"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String href = document.select("#board-grid .gallery-card__link").attr("href");
+        assertThat(href).startsWith("/boards/" + id);
+
+        MultiValueMap<String, String> params = queryParamsOf(href);
+        assertThat(params.getFirst("boardType")).isEqualTo("GALLERY");
+        assertThat(params.getFirst("keyword")).isEqualTo("abc");
+        assertThat(params.getFirst("page")).isEqualTo("0");
+    }
+
+    @Test
+    void listItemLinkInTextListCarriesBoardTypeKeywordAndPageForListReturnState() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("xyz 복귀 상태 확인용 공지")
+                .content("내용")
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/boards")
+                        .param("boardType", "NOTICE")
+                        .param("keyword", "xyz"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String href = document.select(".board-list__link").attr("href");
+        assertThat(href).startsWith("/boards/" + id);
+
+        MultiValueMap<String, String> params = queryParamsOf(href);
+        assertThat(params.getFirst("boardType")).isEqualTo("NOTICE");
+        assertThat(params.getFirst("keyword")).isEqualTo("xyz");
+        assertThat(params.getFirst("page")).isEqualTo("0");
+    }
+
+    // Thymeleaf @{}는 null 값을 파라미터 생략이 아니라 빈 값(key=)으로 렌더링한다(pagination.html
+    // 기존 주석과 동일한 실측 동작). keyword가 없을 때 href에 리터럴 "null" 문자열이 섞이지 않고,
+    // keyword 값 자체가 빈 값(공백 없는 실제로 비어있는 값)으로 안전하게 처리되는지만 확인한다.
+    @Test
+    void listItemLinkKeepsKeywordEmptyRatherThanLiteralNullWhenKeywordIsAbsent() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("keyword 없음 확인").isPublic(true).build());
+
+        String body = mockMvc.perform(get("/boards").param("boardType", "GALLERY"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String href = document.select("#board-grid .gallery-card__link").attr("href");
+
+        assertThat(href).doesNotContain("null");
+        MultiValueMap<String, String> params = queryParamsOf(href);
+        String keywordValue = params.getFirst("keyword");
+        assertThat(keywordValue == null || keywordValue.isEmpty()).isTrue();
+        assertThat(params.getFirst("boardType")).isEqualTo("GALLERY");
+    }
+
+    @Test
+    void detailBackToListLinkPreservesBoardTypeKeywordAndPageFromQueryParams() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("상세 복귀 링크 확인").isPublic(true).build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id)
+                        .param("boardType", "GALLERY")
+                        .param("keyword", "summer")
+                        .param("page", "2"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String href = document.select("a:containsOwn(목록으로)").attr("href");
+        assertThat(href).startsWith("/boards");
+
+        MultiValueMap<String, String> params = queryParamsOf(href);
+        assertThat(params.getFirst("boardType")).isEqualTo("GALLERY");
+        assertThat(params.getFirst("keyword")).isEqualTo("summer");
+        assertThat(params.getFirst("page")).isEqualTo("2");
+    }
+
+    @Test
+    void detailBackToListLinkFallsBackToPlainBoardsWhenNoStateParametersProvided() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("파라미터 없는 상세 접근 확인").isPublic(true).build()).getId();
+
+        String body = mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String href = document.select("a:containsOwn(목록으로)").attr("href");
+        assertThat(href).isEqualTo("/boards");
     }
 
     // P13-T19: 조회수 기능 완전 제거. 목록 아이템의 조회수 표시 요소(.board-list__views)가

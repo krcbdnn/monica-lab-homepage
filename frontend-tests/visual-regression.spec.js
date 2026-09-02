@@ -1296,7 +1296,9 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     await expect(card.locator('.gallery-card__thumb img')).toHaveAttribute('src', '/api/files/900801');
 
     await card.locator('.gallery-card__link').click();
-    await expect(page).toHaveURL(`/boards/${boardId}`);
+    // P13-T28: 상세 링크에 boardType/keyword/page 복귀 상태가 쿼리 파라미터로 함께 실리므로
+    // 정확한 URL 일치 대신 접두사만 확인한다.
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}(\\?|$)`));
   });
 
   test('REVIEW 필터에서도 #board-grid 썸네일 카드가 노출된다', async ({ page, context, baseURL }) => {
@@ -1333,7 +1335,9 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     await expect(card.locator('.gallery-card__thumb img')).toHaveCount(0);
 
     await card.locator('.gallery-card__link').click();
-    await expect(page).toHaveURL(`/boards/${boardId}`);
+    // P13-T28: 상세 링크에 boardType/keyword/page 복귀 상태가 쿼리 파라미터로 함께 실리므로
+    // 정확한 URL 일치 대신 접두사만 확인한다.
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}(\\?|$)`));
   });
 
   test('공백 없는 긴 제목이 있는 GALLERY 카드에서도 가로 스크롤이 생기지 않는다', async ({ page, context, baseURL }) => {
@@ -1356,6 +1360,67 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflowX).toBeLessThanOrEqual(0);
     }
+  });
+});
+
+// P13-T28: 상세 → 목록 복귀 시 boardType/keyword/page(canonical, pageJump 아님)를 보존한다.
+// page>0 복귀는 대량 fixture 없이는 실제 pagination을 거쳐 검증하기 번거로워, 그 부분은
+// BoardViewControllerTest(Java, MockMvc)에서 이미 충분히 검증했으므로 여기서는 확장하지 않는다.
+test.describe('P13-T28: 게시판 상세 → 목록 복귀 상태 보존', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  async function createBoard(context, baseURL, boardType, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType, title, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('GALLERY 목록 → 카드 클릭 → 상세 → 목록으로 클릭 시 GALLERY 필터가 유지된다', async ({ page, context, baseURL }) => {
+    const title = 'P13-T28 갤러리 복귀 확인 ' + Date.now();
+    boardId = await createBoard(context, baseURL, 'GALLERY', title);
+    await page.goto('/boards?boardType=GALLERY');
+
+    await page.locator('#board-grid .gallery-card').filter({ hasText: title }).locator('.gallery-card__link').click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}`));
+
+    await page.locator('a:has-text("목록으로")').click();
+    await expect(page).toHaveURL(/boardType=GALLERY/);
+    await expect(page.locator('#board-type-filter .filter-nav__link.is-active')).toHaveText('갤러리');
+    await expect(page.locator('#board-grid')).toBeVisible();
+  });
+
+  test('검색 결과 목록 → 상세 → 목록으로 클릭 시 검색어(keyword)가 유지된다', async ({ page, context, baseURL }) => {
+    const keyword = 'P13T28SearchKeyword' + Date.now();
+    const title = keyword + ' 검색 복귀 확인';
+    boardId = await createBoard(context, baseURL, 'NOTICE', title);
+    await page.goto(`/boards?keyword=${keyword}`);
+
+    await page.locator('.board-list__link').filter({ hasText: title }).click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}`));
+
+    await page.locator('a:has-text("목록으로")').click();
+    await expect(page).toHaveURL(new RegExp(`keyword=${keyword}`));
+    await expect(page.locator('input[type="text"][name="keyword"]')).toHaveValue(keyword);
   });
 });
 
