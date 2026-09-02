@@ -2265,6 +2265,117 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
   });
 });
 
+// P13-T29: CKEditor의 6개 ImageStyle 중 inline("글 안에 배치")만 HtmlSanitizer가 실측 확인한 대로
+// <figure> 래핑 없는 순수 <img>로 저장되어, 기존 `.ckeditor-content .image img` 규칙(figure 조상
+// 필요)이 걸리지 않고 원본 해상도 그대로 렌더링될 수 있었다(home.css 신규 `.ckeditor-content img`
+// 규칙으로 수정). 별도 대용량 binary fixture 없이 canvas로 큰 intrinsic 크기의 PNG를 즉석 생성해
+// 검증한다. Board 대표 1건만 확인하고 Program/Page는 .ckeditor-content CSS를 공유하므로 중복
+// 추가하지 않는다(P13-T23/P13-T27과 동일한 관례).
+test.describe('P13-T29: 공개 게시글 상세 CKEditor inline 이미지 overflow 방지', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    boardId = undefined;
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    if (boardId) {
+      const xsrfToken = await getXsrfToken(context);
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  // 파일 크기(byte)가 아니라 PNG의 intrinsic 가로/세로 픽셀 값이 커야 overflow가 재현되므로,
+  // 브라우저 <canvas>로 즉석 생성한다(별도 대용량 fixture 파일 불필요).
+  async function generateLargePngBuffer(page, width, height) {
+    const dataUrl = await page.evaluate(({ w, h }) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#3366ff';
+      ctx.fillRect(0, 0, w, h);
+      return canvas.toDataURL('image/png');
+    }, { w: width, h: height });
+    return Buffer.from(dataUrl.split(',')[1], 'base64');
+  }
+
+  test('큰 intrinsic 크기의 inline("글 안에 배치") 이미지가 375/768/1440px 어디에서도 overflow를 만들지 않는다', async ({ page, context, baseURL }) => {
+    await page.goto('/admin/boards/new');
+    await page.locator('#boardType').selectOption('NOTICE');
+    await page.locator('#title').fill('inline 이미지 overflow 확인 ' + Date.now());
+
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('이 게시글은 inline 이미지 overflow 확인용 본문입니다. '.repeat(10));
+
+    const largePngBuffer = await generateLargePngBuffer(page, 2400, 1200);
+    const uploadButton = page
+      .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
+      .first();
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await uploadButton.click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({
+      name: 'large-inline-test.png', mimeType: 'image/png', buffer: largePngBuffer,
+    });
+
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && img.getAttribute('src') && img.getAttribute('src').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+
+    // 업로드 직후 이미지는 기본(block, <figure class="image">) 상태다. 위젯을 선택해 "이미지 정렬"
+    // dropdown을 열고 "글 안에 배치"(inline)를 선택한다.
+    await page.locator('.ck-editor__editable img').click();
+    await page.locator('.ck-balloon-panel .ck-splitbutton__arrow').click();
+    const panel = page.locator('.ck-dropdown__panel:not(.ck-hidden)');
+    await panel.locator('[data-cke-tooltip-text="글 안에 배치"]').click();
+
+    // inline 전환 확인: figure 래핑이 없는 순수 <img>가 됐는지 직접 확인한다(P13-T29의 핵심 전제).
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && !img.closest('figure'));
+    }, { timeout: 10000 });
+
+    await page.locator('#isPublic').check();
+    await Promise.all([
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+
+    const listRes = await context.request.get(
+      `${baseURL}/api/admin/boards?page=0&size=1&sort=createdAt,DESC`);
+    const listBody = await listRes.json();
+    boardId = listBody.data.content[0].id;
+
+    await page.goto(`/boards/${boardId}`);
+    const publicContent = page.locator('#board-detail-content .ckeditor-content');
+    const publicImage = publicContent.locator('img').first();
+    await expect(publicImage).toBeVisible();
+    // 저장된 본문에도 figure 래핑이 없는 순수 inline <img>인지 재확인(공개 화면 기준).
+    await expect(publicContent.locator('figure img')).toHaveCount(0);
+
+    for (const width of [375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+
+      const overflowX = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX, `${width}px에서 페이지 전체 horizontal overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+
+      const contentBox = await publicContent.boundingBox();
+      const imageBox = await publicImage.boundingBox();
+      expect(imageBox.width, `${width}px에서 inline 이미지 렌더 폭이 .ckeditor-content 폭을 넘지 않아야 한다`)
+        .toBeLessThanOrEqual(contentBox.width + 1);
+    }
+  });
+});
+
 test.describe('P13-T24: Banner 수정 화면 기존 이미지 미리보기', () => {
   test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
 
