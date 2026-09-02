@@ -860,6 +860,28 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T28. 게시판 상세 → 목록 복귀 상태(boardType/keyword/page) 보존
+- 의존성: P13-T27
+- 산출물: `board/controller/BoardViewController.java`, `home/board/list.html`, `home/board/detail.html`, `src/test/java/com/monicalab/board/controller/BoardViewControllerTest.java`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 상세 페이지 "목록으로" 링크가 항상 파라미터 없는 `/boards`로 고정되어 있어, 필터/검색/페이지 상태를 유지한 채 목록으로 돌아갈 수 없던 문제를 해소한다. 보존 대상은 정확히 `boardType`/`keyword`/`page`(canonical, `PaginationSupport`가 계산해 준 `boards.page` 0-based 실제 결과 페이지) 3개이며, `pageJump`(1회성 입력값)는 절대 보존하지 않는다.
+  1. `home/board/list.html`의 `#board-grid`/`#board-list` 상세 링크 모두에 `boardType`/`keyword`/`page=${boards.page}` 쿼리 파라미터를 추가한다(item 단위 분기 없음, 두 목록 공통).
+  2. `BoardViewController.detail()`에 `boardType`/`keyword`/`page`를 **원시 `String`**(`@RequestParam(required = false)`)으로 추가 수신해 모델에 그대로 전달한다. `boardService.getPublicById(id)` 상세 조회 로직에는 전혀 관여하지 않으며, 값 검증/정제(타입 변환, enum 매핑 등)를 하지 않는다 — 최종 해석은 기존 `/boards` 엔드포인트의 기존 계약이 그대로 담당한다.
+  3. `home/board/detail.html`의 "목록으로" 링크를, 셋 다 없을 때만 순수 `/boards`로, 그 외에는 `@{/boards(boardType=..., keyword=..., page=...)}`로 렌더링하도록 명시적으로 분기한다. Thymeleaf `@{}`는 null 값을 파라미터 생략이 아니라 빈 값(`key=`)으로 렌더링한다는 것을 구현 중 실측으로 재확인했고(사전 조사 당시의 "자동 생략" 가정은 부정확했음), 이 때문에 "파라미터가 아예 없는 순수 `/boards`" 보장에는 명시적 분기가 필요했다.
+  4. `Board` API/Entity/Service/Repository/DB/Flyway, `PaginationSupport`, `pagination.html` fragment, 필터 nav, 검색 폼, 상세 페이지 디자인/CSS, 관리자 화면, Program 도메인, 메인 화면, P13-T27 카드 디자인은 전혀 변경하지 않는다.
+- DoD:
+  - `#board-grid`/`#board-list` 상세 링크 모두 `boardType`/`keyword`/`page`를 쿼리 파라미터로 포함한다(P13-T27이 만든 href가 `/boards/{id}` 정확히 일치에서 `startsWith`로 완화된 것은 이 변경의 직접적·의도된 결과).
+  - 상세 페이지에 전달된 `boardType`/`keyword`/`page`가 "목록으로" 링크에 그대로 반영된다. 파라미터가 전혀 없이 `/boards/{id}`에 직접 접근하면 "목록으로"는 정확히 `/boards`(쿼리 없음)다.
+  - `keyword`가 없을 때 href에 리터럴 `"null"` 문자열이 섞이지 않고, 빈 값으로 안전하게 처리된다(깨진 URL 없음).
+  - Java(`BoardViewControllerTest`, MockMvc+Jsoup)로 검증하며, href의 쿼리 파라미터 순서에 의존하지 않도록 `UriComponentsBuilder`로 파싱해 값 단위로 비교한다.
+  - Playwright 대표 2건: GALLERY 목록→카드 클릭→상세→목록으로 클릭 시 GALLERY 필터 유지, 검색 목록→상세→목록으로 클릭 시 keyword 유지. page>0 복귀는 대량 fixture 없이 실제 pagination을 거쳐 검증하기 번거로워 Java 테스트(명시적 `page=2` 파라미터)로만 확인하고 Playwright 범위는 확장하지 않는다.
+  - 기존 P13-T14(필터/pagination/keyword)·P13-T27(그리드/텍스트 목록 분기) 테스트 전체가 무변경(단, href 정확 일치 검증 3건은 이 Task의 의도된 변경에 맞춰 `startsWith`로 조정) 통과한다.
+  - `Board` API/Entity/Service/Repository/DB/Flyway, `PaginationSupport`, `pagination.html`, 필터 nav, 검색 폼, 상세 디자인/CSS, 관리자 화면, Program 도메인, 메인 화면 무변경.
+  - `./gradlew build` 성공, Java 전체 테스트 통과(신규 케이스 포함), Node 전체 테스트 통과(무변경), Playwright 전체 회귀 통과.
+  - 사용자가 URL을 수동으로 조작한 잘못된 `boardType`/`page` 값에 대한 신규 validation/sanitizing은 추가하지 않는다(기존 `/boards` 계약 그대로 유지).
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

@@ -37,11 +37,22 @@ public class BoardViewController {
         return "home/board/list";
     }
 
+    // P13-T28: boardType/keyword/page는 목록에서 넘어온 "돌아갈 목록 상태"를 "목록으로" 링크
+    // 생성에만 쓰기 위한 값이다. 상세 조회(getPublicById)에는 전혀 관여하지 않으며, 타입 변환이
+    // 실패할 수 없도록 원시 String으로만 받는다(값 검증/정제는 이 Task 범위가 아니다 - 최종 해석은
+    // 기존 /boards 엔드포인트의 기존 계약을 그대로 따른다).
     @GetMapping("/boards/{id}")
-    public String detail(@PathVariable Long id, Model model) {
+    public String detail(@PathVariable Long id,
+            @RequestParam(required = false) String boardType,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String page,
+            Model model) {
         BoardResponse board = boardService.getPublicById(id);
         model.addAttribute("board", board);
         model.addAttribute("renderedContent", ContentLinkRenderer.externalLinksOpenInNewTab(board.content()));
+        model.addAttribute("boardType", boardType);
+        model.addAttribute("keyword", keyword);
+        model.addAttribute("page", page);
         return "home/board/detail";
     }
 }
