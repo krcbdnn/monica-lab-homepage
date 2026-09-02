@@ -487,6 +487,66 @@ Response 204. 존재하지 않으면 `FILE_NOT_FOUND`(404), I/O 실패는 `FILE_
 
 ---
 
+# Menu
+
+P13-T30A 기준. 공개 헤더는 아직 이 데이터를 사용하지 않으며(공개 헤더는 하드코딩 유지), 관리자 CRUD만 제공한다. 공개 조회 API(`GET /api/menus`)는 아직 없다.
+
+`targetType`: `GROUP`, `HOME`, `PAGE`, `PROGRAM_LIST`, `BOARD_LIST`, `INTERNAL_URL`, `EXTERNAL_URL`
+
+`MenuRequest`
+
+| field | type | POST required | PUT required | default / Validation |
+|---|---|---:|---:|---|
+| label | String | Y | Y | `@NotBlank`, max 50 |
+| parentId | Long | N | N | 지정 시 해당 id의 메뉴가 존재하고 `targetType=GROUP`이어야 함(그 외는 `INVALID_INPUT_VALUE` 400). 자기 자신 지정 불가 |
+| targetType | String(enum) | Y | Y | 위 enum 값 |
+| targetValue | String | 조건부 | 조건부 | max 255. GROUP/HOME은 NULL이어야 함(값 있으면 400), PAGE는 `PageType` 값 필수, PROGRAM_LIST/BOARD_LIST는 각각 `ProgramType`/`BoardType` 값(NULL이면 전체), INTERNAL_URL은 `/`로 시작하고 `//`(프로토콜 상대)는 거부, EXTERNAL_URL은 `^https?://.+`만 허용 |
+| sortOrder | Integer | Y | Y | `>= 0` |
+| visible | Boolean | N | Y | POST 생략 시 `false` |
+| openInNewTab | Boolean | N | Y | POST 생략 시 `false`. `targetType`과 무관하게 독립적으로 설정 가능(EXTERNAL_URL이라도 자동으로 true가 되지 않음) |
+
+`targetType=GROUP`이면 `parentId`는 반드시 `null`이어야 한다(GROUP은 항상 최상위, 위반 시 `INVALID_INPUT_VALUE` 400).
+
+`MenuResponse`: `id`, `label`, `parentId`, `targetType`, `targetValue`, `sortOrder`, `visible`, `openInNewTab`, `createdAt`, `updatedAt`.
+
+## GET /api/admin/menus
+
+인증: ROLE_ADMIN. 노출 여부와 관계없이 전체 반환. 비페이징 배열 응답이며 `sort` 쿼리는 없다(부모 바로 뒤에 그 자식들이 오는 고정 트리 순서로 서버가 응답을 구성함).
+
+## GET /api/admin/menus/{id}
+
+인증: ROLE_ADMIN. 단건 조회. 존재하지 않으면 `MENU_NOT_FOUND`(404).
+
+## POST /api/admin/menus
+
+Request: `MenuRequest` POST 규칙. Response 201: `MenuResponse`.
+
+## PUT /api/admin/menus/{id}
+
+Request: 동일 `MenuRequest` PUT 규칙. 자식이 있는 메뉴를 GROUP이 아닌 `targetType`으로 변경하면 `MENU_HAS_CHILDREN`(409). Response 200: `MenuResponse`.
+
+## PATCH /api/admin/menus/{id}/visibility
+
+```json
+{"visible": true}
+```
+
+`visible`: Boolean, required. Response 200: `MenuResponse`.
+
+## PATCH /api/admin/menus/{id}/order
+
+```json
+{"sortOrder": 1}
+```
+
+`sortOrder`: Integer, required, `>=0`. Response 200: `MenuResponse`.
+
+## DELETE /api/admin/menus/{id}
+
+자식이 있으면 `MENU_HAS_CHILDREN`(409). 없으면 Response 204. 존재하지 않으면 `MENU_NOT_FOUND`(404).
+
+---
+
 # Public / Admin 조회 차이 요약
 
 | Domain | Public GET | Admin GET |
@@ -497,6 +557,7 @@ Response 204. 존재하지 않으면 `FILE_NOT_FOUND`(404), I/O 실패는 `FILE_
 | Banner | `isVisible=true`만 | 노출/비노출 모두 |
 | Popup | `isVisible=true` + 노출기간 내 | 노출/비노출/기간 외 모두 |
 | File | id 기반 다운로드만 | 업로드 이력 목록 + 업로드/삭제 |
+| Menu | 없음(P13-T30A 기준 공개 API 미제공) | 노출 여부와 관계없이 전체 반환 |
 
 ---
 

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#menu-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>메뉴 관리</title>
+</head>
+<body>
+<div id="menu-list-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>메뉴 관리</h2>
+        <a href="/admin/menus/new" class="btn btn-primary">새 메뉴 등록</a>
+    </div>
+
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>메뉴명</th>
+            <th>상위 메뉴</th>
+            <th>유형</th>
+            <th>대상 값</th>
+            <th>정렬 순서</th>
+            <th>노출 여부</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody id="menu-list-body"></tbody>
+    </table>
+
+    <script>
+        var errorMessage = document.querySelector('#errorMessage');
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        // P13-T30A: /api/admin/menus는 이미 "부모 바로 뒤에 그 자식들"이 오는 순서로 응답하므로,
+        // 화면에서 별도로 트리를 다시 조립하지 않고 응답 순서 그대로 렌더링하되, 자식 행(parentId가
+        // 있는 행)만 라벨 앞에 들여쓰기 접두사를 붙여 시각적으로 구분한다. "상위 메뉴" 열은 같은 응답
+        // 안에서 id -> label을 미리 만들어 둔 맵으로 조회한다(별도 API 호출 없음).
+        function renderRow(menu, labelById) {
+            var tr = document.createElement('tr');
+
+            var labelTd = document.createElement('td');
+            labelTd.textContent = (menu.parentId ? '— ' : '') + menu.label;
+            tr.appendChild(labelTd);
+
+            var parentTd = document.createElement('td');
+            parentTd.textContent = menu.parentId ? (labelById[menu.parentId] || menu.parentId) : '-';
+            tr.appendChild(parentTd);
+
+            var targetTypeTd = document.createElement('td');
+            targetTypeTd.textContent = menu.targetType;
+            tr.appendChild(targetTypeTd);
+
+            var targetValueTd = document.createElement('td');
+            targetValueTd.textContent = menu.targetValue || '-';
+            tr.appendChild(targetValueTd);
+
+            var sortOrderTd = document.createElement('td');
+            var sortOrderInput = document.createElement('input');
+            sortOrderInput.type = 'number';
+            sortOrderInput.min = '0';
+            sortOrderInput.value = menu.sortOrder;
+            sortOrderInput.className = 'form-control form-control-sm d-inline-block me-1';
+            sortOrderInput.style.width = '80px';
+            sortOrderTd.appendChild(sortOrderInput);
+
+            var orderButton = document.createElement('button');
+            orderButton.type = 'button';
+            orderButton.className = 'btn btn-sm btn-outline-secondary';
+            orderButton.textContent = '순서 변경';
+            orderButton.addEventListener('click', function () {
+                errorMessage.style.display = 'none';
+                AdminFetch.adminFetch('/api/admin/menus/' + menu.id + '/order', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({sortOrder: Number(sortOrderInput.value)})
+                })
+                    .then(function (response) {
+                        return response.json().then(function (body) {
+                            return {ok: response.ok, body: body};
+                        });
+                    })
+                    .then(function (result) {
+                        if (result.ok && result.body.success) {
+                            loadMenus();
+                        } else {
+                            showError((result.body.error && result.body.error.message)
+                                || '순서 변경 중 오류가 발생했습니다.');
+                        }
+                    })
+                    .catch(function () {
+                        showError('순서 변경 중 오류가 발생했습니다.');
+                    });
+            });
+            sortOrderTd.appendChild(orderButton);
+            tr.appendChild(sortOrderTd);
+
+            var visibleTd = document.createElement('td');
+            visibleTd.textContent = menu.visible ? '노출' : '비노출';
+            tr.appendChild(visibleTd);
+
+            var actionTd = document.createElement('td');
+
+            var editLink = document.createElement('a');
+            editLink.href = '/admin/menus/' + menu.id + '/edit';
+            editLink.className = 'btn btn-sm btn-outline-secondary me-1';
+            editLink.textContent = '수정';
+            actionTd.appendChild(editLink);
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = menu.visible ? '비노출로 전환' : '노출로 전환';
+            visibilityButton.addEventListener('click', function () {
+                errorMessage.style.display = 'none';
+                AdminFetch.adminFetch('/api/admin/menus/' + menu.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({visible: !menu.visible})
+                }).then(loadMenus);
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '삭제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('삭제하시겠습니까?')) {
+                    return;
+                }
+                errorMessage.style.display = 'none';
+                AdminFetch.adminFetch('/api/admin/menus/' + menu.id, {method: 'DELETE'})
+                    .then(function (response) {
+                        if (response.ok) {
+                            loadMenus();
+                            return;
+                        }
+                        // 하위 메뉴가 있으면 서버가 409를 반환한다(MENU_HAS_CHILDREN) - 삭제 실패를
+                        // 조용히 넘기지 않고 이유를 보여준다.
+                        response.json().then(function (body) {
+                            showError((body.error && body.error.message) || '삭제 중 오류가 발생했습니다.');
+                        });
+                    })
+                    .catch(function () {
+                        showError('삭제 중 오류가 발생했습니다.');
+                    });
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        function loadMenus() {
+            AdminFetch.adminFetch('/api/admin/menus')
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var menus = body.data;
+                    var labelById = {};
+                    menus.forEach(function (menu) {
+                        labelById[menu.id] = menu.label;
+                    });
+
+                    var tbody = document.getElementById('menu-list-body');
+                    tbody.innerHTML = '';
+                    menus.forEach(function (menu) {
+                        tbody.appendChild(renderRow(menu, labelById));
+                    });
+                });
+        }
+
+        loadMenus();
+    </script>
+</div>
+</body>
+</html>

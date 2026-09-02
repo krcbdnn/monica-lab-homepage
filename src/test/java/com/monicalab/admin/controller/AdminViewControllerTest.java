@@ -61,7 +61,8 @@ class AdminViewControllerTest extends AbstractIntegrationTest {
                 "/admin/boards",
                 "/admin/banners",
                 "/admin/popups",
-                "/admin/files");
+                "/admin/files",
+                "/admin/menus");
     }
 
     @Test

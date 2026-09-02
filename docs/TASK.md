@@ -901,6 +901,29 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T30A. Menu 도메인 + 관리자 메뉴 CRUD + 초기 데이터 기반 구축
+- 의존성: P13-T29
+- 산출물: `menu/entity/Menu.java`, `menu/entity/MenuTargetType.java`, `menu/repository/MenuRepository.java`, `menu/dto/MenuRequest.java`, `menu/dto/MenuResponse.java`, `menu/dto/MenuVisibilityRequest.java`, `menu/dto/MenuOrderRequest.java`, `menu/service/MenuService.java`, `menu/controller/AdminMenuController.java`, `menu/controller/AdminMenuViewController.java`, `templates/admin/menu/list.html`, `templates/admin/menu/form.html`, `templates/admin/layout/sidebar.html`, `common/exception/ErrorCode.java`, `db/migration/V3__create_menu_table.sql`, `db/migration/V4__seed_initial_menu.sql`, `src/test/java/com/monicalab/menu/**`, `src/test/js/admin/menu-admin-view.test.js`, `src/test/java/com/monicalab/admin/controller/AdminViewControllerTest.java`
+- 작업 내용: 현재 공개 헤더가 하드코딩된 문제를 해소하기 위한 동적 메뉴 관리 시스템의 1단계다. 이 Task는 Menu 도메인과 관리자 CRUD, 초기 시드 데이터만 구축하며 공개 헤더(`home/layout/*`, `home.css`)는 전혀 변경하지 않는다(동적 공개 렌더링은 후속 P13-T30B).
+  1. `Menu` Entity는 ERD.md의 no-FK 원칙에 따라 `parentId`를 `@ManyToOne` 없는 plain `Long` 컬럼으로 둔다. 필드: `label`(VARCHAR(50), NOT NULL), `parentId`(BIGINT, NULL), `targetType`(VARCHAR(20), NOT NULL, `@Enumerated(STRING)`), `targetValue`(VARCHAR(255), NULL), `sortOrder`(INT, NOT NULL), `isVisible`(BOOLEAN, NOT NULL), `openInNewTab`(BOOLEAN, NOT NULL).
+  2. `MenuTargetType`: `GROUP`, `HOME`, `PAGE`, `PROGRAM_LIST`, `BOARD_LIST`, `INTERNAL_URL`, `EXTERNAL_URL`. `GROUP`은 항상 최상위(`parentId == null`)이고 `targetValue`는 null이어야 한다. 부모가 될 수 있는 것은 `targetType == GROUP`인 메뉴뿐이며(그 외 링크형 타입은 부모가 될 수 없음), 이 규칙이 곧 최대 2-depth를 보장하므로 별도 depth 컬럼/카운터는 두지 않는다.
+  3. `MenuService`가 `targetType`별 `targetValue` 검증을 수행한다: `GROUP`/`HOME`은 null 강제, `PAGE`/`PROGRAM_LIST`/`BOARD_LIST`는 각각 `PageType`/`ProgramType`/`BoardType` enum 값(PROGRAM_LIST/BOARD_LIST는 비우면 전체 의미로 null 허용), `INTERNAL_URL`은 `/`로 시작하고 `//`(프로토콜 상대 URL)를 거부하며 `java.net.URI` 파싱으로 host/scheme이 없는지 한 번 더 확인, `EXTERNAL_URL`은 `^https?://.+`만 허용(`javascript:`/`data:`/`//` 거부). `openInNewTab`은 `targetType`과 무관하게 관리자가 독립적으로 선택 가능하다(EXTERNAL_URL이라고 자동으로 true가 되지 않음).
+  4. 관리자 목록(`getAdminList()`)은 부모 바로 뒤에 그 자식들이 오는 순서로 응답한다(단일 `ORDER BY`로 표현 불가능해 조회 후 애플리케이션에서 인터리빙). 정상 CRUD는 orphan 행(부모가 없거나 GROUP이 아닌 부모를 가리키는 행)을 만들 수 없지만, 방어적으로 그런 행이 존재해도 응답에서 누락되지 않고 끝에 포함되도록 두 번째 패스를 둔다.
+  5. 삭제 및 GROUP→비GROUP 타입 변경은 자식이 존재하면 `MENU_HAS_CHILDREN`(409)로 금지한다. `sortOrder`는 Banner와 동일하게 관리자 입력 숫자 + "순서 변경" 버튼 방식이며 드래그앤드롭은 두지 않는다.
+  6. Flyway는 `V3__create_menu_table.sql`(DDL)과 `V4__seed_initial_menu.sql`(시드)로 분리한다. 시드는 현재 공개 헤더(P13-T17 바로가기 메뉴)에 이미 존재하는 4개 링크(연구소 소개→PAGE/INTRODUCTION, 프로그램→PROGRAM_LIST, 강의 후기→BOARD_LIST/REVIEW, 게시판→BOARD_LIST)만 동일한 의미로 옮기며, 4개 모두 최상위(부모 없음)라 self-reference 문제가 없다. 아직 확정되지 않은 HOME/ABOUT/OUR PROGRAMS 등 신규 IA는 이번 시드에 포함하지 않는다. Page 도메인의 `ApplicationRunner` 방식(고정 리소스 재생성 방지)은 Menu에 적용하지 않는다 — Menu 행은 관리자가 자유롭게 삭제 가능해야 하므로 Flyway 시드가 더 적합하다.
+  7. 관리자 API/화면은 Banner의 `Admin{Domain}Controller`/`Admin{Domain}ViewController` 분리 패턴을 그대로 따른다: `GET/POST /api/admin/menus`, `GET/PUT/DELETE /api/admin/menus/{id}`, `PATCH .../visibility`, `PATCH .../order`, 화면은 `GET /admin/menus`, `/admin/menus/new`, `/admin/menus/{id}/edit`. 사이드바(`admin/layout/sidebar.html`)에 "메뉴 관리"(`/admin/menus`) 항목을 파일 관리 다음에 추가한다. `form.html`의 상위 메뉴 `<select>`는 `targetType === 'GROUP' && !menu.parentId`(자기 자신 제외)만 후보로 표시한다.
+  8. `ErrorCode`에 `MENU_NOT_FOUND`(404), `MENU_HAS_CHILDREN`(409)를 추가한다. `SecurityConfig`는 기존 `/admin/**`, `/api/admin/**` 블랭킷 규칙이 이미 적용되므로 변경하지 않는다.
+- DoD:
+  - `MenuService` 검증 전체(부모=GROUP 강제, GROUP 최상위/targetValue null 강제, 자기 자신 parent 금지, 존재하지 않거나 GROUP이 아닌 parent 거부, 타입별 targetValue 검증, INTERNAL_URL의 `//` 거부, EXTERNAL_URL의 `javascript:` 거부, orphan 행 비유실, 자식 존재 시 삭제/타입변경 409)이 `AdminMenuControllerTest`(MockMvc) 통합 테스트로 검증된다.
+  - `AdminMenuViewControllerTest`로 미인증 리다이렉트, 인증 시 목록/등록/수정 화면 200 및 공통 레이아웃(`#admin-header`, `#admin-sidebar`) 포함을 검증한다.
+  - `menu-admin-view.test.js`(Node 내장 테스트 러너)로 `list.html`/`form.html`이 공통 fetch 유틸을 사용하고, 드래그앤드롭/nudge 버튼이 없으며, 상위 메뉴 select가 GROUP-only로 필터링됨을 정적 검증한다.
+  - 사이드바에 링크 추가로 `AdminViewControllerTest.dashboardRendersSidebarWithAllAdminDomainLinks`의 기대 목록에 `/admin/menus`가 추가된다(의도된 직접 영향).
+  - `./gradlew build` 성공, Java 전체 테스트 통과, Node 전체 테스트 통과(무변경 기존 + 신규), 기존 Playwright 공개 페이지 회귀 전체 통과(공개 헤더/푸터/CSS 무변경이므로 신규 공개 케이스 없음).
+  - `home/layout/*`, `home.css`, `SecurityConfig.java`, Program/Board/Page/Banner/Popup 도메인, `docker-compose.local-test.yml`(untracked 유지)은 변경하지 않는다.
+  - 공개 헤더의 동적 렌더링, 공개 `GET /api/menus`, 2단계 드롭다운 UI, 신규 메뉴 IA(HOME/ABOUT/OUR PROGRAMS 등) 확정은 이번 Task 범위에 포함하지 않으며 P13-T30B 이후로 명시적으로 이연한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
