@@ -166,6 +166,32 @@ Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드
 
 ---
 
+# 8. Menu
+
+공개 헤더 내비게이션 항목을 관리자가 등록/수정/삭제할 수 있게 하는 도메인이다(P13-T30A). 최대 2-depth(GROUP → 그 하위 항목)이며, `parent_id`는 다른 Entity와 동일하게 FK 없이 plain 컬럼으로 둔다.
+
+| 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
+|-------|------|------|------------|-------------|
+| id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
+| label | VARCHAR(50) | NOT NULL | 없음 | 메뉴명 |
+| parent_id | BIGINT | NULL | 없음 | 상위 메뉴 id. FK 아님(본 문서 no-FK 원칙). `target_type=GROUP`인 메뉴만 부모가 될 수 있고, GROUP 자신은 항상 `parent_id IS NULL`이다(2-depth 보장, 별도 depth 컬럼 없음) |
+| target_type | VARCHAR(20) | NOT NULL | 없음 | `GROUP`/`HOME`/`PAGE`/`PROGRAM_LIST`/`BOARD_LIST`/`INTERNAL_URL`/`EXTERNAL_URL` |
+| target_value | VARCHAR(255) | NULL | 없음 | `target_type`별 의미가 다르다: GROUP/HOME은 항상 NULL, PAGE는 `PageType` 값 필수, PROGRAM_LIST/BOARD_LIST는 `ProgramType`/`BoardType` 값(NULL이면 전체), INTERNAL_URL은 `/`로 시작하는 내부 경로 필수, EXTERNAL_URL은 `http(s)://` URL 필수 |
+| sort_order | INT | NOT NULL | 없음 | 정렬 순서. 같은 `parent_id` 그룹 내에서 값이 작을수록 먼저 노출됨(Banner와 동일 정책) |
+| is_visible | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
+| open_in_new_tab | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false`. `target_type`과 무관하게 관리자가 독립적으로 설정(EXTERNAL_URL이라고 자동 true 아님) |
+| created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+| updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+
+비고
+
+- `GROUP`은 하위 메뉴를 묶는 용도로만 쓰이며 자체 링크를 갖지 않는다(`target_value`는 항상 NULL). `target_type == GROUP`인 메뉴만 다른 메뉴의 부모가 될 수 있고, GROUP이 아닌 링크형 타입(HOME/PAGE/PROGRAM_LIST/BOARD_LIST/INTERNAL_URL/EXTERNAL_URL)은 부모가 될 수 없다 — 이 규칙만으로 최대 2-depth가 보장되므로 별도 depth 컬럼/카운터를 두지 않는다.
+- 자식(`parent_id`가 자신을 가리키는 행)이 있는 메뉴는 삭제하거나 `target_type`을 GROUP이 아닌 값으로 변경할 수 없다(`MENU_HAS_CHILDREN`, API.md 기준).
+- P13-T30A는 Menu 도메인과 관리자 CRUD, 초기 시드만 구축한다. 공개 헤더의 동적 렌더링과 공개 조회 API(`GET /api/menus`)는 이 시점에 존재하지 않으며 후속 Task(P13-T30B)에서 다룬다.
+- 초기 시드(`V4__seed_initial_menu.sql`)는 기존 공개 헤더에 이미 존재하던 4개 최상위 링크(연구소 소개/프로그램/강의 후기/게시판)만 동일한 의미로 옮기며, 아직 확정되지 않은 신규 메뉴 구성(IA)은 포함하지 않는다.
+
+---
+
 # PK 생성 전략
 
 모든 Entity의 `id` 기본키는 동일한 전략을 사용한다.

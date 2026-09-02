@@ -60,6 +60,8 @@ src/main/java
     │
     ├── file
     │
+    ├── menu
+    │
     └── home
 ```
 
@@ -74,7 +76,7 @@ src/main/java
   - `exception` : CustomException, ErrorCode 등 예외 관련 클래스
   - `response` : ApiResponse 등 공통 응답 포맷
   - `util` : FileUtil, DateUtil 등 공통 유틸리티
-- `admin`, `page`, `program`, `board`, `banner`, `popup`, `file` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
+- `admin`, `page`, `program`, `board`, `banner`, `popup`, `file`, `menu` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
 - `home` : 공개 메인 화면(`GET /`) 전용 패키지. 자체 Entity/Repository 없이 Page, Program, Board, Banner, Popup Service를 조합하여 메인 화면 데이터를 구성하는 Controller만 포함한다.
 
 ---
@@ -90,7 +92,7 @@ src/main/java
 | API | `Admin{Domain}Controller` | `@RestController`, `/api/admin/{domain}` 하위 CRUD/상태변경 API, `ApiResponse` 반환 | `AdminProgramController` |
 | View | `Admin{Domain}ViewController` | `@Controller`, `/admin/{domain}` 하위 화면(목록/등록/수정 폼) 렌더링, Thymeleaf View 이름 반환. 데이터는 자체 조회하지 않고 화면 진입만 담당하며, 실제 데이터는 화면의 JS가 P3-T5 공통 fetch 유틸로 `Admin{Domain}Controller`의 API를 호출해 채운다 | `AdminProgramViewController` |
 
-이 규칙은 Program, Board, Page, Banner, Popup, File, Admin(Dashboard 포함) 전 도메인에 동일하게 적용한다. 공개 영역의 `{Domain}Controller`(API) / `{Domain}ViewController`(View) 분리(Page/Program/Board)와 동일한 패턴이다.
+이 규칙은 Program, Board, Page, Banner, Popup, File, Menu, Admin(Dashboard 포함) 전 도메인에 동일하게 적용한다. 공개 영역의 `{Domain}Controller`(API) / `{Domain}ViewController`(View) 분리(Page/Program/Board)와 동일한 패턴이다.
 
 ## Admin
 
@@ -326,6 +328,47 @@ UploadFile              (Entity. 클래스명은 File이 아닌 UploadFile 사�
 
 - Local Storage
 - AWS S3(확장)
+
+---
+
+## Menu
+
+공개 헤더 내비게이션을 관리자가 CRUD할 수 있게 하는 도메인이다(P13-T30A). 다른 Entity와 동일하게 `parentId`는 FK 없는 plain 컬럼이며(ERD.md no-FK 원칙), `targetType=GROUP`인 메뉴만 부모가 될 수 있어 최대 2-depth를 보장한다.
+
+```
+AdminMenuController
+AdminMenuViewController     (GET /admin/menus 목록/등록/수정 화면 렌더링, Thymeleaf)
+
+MenuService
+
+MenuRepository
+
+Menu
+
+MenuTargetType
+```
+
+targetType
+
+```
+GROUP
+HOME
+PAGE
+PROGRAM_LIST
+BOARD_LIST
+INTERNAL_URL
+EXTERNAL_URL
+```
+
+기능
+
+- 등록
+- 수정
+- 삭제(자식이 있으면 `MENU_HAS_CHILDREN` 409로 금지)
+- 노출 여부
+- 정렬 순서(Banner와 동일한 숫자 입력 + "순서 변경" 버튼 방식, 드래그앤드롭 없음)
+
+비고: P13-T30A는 Menu 도메인과 관리자 CRUD, 초기 시드 데이터만 구축한다. 공개 `MenuController`(API)/공개 헤더 동적 렌더링은 존재하지 않으며 후속 Task(P13-T30B)로 이연한다. 공개 영역의 `home/layout/*`, `home.css`는 이 Task에서 변경하지 않는다.
 
 ---
 
@@ -712,6 +755,10 @@ Admin
 /admin/popups/{id}/edit
 
 /admin/files
+
+/admin/menus
+/admin/menus/new
+/admin/menus/{id}/edit
 ```
 
 - `/new`, `/{id}/edit`은 각 도메인 `Admin{Domain}ViewController`가 등록/수정 폼 화면을 렌더링하는 경로이며, 실제 저장/수정은 화면의 JS가 `Admin{Domain}Controller`의 `POST`/`PUT` API를 호출한다.
