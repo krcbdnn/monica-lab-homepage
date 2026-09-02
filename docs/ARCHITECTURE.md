@@ -296,7 +296,7 @@ HomeController
 - 최신 프로그램 카드 조회: `ProgramService.getPublicList(null, null, createdAt desc pageable)` 결과 중 최신 3건을 모델에 제공한다. `recruitStatus` 기준 서버 측 필터링은 하지 않으며, 응답에 포함된 `recruitStatus` 값으로 화면에서 상태 배지만 표시한다. 0건이어도 화면은 완성된 레이아웃의 empty state로 렌더링한다.
 - 최신 강의 후기 카드 조회(P13-T16): `#latest-programs` 바로 다음에 위치한다. `BoardService.getPublicList(BoardType.REVIEW, null, createdAt desc pageable)` 결과 중 최신 `LATEST_REVIEW_LIMIT`(3)건을 `latestReviews` 모델 속성으로 제공한다. `LATEST_BOARD_LIMIT`(공지/갤러리, 5)과는 별도 상수를 쓴다. 별도 Entity/API를 만들지 않고 기존 `Board`(`boardType=REVIEW`)를 재사용하며, 마크업은 `#latest-gallery`의 `.gallery-grid`/`.gallery-card__*`를 그대로 재사용한다.
 - 최신 공지/갤러리 조회
-- 바로가기 메뉴(P13-T17): 기존 공개 화면으로 이동하는 고정 링크 4개(`연구소 소개` → `/pages/INTRODUCTION`, `프로그램` → `/programs`, `강의 후기` → `/boards?boardType=REVIEW`, `게시판` → `/boards`). 별도 Entity/API를 만들지 않는다. 홈 상단 인사말(GREETING) 요약 섹션과 하단 "프로그램 바로가기" CTA 섹션은 P13-T17에서 제거됐다. `/pages/GREETING` 상세 페이지 자체(`PageController`/`PageViewController`)는 유지된다.
+- 바로가기 메뉴(P13-T17, P13-T30B에서 동적화): 기존 공개 화면으로 이동하는 링크(`연구소 소개` → `/pages/INTRODUCTION`, `프로그램` → `/programs`, `강의 후기` → `/boards?boardType=REVIEW`, `게시판` → `/boards`)로 구성되며, P13-T17 시점에는 4개 고정 하드코딩이었으나 P13-T30B부터 `Menu` 도메인(P13-T30A) 기반 동적 렌더링으로 전환됐다. 실제 렌더링 경로는 `## Menu` 섹션의 "공개 헤더 렌더링"을 참고. 홈 상단 인사말(GREETING) 요약 섹션과 하단 "프로그램 바로가기" CTA 섹션은 P13-T17에서 제거됐다. `/pages/GREETING` 상세 페이지 자체(`PageController`/`PageViewController`)는 유지된다.
 
 자체 Entity/Repository 없이 Banner, Popup, Board, Program, Page Service를 조합하여 사용한다.
 
@@ -338,6 +338,7 @@ UploadFile              (Entity. 클래스명은 File이 아닌 UploadFile 사�
 ```
 AdminMenuController
 AdminMenuViewController     (GET /admin/menus 목록/등록/수정 화면 렌더링, Thymeleaf)
+HeaderMenuControllerAdvice  (P13-T30B, 공개 View Controller에 공통 header menu model을 공급)
 
 MenuService
 
@@ -346,6 +347,8 @@ MenuRepository
 Menu
 
 MenuTargetType
+
+HeaderMenuItem              (P13-T30B, 공개 헤더 전용 View 모델)
 ```
 
 targetType
@@ -368,7 +371,18 @@ EXTERNAL_URL
 - 노출 여부
 - 정렬 순서(Banner와 동일한 숫자 입력 + "순서 변경" 버튼 방식, 드래그앤드롭 없음)
 
-비고: P13-T30A는 Menu 도메인과 관리자 CRUD, 초기 시드 데이터만 구축한다. 공개 `MenuController`(API)/공개 헤더 동적 렌더링은 존재하지 않으며 후속 Task(P13-T30B)로 이연한다. 공개 영역의 `home/layout/*`, `home.css`는 이 Task에서 변경하지 않는다.
+비고: P13-T30A는 Menu 도메인과 관리자 CRUD, 초기 시드 데이터만 구축했다(공개 헤더 동적 렌더링은 그 시점에 존재하지 않았음).
+
+### 공개 헤더 렌더링(P13-T30B)
+
+공개 `GET /api/menus` REST API는 두지 않는다. 대신 `HeaderMenuControllerAdvice`(`@ControllerAdvice(assignableTypes = {HomeController.class, PageViewController.class, ProgramViewController.class, BoardViewController.class})`)가 `home/layout/default`를 사용하는 공개 View Controller에만 `headerMenuItems`(`List<HeaderMenuItem>`) model attribute를 공급하고, `home/layout/header.html`이 이를 렌더링한다. 관리자/API Controller에는 이 model attribute가 주입되지 않고 Menu 조회도 발생하지 않는다.
+
+- `MenuService.getPublicMenuTree()`가 요청당 `MenuRepository.findAll()` 1회로 전체 Menu를 조회한 뒤 애플리케이션에서 트리를 구성한다(N+1 없음, 캐시 없음 - 관리자 변경이 다음 공개 요청에 즉시 반영됨).
+- `visible=true`인 최상위 항목만 후보이며, `visible=false`인 GROUP의 자식은 자식의 visible 여부와 무관하게 전부 제외된다. GROUP의 자식 중 `visible=false`인 것도 제외되고, 남은 visible 자식이 하나도 없는 GROUP은 GROUP 자체도 숨긴다.
+- fail-closed: orphan(부모가 없거나 GROUP이 아닌 parentId를 가리키는) 행, GROUP의 자식인데 그 자신도 `targetType=GROUP`인 비정상 행(정상 CRUD로는 생성 불가)은 트리 구성 알고리즘상 자연히 순회되지 않아 공개 화면에 노출되지 않는다. 별도 복구/자동수정 로직은 두지 않는다.
+- `HeaderMenuItem`(`id`, `label`, `href`, `openInNewTab`, `children`)은 Entity/`MenuTargetType`을 Thymeleaf에 노출하지 않기 위한 공개 전용 View 모델이며, `href`가 `null`인 항목만 GROUP(submenu trigger)이라는 사실만으로 템플릿이 분기한다. `targetType`별 href 계산(`GROUP→null`, `HOME→/`, `PAGE→/pages/{targetValue}`, `PROGRAM_LIST→targetValue 없으면 /programs, 있으면 /programs?programType={value}`, `BOARD_LIST→targetValue 없으면 /boards, 있으면 /boards?boardType={value}`, `INTERNAL_URL`/`EXTERNAL_URL→targetValue 그대로`)는 `MenuService`가 전담하고 Thymeleaf는 `targetType` 분기를 하지 않는다.
+- 헤더 마크업: 일반 메뉴는 `<a>`, GROUP은 `<a href="#">`가 아닌 `<button type="button" aria-expanded aria-controls>`로 렌더링한다. `openInNewTab=true`인 링크는 `target="_blank" rel="noopener noreferrer"`를 함께 렌더링한다(GROUP에는 적용되지 않음). `static/js/home/nav-submenu.js`(신규, `nav-toggle.js`와 별도 파일)가 desktop hover/focus/click, mobile accordion, Escape, outside-click을 담당하며 실제 open 상태와 `aria-expanded`가 항상 일치하도록 `is-open` 클래스를 단일 source of truth로 사용한다(순수 함수 `resolveOpenGroupId`만 Node 테스트 대상).
+- Footer(`home/layout/footer.html`)는 P13-T30B에서도 동적화하지 않고 기존 4개 하드코딩 링크를 유지한다.
 
 ---
 
