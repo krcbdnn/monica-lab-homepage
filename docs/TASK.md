@@ -882,6 +882,25 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T29. 공개 게시글 상세 CKEditor inline 이미지 모바일 overflow 방지
+- 의존성: P13-T23
+- 산출물: `static/css/home.css`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 사전 조사 결과, CKEditor의 6개 ImageStyle 중 `inline`("글 안에 배치")만 `HtmlSanitizer`가 `<figure>` 래핑 없는 순수 `<img src="...">`로 저장한다는 것을 실측으로 확인했다(나머지 5개 block/side/alignLeft/alignCenter/alignRight는 모두 `<figure class="image ...">`로 감싸짐). 기존 `.ckeditor-content .image img { max-width:100%; ... }` 규칙은 `.image` figure 조상을 요구하므로 `inline` 이미지에는 적용되지 않아, 원본 해상도가 큰 이미지를 `inline`으로 삽입하면 모바일에서 overflow가 발생할 수 있었다.
+  1. `home.css`의 `.ckeditor-content` 공용 영역(Board/Program/Page 상세가 공유)에 `.ckeditor-content img { max-width: 100%; height: auto; }`를 추가한다. 선택자 특이도가 기존 `.ckeditor-content .image img`보다 낮아 5개 figure-style에는 값이 동일해 시각적 차이가 없고(더 구체적인 선택자가 계속 우선), `inline` 하나에만 새로 적용된다.
+  2. 기존 `.ckeditor-content .image img`, `.image-style-side`/`alignLeft`/`alignRight`/`alignCenter` 정렬·float 규칙은 전혀 수정하지 않는다.
+  3. Popup(`.popup-modal__body`)은 범위에서 제외한다 — `.popup-modal__body img`가 이미 `.image` 조상 없이 전체 `img`에 적용되고 있어(fit-content 폭 계산용 고정 px 캡) 이 구멍이 애초에 없다.
+  4. `HtmlSanitizer`, Java Controller/Service/DTO, 공개 detail template(Board/Program/Page/Popup), 관리자 CKEditor 설정(`ckeditor-config.js`)은 변경하지 않는다. 데스크톱 이미지 최대 px 폭 제한은 별도 디자인 결정이 필요한 후속 Task 후보로 남기고 이번 범위에 포함하지 않는다.
+- DoD:
+  - `.ckeditor-content img { max-width:100%; height:auto; }` 규칙이 추가되어 `inline` 이미지에도 폭 제약이 적용된다.
+  - Playwright: Board 대표 1건 — 큰 intrinsic 크기(2400×1200)의 PNG를 canvas로 즉석 생성(별도 대용량 binary fixture 없음)해 CKEditor에서 `inline`("글 안에 배치")으로 저장한 뒤, 공개 상세에서 375/768/1440px 각각 페이지 전체 horizontal overflow가 없고, 저장된 이미지가 `<figure>` 래핑 없는 순수 `inline <img>`임을 재확인하며, 해당 `<img>`의 실제 렌더 폭이 `.ckeditor-content` 콘텐츠 폭을 넘지 않음을 직접 검증한다. Program/Page에는 `.ckeditor-content` CSS를 공유하므로 중복 케이스를 추가하지 않는다.
+  - 기존 P13-T23의 image style/float containment/overflow(375/768/1024/1440) Playwright 테스트가 무변경 통과한다(figure-style 5종 회귀 없음).
+  - `HtmlSanitizer`, Java Controller/Service/DTO, 공개 detail template, 관리자 CKEditor 설정 무변경.
+  - `./gradlew build` 성공, Java 전체 테스트 통과(무변경 회귀, 백엔드 변경 없음), Node 전체 테스트 통과(무변경), Playwright 전체 회귀 통과.
+  - Popup 이미지 정책, 데스크톱 최대 px 폭 제한, CKEditor custom build/Font/ImageResize, sanitizer의 width/height/style/alt 허용 확장, 관리자 editor UI, PowerPoint식 자유배치는 이번 Task 범위에 포함하지 않는다.
+  - `docker-compose.local-test.yml`은 변경 없이 untracked 상태를 유지한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

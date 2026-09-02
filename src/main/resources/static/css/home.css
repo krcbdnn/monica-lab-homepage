@@ -817,6 +817,19 @@
     margin: 0 auto;
 }
 
+/* P13-T29: 위 .ckeditor-content .image img 규칙은 <figure class="image ...">로 감싸인 5개
+   ImageStyle(block/side/alignLeft/alignCenter/alignRight)에만 적용된다. 나머지 1개인 inline
+   ("글 안에 배치")은 HtmlSanitizer가 실측 확인한 대로 <figure> 래핑 없는 순수 <img src="...">로
+   저장되어 이 선택자에 걸리지 않고, 원본 해상도 그대로 렌더링되어 모바일에서 overflow가 발생할 수
+   있었다. 선택자 특이도가 더 낮은 범용 규칙을 추가해 그 구멍만 메운다 - 이미 .image img가 적용되는
+   5개 style에는 값이 동일해 시각적 차이가 없다(더 구체적인 선택자가 계속 우선 적용됨). Popup은
+   .popup-modal__body img가 이미 .image 조상 없이도 전체 img에 적용되고 있어(fit-content 폭 계산용
+   고정 px 캡, 위 참고) 이 구멍이 없으므로 범위에서 제외한다. */
+.ckeditor-content img {
+    max-width: 100%;
+    height: auto;
+}
+
 .ckeditor-content .image-style-side,
 .popup-modal__body .image-style-side {
     float: right;
