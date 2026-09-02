@@ -13,10 +13,23 @@
 
         <nav id="site-nav" class="site-nav" aria-label="주요 메뉴">
             <ul id="quick-menu" class="site-nav__list">
-                <li><a href="/pages/INTRODUCTION">연구소 소개</a></li>
-                <li><a href="/programs">프로그램</a></li>
-                <li><a th:href="@{/boards(boardType='REVIEW')}">강의 후기</a></li>
-                <li><a href="/boards">게시판</a></li>
+                <li th:each="item : ${headerMenuItems}" class="site-nav__item" th:data-menu-id="${item.id}"
+                    th:classappend="${item.href == null} ? ' has-submenu' : ''">
+                    <a th:if="${item.href != null}" th:href="${item.href}" th:text="${item.label}"
+                       th:target="${item.openInNewTab} ? '_blank' : null"
+                       th:rel="${item.openInNewTab} ? 'noopener noreferrer' : null">메뉴</a>
+                    <th:block th:if="${item.href == null}">
+                        <button type="button" class="site-nav__trigger" aria-expanded="false"
+                                th:aria-controls="${'submenu-' + item.id}" th:text="${item.label}">GROUP</button>
+                        <ul class="site-nav__submenu" th:id="${'submenu-' + item.id}">
+                            <li th:each="child : ${item.children}">
+                                <a th:href="${child.href}" th:text="${child.label}"
+                                   th:target="${child.openInNewTab} ? '_blank' : null"
+                                   th:rel="${child.openInNewTab} ? 'noopener noreferrer' : null">하위 메뉴</a>
+                            </li>
+                        </ul>
+                    </th:block>
+                </li>
             </ul>
         </nav>
     </div>

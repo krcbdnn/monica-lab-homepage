@@ -27,6 +27,13 @@
 /* P13-T1: 공개 공통 Header/Footer/모바일 내비게이션.
    본문(Hero/카드/목록 등) 디자인은 P13-T2 이후 범위이므로 포함하지 않는다. */
 
+/* P13-T30B: dropdown이 뒤따르는 hero/banner 섹션에 가려지지 않도록 header를 별도 stacking context로
+   승격한다. popup-modal의 z-index:1000(fixed)보다 훨씬 낮은 값이라 popup과 충돌하지 않는다. */
+#site-header {
+    position: relative;
+    z-index: 10;
+}
+
 #site-header .site-header__inner {
     display: flex;
     align-items: center;
@@ -54,6 +61,53 @@
 #quick-menu a {
     text-decoration: none;
     color: inherit;
+}
+
+/* P13-T30B: GROUP(submenu trigger) 버튼은 기존 #quick-menu a와 시각적으로 동일하게 보이도록
+   button 기본 스타일을 지운다. 실제 열림/닫힘은 오직 nav-submenu.js가 붙이는 .is-open 클래스로만
+   제어한다(:hover/:focus-within은 표시 여부에 관여하지 않음 - JS가 mouseenter/focusin에서도
+   같은 클래스를 붙이므로 시각 상태와 aria-expanded가 항상 일치한다). */
+.site-nav__item.has-submenu {
+    position: relative;
+}
+
+.site-nav__trigger {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+}
+
+.site-nav__submenu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin: 0.5rem 0 0;
+    padding: 0.5rem 0;
+    list-style: none;
+    min-width: 10rem;
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+}
+
+.site-nav__submenu a {
+    display: block;
+    padding: 0.375rem 1rem;
+    text-decoration: none;
+    color: inherit;
+    white-space: nowrap;
+}
+
+.has-submenu.is-open .site-nav__submenu {
+    display: block;
 }
 
 .nav-toggle {
@@ -148,6 +202,17 @@
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
+    }
+
+    /* 모바일은 dropdown이 아니라 accordion으로 펼쳐진다 - position/box-shadow/border만 무력화하고
+       열림/닫힘 자체는 위 .has-submenu.is-open 규칙을 그대로 공유한다(중복 선언 없음). */
+    .site-nav__submenu {
+        position: static;
+        margin: 0.5rem 0 0;
+        padding: 0;
+        padding-left: 1rem;
+        border: none;
+        box-shadow: none;
     }
 }
 

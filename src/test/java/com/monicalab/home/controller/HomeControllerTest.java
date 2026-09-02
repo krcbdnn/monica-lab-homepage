@@ -9,6 +9,9 @@ import com.monicalab.banner.repository.BannerRepository;
 import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
+import com.monicalab.menu.entity.Menu;
+import com.monicalab.menu.entity.MenuTargetType;
+import com.monicalab.menu.repository.MenuRepository;
 import com.monicalab.popup.entity.Popup;
 import com.monicalab.popup.repository.PopupRepository;
 import com.monicalab.program.entity.Program;
@@ -45,12 +48,36 @@ class HomeControllerTest extends AbstractIntegrationTest {
     @Autowired
     private ProgramRepository programRepository;
 
+    @Autowired
+    private MenuRepository menuRepository;
+
+    // P13-T30B: #quick-menu가 이제 DB(Menu) 기반으로 렌더링되므로, 다른 테스트 클래스(예:
+    // AdminMenuControllerTest)가 같은 Testcontainers 인스턴스에서 Menu 테이블을 자유롭게 변경해도 이
+    // 클래스의 "고정 4개 링크" 검증이 실행 순서에 영향받지 않도록 매 테스트마다 V4 seed와 동일한
+    // 내용으로 직접 재구성한다.
     @BeforeEach
     void setUp() {
         bannerRepository.deleteAll();
         popupRepository.deleteAll();
         boardRepository.deleteAll();
         programRepository.deleteAll();
+        menuRepository.deleteAll();
+        seedQuickMenu();
+    }
+
+    private void seedQuickMenu() {
+        menuRepository.saveAndFlush(Menu.builder()
+                .label("연구소 소개").targetType(MenuTargetType.PAGE).targetValue("INTRODUCTION")
+                .sortOrder(0).isVisible(true).build());
+        menuRepository.saveAndFlush(Menu.builder()
+                .label("프로그램").targetType(MenuTargetType.PROGRAM_LIST)
+                .sortOrder(1).isVisible(true).build());
+        menuRepository.saveAndFlush(Menu.builder()
+                .label("강의 후기").targetType(MenuTargetType.BOARD_LIST).targetValue("REVIEW")
+                .sortOrder(2).isVisible(true).build());
+        menuRepository.saveAndFlush(Menu.builder()
+                .label("게시판").targetType(MenuTargetType.BOARD_LIST)
+                .sortOrder(3).isVisible(true).build());
     }
 
     @Test

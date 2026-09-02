@@ -3,6 +3,7 @@ package com.monicalab.menu.service;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.common.exception.CustomException;
 import com.monicalab.common.exception.ErrorCode;
+import com.monicalab.menu.dto.HeaderMenuItem;
 import com.monicalab.menu.dto.MenuOrderRequest;
 import com.monicalab.menu.dto.MenuRequest;
 import com.monicalab.menu.dto.MenuResponse;
@@ -31,6 +32,7 @@ public class MenuService {
 
     private static final Sort ADMIN_LIST_SORT =
             Sort.by(Sort.Order.asc("parentId"), Sort.Order.asc("sortOrder"), Sort.Order.asc("id"));
+    private static final Sort PUBLIC_SORT = Sort.by(Sort.Order.asc("sortOrder"), Sort.Order.asc("id"));
 
     private final MenuRepository menuRepository;
 
@@ -89,6 +91,69 @@ public class MenuService {
     @Transactional(readOnly = true)
     public MenuResponse getAdminById(Long id) {
         return MenuResponse.from(getEntity(id));
+    }
+
+    // P13-T30B: 공개 헤더 전용 트리 조회. getAdminList()와는 계약이 달라(관리자는 숨김/orphan도 보여줘야
+    // 하는 flat 목록, 공개는 visible만 보여주는 실제 트리) 재사용하지 않고 별도 메서드로 둔다.
+    // 조회는 findAll() 1회뿐이며(N+1 없음, 캐시 없음 - 매 요청 재조회), 이후 전부 메모리에서 처리한다.
+    //
+    // fail-closed 계약(정상 CRUD로는 만들 수 없지만 과거 데이터/수동 DB 조작을 가정한 방어):
+    // - parentId가 없고 visible=false인 최상위 항목은 제외.
+    // - GROUP이 visible=false면 그 children은 전혀 조회하지 않아 자동으로 함께 숨겨진다.
+    // - children 중 visible=false인 행은 제외.
+    // - children 중 targetType=GROUP인 행(정상 CRUD로는 만들 수 없는 "GROUP의 자식인 GROUP")은
+    //   href=null인 HeaderMenuItem으로 흘러가 2-depth 안에 또 trigger처럼 렌더링되는 일이 없도록
+    //   명시적으로 제외한다.
+    // - orphan(부모가 없거나 GROUP이 아닌 parentId를 가리키는) 행은 최상위 순회에도, 어떤 GROUP의
+    //   children 조회에도 걸리지 않아 자동으로 제외된다.
+    // - visible child가 하나도 남지 않은 GROUP은 GROUP 자체도 숨긴다(이동 목적지 없는 빈 trigger 방지).
+    @Transactional(readOnly = true)
+    public List<HeaderMenuItem> getPublicMenuTree() {
+        List<Menu> all = menuRepository.findAll(PUBLIC_SORT);
+        Map<Long, List<Menu>> childrenByParentId = all.stream()
+                .filter(menu -> menu.getParentId() != null)
+                .collect(Collectors.groupingBy(Menu::getParentId));
+
+        List<HeaderMenuItem> items = new ArrayList<>();
+        for (Menu menu : all) {
+            if (menu.getParentId() != null || !menu.isVisible()) {
+                continue;
+            }
+            if (menu.getTargetType() == MenuTargetType.GROUP) {
+                List<HeaderMenuItem> children = childrenByParentId.getOrDefault(menu.getId(), List.of()).stream()
+                        .filter(Menu::isVisible)
+                        .filter(child -> child.getTargetType() != MenuTargetType.GROUP)
+                        .map(this::toHeaderMenuLeaf)
+                        .toList();
+                if (children.isEmpty()) {
+                    continue;
+                }
+                items.add(new HeaderMenuItem(menu.getId(), menu.getLabel(), null, false, children));
+            } else {
+                items.add(toHeaderMenuLeaf(menu));
+            }
+        }
+        return items;
+    }
+
+    private HeaderMenuItem toHeaderMenuLeaf(Menu menu) {
+        return new HeaderMenuItem(menu.getId(), menu.getLabel(),
+                toHref(menu.getTargetType(), menu.getTargetValue()), menu.isOpenInNewTab(), List.of());
+    }
+
+    // targetType별 실제 공개 href 계약. Thymeleaf에는 이 결과만 전달하고, View에서는 targetType 분기를
+    // 하지 않는다. PAGE/PROGRAM_LIST/BOARD_LIST의 경로/쿼리 파라미터명은 PageViewController(GET
+    // /pages/{type}), ProgramViewController(GET /programs?programType=), BoardViewController(GET
+    // /boards?boardType=)의 실제 매핑과 일치해야 한다.
+    private String toHref(MenuTargetType targetType, String targetValue) {
+        return switch (targetType) {
+            case GROUP -> null;
+            case HOME -> "/";
+            case PAGE -> "/pages/" + targetValue;
+            case PROGRAM_LIST -> targetValue == null ? "/programs" : "/programs?programType=" + targetValue;
+            case BOARD_LIST -> targetValue == null ? "/boards" : "/boards?boardType=" + targetValue;
+            case INTERNAL_URL, EXTERNAL_URL -> targetValue;
+        };
     }
 
     @Transactional

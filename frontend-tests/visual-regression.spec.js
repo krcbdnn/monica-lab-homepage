@@ -2438,3 +2438,210 @@ test.describe('P13-T24: Banner 수정 화면 기존 이미지 미리보기', () 
     await expect(page.locator('#imagePreview')).toBeVisible();
   });
 });
+
+// P13-T30B: 현재 V4 seed에는 GROUP이 없으므로, 아래 테스트는 시작 시 admin Menu API로 임시
+// GROUP + child 1개를 생성하고 종료 시 그 테스트가 만든 Menu만 삭제한다(V4 seed 4개와 다른
+// 기존 메뉴는 절대 건드리지 않음). 기존 관리자 로그인/CSRF 헬퍼(loginAsAdmin/getXsrfToken)를
+// 그대로 재사용한다.
+test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  const GROUP_LABEL = 'P13-T30B 테스트 그룹';
+  const CHILD_LABEL = 'P13-T30B 테스트 하위메뉴';
+
+  let xsrfToken;
+  let groupId;
+  let childId;
+
+  async function createMenu(context, baseURL, payload) {
+    const res = await context.request.post(`${baseURL}/api/admin/menus`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: payload,
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  async function deleteMenu(context, baseURL, id) {
+    if (id) {
+      await context.request.delete(`${baseURL}/api/admin/menus/${id}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    groupId = undefined;
+    childId = undefined;
+
+    groupId = await createMenu(context, baseURL, {
+      label: GROUP_LABEL, targetType: 'GROUP', sortOrder: 999, visible: true, openInNewTab: false,
+    });
+    childId = await createMenu(context, baseURL, {
+      label: CHILD_LABEL, parentId: groupId, targetType: 'BOARD_LIST', targetValue: 'NOTICE',
+      sortOrder: 0, visible: true, openInNewTab: false,
+    });
+  });
+
+  // child를 먼저 삭제해야 group 삭제가 MENU_HAS_CHILDREN(409)로 막히지 않는다. 테스트 실패로 도중에
+  // 끊겨도 afterEach는 항상 실행되므로 정리가 최대한 보장된다.
+  test.afterEach(async ({ context, baseURL }) => {
+    await deleteMenu(context, baseURL, childId);
+    await deleteMenu(context, baseURL, groupId);
+  });
+
+  test('Desktop 1440: hover로 열리고 aria-expanded가 실제 open 상태와 동기화되며, submenu 이동 유지/영역 이탈 닫힘/click toggle/Escape/키보드 접근이 모두 정상 동작한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupLi = page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL });
+    const trigger = groupLi.locator('.site-nav__trigger');
+    const submenu = groupLi.locator('.site-nav__submenu');
+    const childLink = submenu.locator('a', { hasText: CHILD_LABEL });
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(submenu).toBeHidden();
+
+    // hover로 열림 + aria-expanded 동기화(실제 시각 상태와 일치)
+    await trigger.hover();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(submenu).toBeVisible();
+
+    // trigger에서 submenu로 포인터를 옮겨도 중간에 닫히지 않고 유지된다
+    await childLink.hover();
+    await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    // GROUP 영역 밖으로 완전히 벗어나면 닫히고 aria-expanded=false로 동기화된다
+    await page.locator('.site-header__brand').hover();
+    await expect(submenu).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    // click toggle
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(submenu).toBeVisible();
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(submenu).toBeHidden();
+
+    // child 링크 접근/이동
+    await trigger.click();
+    await childLink.click();
+    await expect(page).toHaveURL(/\/boards\?boardType=NOTICE/);
+    await page.goto('/');
+
+    // 키보드: Tab으로 GROUP trigger에 도달 가능(V4 seed 항목 수에 결합되지 않도록 상한을 넉넉히 둔 탐색)
+    let reachedTrigger = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await trigger.evaluate((el) => el === document.activeElement)) {
+        reachedTrigger = true;
+        break;
+      }
+    }
+    expect(reachedTrigger, 'Tab 이동만으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
+
+    // Enter로 열기, submenu 링크도 다음 Tab으로 자연스럽게 접근 가능
+    await page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Tab');
+    await expect(childLink).toBeFocused();
+
+    // Escape로 닫히고 trigger로 focus가 복귀한다
+    await page.keyboard.press('Escape');
+    await expect(submenu).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toBeFocused();
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '1440px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  test('Desktop 1440: 다른 GROUP을 열면 기존에 열려 있던 GROUP은 자동으로 닫힌다', async ({ page, context, baseURL }) => {
+    const secondGroupId = await createMenu(context, baseURL, {
+      label: 'P13-T30B 두번째 그룹', targetType: 'GROUP', sortOrder: 1000, visible: true, openInNewTab: false,
+    });
+    const secondChildId = await createMenu(context, baseURL, {
+      label: 'P13-T30B 두번째 하위메뉴', parentId: secondGroupId, targetType: 'BOARD_LIST', targetValue: 'GALLERY',
+      sortOrder: 0, visible: true, openInNewTab: false,
+    });
+
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('/');
+
+      const firstTrigger = page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL })
+        .locator('.site-nav__trigger');
+      const secondTrigger = page.locator('.site-nav__item.has-submenu', { hasText: '두번째 그룹' })
+        .locator('.site-nav__trigger');
+
+      await firstTrigger.click();
+      await expect(firstTrigger).toHaveAttribute('aria-expanded', 'true');
+
+      await secondTrigger.click();
+      await expect(secondTrigger).toHaveAttribute('aria-expanded', 'true');
+      await expect(firstTrigger).toHaveAttribute('aria-expanded', 'false');
+    } finally {
+      await deleteMenu(context, baseURL, secondChildId);
+      await deleteMenu(context, baseURL, secondGroupId);
+    }
+  });
+
+  // hasTouch:true로 실제 터치 기기를 재현한다 - matchMedia(hover:hover)가 false가 되어 nav-submenu.js가
+  // hover 리스너를 붙이지 않고, tap()은 mouseenter를 합성하지 않으므로(click만 발생) 데스크톱
+  // hover 테스트와 상호작용 방식이 실제로 분리되어 검증된다.
+  test.describe('Mobile 375', () => {
+    test.use({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 812 } });
+
+    test('hamburger open → GROUP tap → submenu expand/aria 동기화 → child 접근 → hamburger close 시 submenu reset → 재오픈 시 닫힌 초기 상태, overflow 없음', async ({ page }) => {
+      await page.goto('/');
+
+      const navToggle = page.locator('#nav-toggle');
+      const groupLi = page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL });
+      const trigger = groupLi.locator('.site-nav__trigger');
+      const submenu = groupLi.locator('.site-nav__submenu');
+      const childLink = submenu.locator('a', { hasText: CHILD_LABEL });
+
+      await navToggle.tap();
+      await expect(page.locator('#site-nav')).toBeVisible();
+
+      await trigger.tap();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      await expect(submenu).toBeVisible();
+      await expect(childLink).toBeVisible();
+
+      // hamburger를 닫으면 열려 있던 submenu 상태도 함께 초기화된다
+      await navToggle.tap();
+      await expect(page.locator('#site-nav')).toBeHidden();
+
+      // 다시 열었을 때 submenu는 닫힌 초기 상태여야 한다
+      await navToggle.tap();
+      await expect(page.locator('#site-nav')).toBeVisible();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await expect(submenu).toBeHidden();
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, '375px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+    });
+  });
+
+  test('768px/1024px: 기존 반응형 navigation 경계에서 GROUP이 추가돼도 핵심 navigation/overflow 회귀가 없다', async ({ page }) => {
+    for (const width of [768, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+
+      await expect(page.locator('#site-nav')).toBeVisible();
+      await expect(page.locator('#quick-menu')).toBeVisible();
+      await expect(page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL })).toBeVisible();
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+    }
+  });
+});

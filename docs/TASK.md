@@ -924,6 +924,30 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T30B. 공개 헤더 동적 메뉴 렌더링 + 데스크톱 dropdown + 모바일 submenu
+- 의존성: P13-T30A
+- 산출물: `menu/dto/HeaderMenuItem.java`, `menu/service/MenuService.java`, `menu/controller/HeaderMenuControllerAdvice.java`, `home/layout/header.html`, `home/layout/default.html`, `static/js/home/nav-submenu.js`, `static/css/home.css`, `src/test/java/com/monicalab/menu/controller/HeaderMenuControllerAdviceTest.java`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `src/test/java/com/monicalab/common/exception/GlobalExceptionHandlerTest.java`, `src/test/js/home/nav-submenu.test.js`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: P13-T30A가 만든 Menu 데이터를 공개 헤더에 연결한다. 최종 IA(HOME/ABOUT/OUR PROGRAMS 등)는 아직 확정되지 않았으므로 임의 생성하지 않고, 현재 V4 seed의 기존 4개 메뉴만으로 동적 렌더링 구조를 완성하는 것을 기본 방향으로 한다(신규 IA 연결은 P13-T30C).
+  1. `MenuService.getPublicMenuTree()`(신규)가 요청당 `findAll()` 1회로 전체 Menu를 조회해 트리를 구성한다. `getAdminList()`는 재사용하지 않는다(계약이 다름 - 관리자는 숨김/orphan도 노출, 공개는 visible 트리만). 캐시 없음.
+  2. 공개 visibility 계약: `visible=true`인 최상위 항목만 후보. `visible=false` GROUP의 자식은 자식 자신의 visible과 무관하게 전부 제외. GROUP의 자식 중 `visible=false`도 제외. visible 자식이 하나도 없는 GROUP은 GROUP 자체도 숨긴다.
+  3. fail-closed: orphan(부모가 없거나 GROUP이 아닌 parentId를 가리키는) 행과, GROUP의 자식인데 그 자신도 `targetType=GROUP`인 비정상 행(children 구성 시 `targetType != GROUP` 조건으로 명시 제외)은 정상 트리에 노출되지 않는다. 복구/자동수정 로직은 두지 않는다.
+  4. `menu/dto/HeaderMenuItem.java`(신규, `id`/`label`/`href`/`openInNewTab`/`children`)가 공개 전용 View 모델이다. Entity/`MenuTargetType`을 Thymeleaf에 노출하지 않으며, `href`가 `null`인 항목만 GROUP이라는 사실만으로 템플릿이 분기한다. targetType→href 계산(`GROUP→null`, `HOME→/`, `PAGE→/pages/{targetValue}`, `PROGRAM_LIST`/`BOARD_LIST`는 값 없으면 `/programs`·`/boards`, 있으면 `?programType=`·`?boardType=` 쿼리, `INTERNAL_URL`/`EXTERNAL_URL`은 검증된 값 그대로)은 `MenuService`가 전담하고 Thymeleaf는 targetType 분기를 하지 않는다.
+  5. `menu/controller/HeaderMenuControllerAdvice.java`(신규)가 `@ControllerAdvice(assignableTypes = {HomeController, PageViewController, ProgramViewController, BoardViewController})`로 이 4개 공개 View Controller에만 `headerMenuItems` model attribute를 공급한다. 관리자/API Controller에는 영향 없음.
+  6. `home/layout/header.html`의 `#quick-menu`를 `headerMenuItems` 기반 동적 렌더링으로 교체하되 `#quick-menu`/`#site-nav`/`aria-label="주요 메뉴"` 등 기존 id/semantic 구조는 유지한다. 일반 메뉴는 `<a>`, GROUP은 `<a href="#">`가 아닌 `<button type="button" aria-expanded aria-controls>`로 렌더링(submenu id는 `submenu-{menu.id}`로 안정적으로 생성). `openInNewTab=true`이면 `target="_blank" rel="noopener noreferrer"`를 함께 렌더링.
+  7. `static/js/home/nav-submenu.js`(신규 파일, `nav-toggle.js`는 수정하지 않음)가 desktop hover(`mouseenter`/`mouseleave`를 `.has-submenu` 전체에 바인딩, `matchMedia(hover: hover)`로 터치 기기 제외)/focus(`focusin`/`focusout`)/click, 다른 GROUP 열면 기존 GROUP 닫힘, Escape(닫고 trigger로 focus 복귀), outside-click 닫힘을 구현한다. 실제 open 상태와 `aria-expanded`가 항상 일치하도록 `is-open` 클래스를 단일 source of truth로 사용하고(CSS `:hover`/`:focus-within`으로 독립적으로 열리는 경로는 두지 않음), `#nav-toggle` 클릭 이벤트를 함께 구독해 hamburger가 닫힐 때 열린 submenu도 초기화한다(custom event/전역 mutable state 없이 nav-toggle.js가 이미 갱신한 `aria-expanded` 값을 읽기만 함). `resolveOpenGroupId` 순수 함수만 Node 테스트 대상.
+  8. `home.css`에 `#site-header{position:relative;z-index:10}`(popup의 `z-index:1000`보다 낮음), `.site-nav__item.has-submenu`, `.site-nav__trigger`, `.site-nav__submenu`, `.has-submenu.is-open .site-nav__submenu` 규칙을 추가. 모바일(`@media max-width:767.98px`)은 `.site-nav__submenu`의 position/box-shadow/border만 무력화해 accordion으로 표시(열림/닫힘 규칙은 공유, 중복 선언 없음). 768px breakpoint 체계는 변경하지 않는다(향후 최종 IA 확정 후 T30C에서 재검토).
+  9. `HomeControllerTest`(P13-T30B로 인해 `#quick-menu`가 DB 기반이 되어 다른 테스트 클래스의 Menu 데이터 변경에 실행 순서가 영향받을 수 있으므로) `@BeforeEach`에서 Menu 4건을 V4 seed와 동일하게 직접 재구성하도록 수정한다. `GlobalExceptionHandlerTest`(`@WebMvcTest`)는 Spring Boot 표준 동작상 `controllers` 필터와 무관하게 모든 `@ControllerAdvice` 빈을 컨텍스트에 포함시키므로, 신규 `HeaderMenuControllerAdvice`의 `MenuService` 의존성을 `@MockitoBean`으로 대체해 컨텍스트 기동 실패를 해소한다(둘 다 P13-T30B의 의도된 직접 영향, 이 Task가 도입한 신규 기능 자체는 아님).
+  10. Footer(`home/layout/footer.html`)는 이번 Task에서 변경하지 않는다. 신규 PageType/BoardType/ProgramType, 신규 Flyway migration, Bootstrap JS, 캐시, 3-depth, drag-and-drop 정렬, WAI-ARIA menubar 화살표 키보드 모델은 이번 Task 범위에 포함하지 않는다.
+- DoD:
+  - `HeaderMenuControllerAdviceTest`(Java): visible 메뉴만 노출, hidden leaf 제외, hidden GROUP의 visible child 전체 숨김, 모든 child hidden이면 GROUP 숨김, 정상 GROUP+leaf child 렌더링(button/aria-expanded/aria-controls/submenu), GROUP인 비정상 child 제외, orphan child 제외, non-GROUP parent의 child 제외, targetType별 href 7종, openInNewTab일 때만 target/rel, menu 0건에서도 200, `/`·`/pages/INTRODUCTION`·`/programs`·`/boards` 4곳 모두 `headerMenuItems` 적용, 관리자 View(`/admin/banners`)에는 미적용(model에 `headerMenuItems` 없음) — 전부 통과.
+  - `HomeControllerTest`의 기존 "고정 4개 링크" 검증이 Menu 시드 기반으로도 href/텍스트/순서 완전 동일하게 회귀 통과(무변경 assertion).
+  - Node: `nav-submenu.test.js`(`resolveOpenGroupId`) + 전체 회귀 통과.
+  - Playwright: desktop 1440(hover 열림+`aria-expanded=true`, submenu로 pointer 이동해도 유지, 영역 밖 이탈 시 닫힘+`aria-expanded=false`, click toggle, 다른 GROUP 열면 기존 닫힘, Escape+trigger focus 복귀, child 링크 동작, keyboard Tab/Enter, overflow 없음), mobile 375(hamburger→GROUP tap→submenu expand/aria 동기화/child 접근, hamburger close 시 submenu reset, overflow 없음), 768/1024 기존 반응형 회귀 — 테스트용 GROUP/child는 admin API로 생성 후 정리(V4 seed·다른 3개 메뉴 무변경). 기존 seed 4개 관련 8개 assertion 무변경 통과. 전체 Playwright 회귀 통과.
+  - `./gradlew build` 성공.
+  - `docs/API.md`(공개 API 미신설), `home/layout/footer.html`, `SecurityConfig.java`, `V3__create_menu_table.sql`/`V4__seed_initial_menu.sql`, `docker-compose.local-test.yml`(untracked 유지) 무변경.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
