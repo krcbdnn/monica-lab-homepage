@@ -948,6 +948,27 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T30C. 최종 메뉴 IA 연결 + 전체메뉴(Mega Menu)
+- 의존성: P13-T30B
+- 산출물: `db/migration/V5__update_menu_ia.sql`, `home/layout/header.html`, `static/css/home.css`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `src/test/java/com/monicalab/menu/controller/HeaderMenuControllerAdviceTest.java`, `src/test/java/com/monicalab/support/MenuIaMigrationTest.java`(신규), `frontend-tests/visual-regression.spec.js`
+- 작업 내용: P13-T30B가 만든 동적 메뉴 인프라에 실제 최종 IA를 연결한다. HOME/ABOUT/OUR PROGRAMS 등 과거 논의된 가안은 PRD.md/FEATURES.md 어디에도 문서화되지 않아("Blog" 포함) 채택하지 않고, 실제 문서화된 콘텐츠(PageType 4종/ProgramType 2종/BoardType 4종)만으로 최종 IA를 구성한다.
+  1. 최종 IA: `HOME`(정적 `/` 링크, Menu DB row 아님) + `연구소 소개`(GROUP: 인사말/연구소 소개/연혁/오시는 길) + `프로그램`(GROUP: 수강 프로그램/특강) + `게시판`(GROUP: 공지사항/갤러리/자료실/강의 후기) + `전체메뉴`(mega menu trigger, Menu DB row 아님). Menu 테이블은 3 GROUP + 10 child = 13행.
+  2. `V5__update_menu_ia.sql`(신규, V1~V4 무수정)이 V4가 심은 4개 flat 행을 내용 전체 일치(label+parent_id IS NULL+target_type+target_value)로 정밀 식별해 삭제하고(`DELETE FROM menu` 전체 삭제 아님), `LAST_INSERT_ID()` 세션 변수로 GROUP 생성 직후 그 id를 자식 INSERT에 사용해 13행을 재구성한다. 이 시점까지 Menu 도메인이 main 브랜치에 배포된 적이 없어(`git merge-base origin/main origin/develop`가 P12-T3 시점) 실제 관리자 커스터마이징이 존재할 수 없음을 확인하고 진행한 1회성 조치다. **이후로는 관리자가 CRUD로 수정한 메뉴 데이터를 향후 migration이 DELETE 후 재생성(destructive reset)하는 방식으로 다루지 않는다** — 필요한 구조 변경은 기존 행 UPDATE 또는 신중한 선택적 추가로 처리한다.
+  3. `MenuService`/`HeaderMenuItem`/`HeaderMenuControllerAdvice`는 무수정. 전체메뉴(mega menu)는 개별 GROUP dropdown과 동일한 `headerMenuItems`를 `header.html`에서 한 번 더 순회해 렌더링하며(신규 Java 조회 없음), 최상위 LEAF/GROUP 분기·visibility·openInNewTab 정책이 개별 dropdown과 항상 동일하게 유지된다(향후 관리자가 최상위에 LEAF를 추가하거나 GROUP을 LEAF로 바꿔도 두 UI가 어긋나지 않음).
+  4. `static/js/home/nav-submenu.js`는 무수정. `.site-nav__item.has-submenu`를 문서 전체에서 범위 제한 없이 스캔하는 기존 구조 덕분에 "전체메뉴" 트리거가 기존 hover/click/keyboard/Escape/outside-click 메커니즘과 단일 상태 머신을 그대로 공유한다(GROUP dropdown과 mega menu가 별도 상태를 갖지 않아 충돌 자체가 불가능).
+  5. `home.css`에 `.site-nav__megamenu`(3컬럼 grid, `right:0;left:auto`로 뷰포트 밖 이탈 방지, `#site-nav` prefix로 specificity를 높여 `display:grid`가 기존 `display:block` 규칙보다 항상 우선) 추가. 모바일에서는 `[data-menu-id="all"]`을 `display:none`으로 숨겨 hamburger accordion과 중복 노출되지 않게 한다. 768px breakpoint 체계는 실측(767/768/769px) 결과 문제가 없어 변경하지 않는다.
+  6. `MenuIaMigrationTest`(신규)는 `AbstractIntegrationTest`의 공유 컨테이너를 상속하지 않고 자체 `@ServiceConnection` MariaDB 컨테이너로 별도 Spring context를 띄워, 다른 테스트의 `menuRepository.deleteAll()`과 완전히 격리된 상태에서 JDBC로 V1~V5 clean migration 성공, 최종 13행, 최상위 GROUP 정확히 3개, GROUP별 child 수(4/2/4), parent_id/target_type/target_value/sort_order 정확성, 구 4건 소멸을 검증한다.
+  7. `HomeControllerTest`/`HeaderMenuControllerAdviceTest`/`visual-regression.spec.js`의 seed 픽스처와 assertion을 13행 구조로 재작성한다. HOME과 전체메뉴가 항상 렌더링에 포함되므로 "Menu DB가 실제로 만든 항목만" 검증하려는 assertion은 전부 `data-menu-id` 기반 구조 selector로 HOME(`:first-child`)과 전체메뉴(`[data-menu-id="all"]`)를 명시적으로 제외해 스코프한다. "연구소 소개"가 GROUP명이자 자식명으로 동시에 쓰이므로 텍스트 기반 selector는 사용하지 않는다.
+  8. Footer, `SecurityConfig`, 신규 PageType/BoardType/ProgramType, `/boards`·`/programs`·상세 URL/Controller/API는 변경하지 않는다.
+- DoD:
+  - `MenuIaMigrationTest` 8건 전부 통과(clean migration 성공, 13행, GROUP 3개, child 4/2/4, target 값/순서 정확, 구 4건 소멸).
+  - `HeaderMenuControllerAdviceTest`/`HomeControllerTest` 전체 통과(HOME/전체메뉴를 제외한 스코프에서 검증).
+  - Playwright: HOME 정적 이동, 3개 GROUP dropdown 콘텐츠(대표 1개는 hover+click+aria-expanded까지, 나머지 2개는 콘텐츠만), 전체메뉴(hover/Escape/outside-click/10개 링크 3컬럼/viewport 이탈 없음, 1024·1440 실측), 767/768/769px 경계에서 desktop/mobile off-by-one 없음, mobile 375에서 전체메뉴 미노출(hamburger accordion과 중복 없음), 기존 `/boards`·`/programs` 직접 접근 정상 — 전부 통과. 기존 P13-T30A/B Playwright 테스트(자체 임시 GROUP 사용) 전체 무회귀 통과.
+  - Java/Node 전체 회귀 통과, `./gradlew build` 성공.
+  - `docker-compose.local-test.yml`(untracked 유지), DB volume 보존.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

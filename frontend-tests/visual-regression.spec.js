@@ -172,10 +172,17 @@ test.describe('모바일 햄버거 메뉴', () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#site-nav')).toBeVisible();
-    await expect(page.locator('#quick-menu a')).toHaveCount(4);
-    for (const href of ['/pages/INTRODUCTION', '/programs', '/boards?boardType=REVIEW', '/boards']) {
-      await expect(page.locator(`#quick-menu a[href="${href}"]`)).toBeVisible();
-    }
+
+    // P13-T30C: HOME(정적 링크) + 3개 GROUP trigger가 모바일 accordion에 노출된다. 전체메뉴(mega
+    // menu) 트리거는 모바일에서 숨겨진다(hamburger accordion과 동일 정보가 중복되는 것을 피함).
+    await expect(page.locator('#quick-menu > li:first-child > a[href="/"]')).toBeVisible();
+    const groupTriggers = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
+    await expect(groupTriggers).toHaveCount(3);
+    await expect(groupTriggers.nth(0)).toHaveText('연구소 소개');
+    await expect(groupTriggers.nth(1)).toHaveText('프로그램');
+    await expect(groupTriggers.nth(2)).toHaveText('게시판');
+    await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -206,7 +213,11 @@ test.describe('모바일 햄버거 메뉴', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.locator('#site-nav')).toBeVisible();
-    await expect(page.locator('#quick-menu a')).toHaveCount(4);
+    // 데스크톱 폭으로 전환되면 3개 GROUP trigger에 더해 전체메뉴(mega menu) 트리거도 다시 노출된다.
+    const groupTriggers = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
+    await expect(groupTriggers).toHaveCount(3);
+    await expect(page.locator('[data-menu-id="all"]')).toBeVisible();
   });
 });
 
@@ -757,12 +768,21 @@ test.describe('P13-T17: 공개 화면 명칭/네비게이션/홈 구성 정리',
     await expect(page.locator('.site-footer__brand')).toHaveText('모니카영어교육연구소');
   });
 
+  // P13-T30C: "연구소 소개"는 GROUP 이름이자 그 하위 페이지 이름으로 동시에 쓰이고, 동일한 링크가
+  // 개별 GROUP dropdown과 전체메뉴(mega menu) 양쪽에 존재하므로 텍스트/href만으로는 모호하다.
+  // GROUP dropdown 안쪽으로 명시적으로 스코프해서 검증한다.
   test('헤더/푸터의 "연구소 소개" 링크가 /pages/INTRODUCTION으로 이동한다', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('#quick-menu a[href="/pages/INTRODUCTION"]')).toHaveText('연구소 소개');
+
+    const aboutGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    await aboutGroupItem.locator('.site-nav__trigger').click();
+    const aboutPageLink = aboutGroupItem.locator('.site-nav__submenu a[href="/pages/INTRODUCTION"]');
+    await expect(aboutPageLink).toHaveText('연구소 소개');
     await expect(page.locator('.site-footer__nav a[href="/pages/INTRODUCTION"]')).toHaveText('연구소 소개');
 
-    await page.locator('#quick-menu a[href="/pages/INTRODUCTION"]').click();
+    await aboutPageLink.click();
     await expect(page).toHaveURL(/\/pages\/INTRODUCTION$/);
   });
 
@@ -2496,7 +2516,7 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
-    const groupLi = page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL });
+    const groupLi = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL });
     const trigger = groupLi.locator('.site-nav__trigger');
     const submenu = groupLi.locator('.site-nav__submenu');
     const childLink = submenu.locator('a', { hasText: CHILD_LABEL });
@@ -2574,9 +2594,9 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('/');
 
-      const firstTrigger = page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL })
+      const firstTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL })
         .locator('.site-nav__trigger');
-      const secondTrigger = page.locator('.site-nav__item.has-submenu', { hasText: '두번째 그룹' })
+      const secondTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: '두번째 그룹' })
         .locator('.site-nav__trigger');
 
       await firstTrigger.click();
@@ -2601,7 +2621,7 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
       await page.goto('/');
 
       const navToggle = page.locator('#nav-toggle');
-      const groupLi = page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL });
+      const groupLi = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL });
       const trigger = groupLi.locator('.site-nav__trigger');
       const submenu = groupLi.locator('.site-nav__submenu');
       const childLink = submenu.locator('a', { hasText: CHILD_LABEL });
@@ -2637,11 +2657,199 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
 
       await expect(page.locator('#site-nav')).toBeVisible();
       await expect(page.locator('#quick-menu')).toBeVisible();
-      await expect(page.locator('.site-nav__item.has-submenu', { hasText: GROUP_LABEL })).toBeVisible();
+      await expect(page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL })).toBeVisible();
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
     }
+  });
+});
+
+// P13-T30C: 최종 IA(HOME + 연구소 소개/프로그램/게시판 GROUP + 전체메뉴 mega menu)가 V5 seed
+// 그대로 정상 동작하는지 검증한다. GROUP dropdown의 hover/click/keyboard/Escape/outside-click
+// 메커니즘 자체는 P13-T30B가 이미 자체 임시 GROUP으로 전수 검증했으므로 여기서는 반복하지 않고,
+// "연구소 소개" GROUP 1개에서만 대표로 상호작용을 재확인하고 나머지 2개 GROUP과 mega menu는
+// 콘텐츠(라벨/href)가 정확한지에 집중한다. "연구소 소개"가 GROUP명이자 자식명으로 동시에
+// 쓰이므로 모든 selector는 구조 기반(data-menu-id/스코프)으로만 작성한다.
+test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
+  test('Desktop 1440: HOME은 GROUP이 아닌 정적 링크로 항상 "/"로 이동한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/programs');
+
+    const homeLink = page.locator('#quick-menu > li:first-child > a');
+    await expect(homeLink).toHaveText('HOME');
+    await expect(homeLink).toHaveAttribute('href', '/');
+
+    await homeLink.click();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  test('Desktop 1440: "연구소 소개" GROUP dropdown이 4개 하위 페이지를 정확한 순서/href로 노출하고 클릭 이동된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const aboutGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    const trigger = aboutGroupItem.locator('.site-nav__trigger');
+    const dropdownLinks = aboutGroupItem.locator('.site-nav__submenu a');
+
+    await trigger.hover();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(dropdownLinks).toHaveCount(4);
+
+    const hrefs = await dropdownLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual(['/pages/GREETING', '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION']);
+    const texts = await dropdownLinks.allTextContents();
+    expect(texts).toEqual(['인사말', '연구소 소개', '연혁', '오시는 길']);
+
+    await dropdownLinks.filter({ hasText: '연혁' }).click();
+    await expect(page).toHaveURL(/\/pages\/HISTORY$/);
+  });
+
+  test('Desktop 1440: "프로그램"/"게시판" GROUP dropdown 콘텐츠가 정확하다(대표 상호작용은 위 테스트에서 이미 확인)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const programGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '프로그램',
+    });
+    await programGroupItem.locator('.site-nav__trigger').hover();
+    const programLinks = programGroupItem.locator('.site-nav__submenu a');
+    await expect(programLinks).toHaveCount(2);
+    expect(await programLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/programs?programType=COURSE',
+      '/programs?programType=SPECIAL',
+    ]);
+    expect(await programLinks.allTextContents()).toEqual(['수강 프로그램', '특강']);
+
+    const boardGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '게시판',
+    });
+    await boardGroupItem.locator('.site-nav__trigger').hover();
+    const boardLinks = boardGroupItem.locator('.site-nav__submenu a');
+    await expect(boardLinks).toHaveCount(4);
+    expect(await boardLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=NOTICE',
+      '/boards?boardType=GALLERY',
+      '/boards?boardType=ARCHIVE',
+      '/boards?boardType=REVIEW',
+    ]);
+    expect(await boardLinks.allTextContents()).toEqual(['공지사항', '갤러리', '자료실', '강의 후기']);
+  });
+
+  test('Desktop 1440: 전체메뉴(mega menu)는 동일한 10개 링크를 3개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    const megaMenu = page.locator('.site-nav__megamenu');
+
+    await expect(megaTrigger).toHaveText('전체메뉴');
+    await megaTrigger.hover();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(megaMenu).toBeVisible();
+
+    const columns = megaMenu.locator('.site-nav__megamenu-column');
+    await expect(columns).toHaveCount(3);
+    const headings = await columns.locator('.site-nav__megamenu-heading').allTextContents();
+    expect(headings).toEqual(['연구소 소개', '프로그램', '게시판']);
+
+    const allLinks = megaMenu.locator('a');
+    await expect(allLinks).toHaveCount(10);
+    const hrefs = await allLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual([
+      '/pages/GREETING', '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
+      '/programs?programType=COURSE', '/programs?programType=SPECIAL',
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE', '/boards?boardType=REVIEW',
+    ]);
+
+    // viewport 이탈 없음
+    const box = await megaMenu.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1440);
+
+    // Escape로 닫히고 trigger로 focus 복귀
+    await page.keyboard.press('Escape');
+    await expect(megaMenu).toBeHidden();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(megaTrigger).toBeFocused();
+
+    // outside click로 닫힘
+    await megaTrigger.click();
+    await expect(megaMenu).toBeVisible();
+    await page.locator('.site-header__brand').click();
+    await expect(megaMenu).toBeHidden();
+  });
+
+  test('Desktop 1024: 전체메뉴가 viewport를 벗어나지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    await megaTrigger.hover();
+    const box = await page.locator('.site-nav__megamenu').boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1024);
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '1024px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  // 기존 CSS breakpoint(max-width: 767.98px)의 정확한 경계 양쪽에서 desktop/mobile nav가
+  // 동시에 보이거나 동시에 숨는 off-by-one 회귀가 없는지 실측한다.
+  test('767px/768px/769px 경계에서 desktop/mobile navigation이 정확히 한쪽만 노출된다', async ({ page }) => {
+    const cases = [
+      { width: 767, mobile: true },
+      { width: 768, mobile: false },
+      { width: 769, mobile: false },
+    ];
+
+    for (const { width, mobile } of cases) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+
+      if (mobile) {
+        await expect(page.locator('#nav-toggle')).toBeVisible();
+        await expect(page.locator('#site-nav')).toBeHidden();
+      } else {
+        await expect(page.locator('#nav-toggle')).toBeHidden();
+        await expect(page.locator('#site-nav')).toBeVisible();
+        await expect(page.locator('[data-menu-id="all"]')).toBeVisible();
+      }
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test('Mobile 375: 전체메뉴 트리거는 노출되지 않고, hamburger accordion만으로 전체 메뉴가 노출된다(중복 UI 없음)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+    await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
+
+    const groupTriggers = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
+    await expect(groupTriggers).toHaveCount(3);
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '375px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  // 헤더 IA가 GROUP 구조로 바뀌어도 기존 통합 URL/query parameter 동작 자체는 전혀 깨지지 않는다
+  // (헤더에서 클릭 경로가 사라진 것과 URL 자체가 살아있는 것은 별개 - 지시사항 그대로).
+  test('기존 통합 URL(/boards, /programs)은 헤더 링크가 사라져도 직접 접근 시 정상 동작한다', async ({ page }) => {
+    await page.goto('/boards');
+    await expect(page.locator('#board-list, #board-grid').first()).toBeVisible();
+
+    await page.goto('/programs');
+    await expect(page.locator('#program-list')).toBeVisible();
   });
 });

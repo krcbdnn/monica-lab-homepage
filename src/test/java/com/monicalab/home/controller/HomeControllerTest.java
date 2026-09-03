@@ -51,10 +51,14 @@ class HomeControllerTest extends AbstractIntegrationTest {
     @Autowired
     private MenuRepository menuRepository;
 
-    // P13-T30B: #quick-menu가 이제 DB(Menu) 기반으로 렌더링되므로, 다른 테스트 클래스(예:
-    // AdminMenuControllerTest)가 같은 Testcontainers 인스턴스에서 Menu 테이블을 자유롭게 변경해도 이
-    // 클래스의 "고정 4개 링크" 검증이 실행 순서에 영향받지 않도록 매 테스트마다 V4 seed와 동일한
-    // 내용으로 직접 재구성한다.
+    // P13-T30C: #quick-menu가 최종 IA(HOME 정적 링크 + GROUP 3개 + 전체메뉴 mega menu)로
+    // 렌더링되므로, 다른 테스트 클래스(예: AdminMenuControllerTest)가 같은 Testcontainers
+    // 인스턴스에서 Menu 테이블을 자유롭게 변경해도 이 클래스의 검증이 실행 순서에 영향받지 않도록
+    // 매 테스트마다 V5 migration과 동일한 13행(GROUP 3 + child 10) 구조를 직접 재구성한다.
+    private Long aboutGroupId;
+    private Long programGroupId;
+    private Long boardGroupId;
+
     @BeforeEach
     void setUp() {
         bannerRepository.deleteAll();
@@ -62,26 +66,42 @@ class HomeControllerTest extends AbstractIntegrationTest {
         boardRepository.deleteAll();
         programRepository.deleteAll();
         menuRepository.deleteAll();
-        seedQuickMenu();
+        seedFinalMenuIa();
     }
 
-    private void seedQuickMenu() {
-        menuRepository.saveAndFlush(Menu.builder()
-                .label("연구소 소개").targetType(MenuTargetType.PAGE).targetValue("INTRODUCTION")
-                .sortOrder(0).isVisible(true).build());
-        menuRepository.saveAndFlush(Menu.builder()
-                .label("프로그램").targetType(MenuTargetType.PROGRAM_LIST)
-                .sortOrder(1).isVisible(true).build());
-        menuRepository.saveAndFlush(Menu.builder()
-                .label("강의 후기").targetType(MenuTargetType.BOARD_LIST).targetValue("REVIEW")
-                .sortOrder(2).isVisible(true).build());
-        menuRepository.saveAndFlush(Menu.builder()
-                .label("게시판").targetType(MenuTargetType.BOARD_LIST)
-                .sortOrder(3).isVisible(true).build());
+    private void seedFinalMenuIa() {
+        aboutGroupId = menuRepository.saveAndFlush(group("연구소 소개", 0)).getId();
+        menuRepository.saveAndFlush(child(aboutGroupId, "인사말", MenuTargetType.PAGE, "GREETING", 0));
+        menuRepository.saveAndFlush(child(aboutGroupId, "연구소 소개", MenuTargetType.PAGE, "INTRODUCTION", 1));
+        menuRepository.saveAndFlush(child(aboutGroupId, "연혁", MenuTargetType.PAGE, "HISTORY", 2));
+        menuRepository.saveAndFlush(child(aboutGroupId, "오시는 길", MenuTargetType.PAGE, "LOCATION", 3));
+
+        programGroupId = menuRepository.saveAndFlush(group("프로그램", 1)).getId();
+        menuRepository.saveAndFlush(child(programGroupId, "수강 프로그램", MenuTargetType.PROGRAM_LIST, "COURSE", 0));
+        menuRepository.saveAndFlush(child(programGroupId, "특강", MenuTargetType.PROGRAM_LIST, "SPECIAL", 1));
+
+        boardGroupId = menuRepository.saveAndFlush(group("게시판", 2)).getId();
+        menuRepository.saveAndFlush(child(boardGroupId, "공지사항", MenuTargetType.BOARD_LIST, "NOTICE", 0));
+        menuRepository.saveAndFlush(child(boardGroupId, "갤러리", MenuTargetType.BOARD_LIST, "GALLERY", 1));
+        menuRepository.saveAndFlush(child(boardGroupId, "자료실", MenuTargetType.BOARD_LIST, "ARCHIVE", 2));
+        menuRepository.saveAndFlush(child(boardGroupId, "강의 후기", MenuTargetType.BOARD_LIST, "REVIEW", 3));
     }
 
+    private Menu group(String label, int sortOrder) {
+        return Menu.builder().label(label).targetType(MenuTargetType.GROUP).sortOrder(sortOrder)
+                .isVisible(true).build();
+    }
+
+    private Menu child(Long parentId, String label, MenuTargetType targetType, String targetValue, int sortOrder) {
+        return Menu.builder().label(label).parentId(parentId).targetType(targetType).targetValue(targetValue)
+                .sortOrder(sortOrder).isVisible(true).build();
+    }
+
+    // P13-T30C: "연구소 소개"는 GROUP 이름이자 그 자식 하나의 이름으로 동시에 쓰이므로(사용자
+    // 확정 IA 그대로) 텍스트 기반 selector는 모호해질 수 있다. data-menu-id(실제 Menu.id)로 각
+    // GROUP의 dropdown 영역만 정확히 스코프해서 검증한다.
     @Test
-    void homeReturns200WithAllRequiredAreasAndFixedQuickMenuLinks() throws Exception {
+    void homeRendersFinalMenuIaWithHomeGroupDropdownsAndMegaMenu() throws Exception {
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -93,14 +113,43 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#latest-reviews")).isNotEmpty();
         assertThat(document.select("#latest-notices")).isNotEmpty();
         assertThat(document.select("#latest-gallery")).isNotEmpty();
-        assertThat(document.select("#quick-menu")).isNotEmpty();
 
-        Elements quickMenuLinks = document.select("#quick-menu a");
-        assertThat(quickMenuLinks).hasSize(4);
-        assertThat(quickMenuLinks.eachAttr("href"))
-                .containsExactly("/pages/INTRODUCTION", "/programs", "/boards?boardType=REVIEW", "/boards");
-        assertThat(quickMenuLinks.eachText())
-                .containsExactly("연구소 소개", "프로그램", "강의 후기", "게시판");
+        // 최상위 5개: HOME + 3 GROUP + 전체메뉴(mega menu trigger)
+        Elements topLevelItems = document.select("#quick-menu > li");
+        assertThat(topLevelItems).hasSize(5);
+
+        // HOME: 정적 링크, Menu DB row가 아님
+        Elements homeLink = document.select("#quick-menu > li:eq(0) > a");
+        assertThat(homeLink.attr("href")).isEqualTo("/");
+        assertThat(homeLink.text()).isEqualTo("HOME");
+
+        // 3개 GROUP trigger 라벨/순서(전체메뉴 트리거 제외)
+        Elements groupTriggers = document.select(
+                "#quick-menu > li.has-submenu:not([data-menu-id=\"all\"]) > .site-nav__trigger");
+        assertThat(groupTriggers.eachText()).containsExactly("연구소 소개", "프로그램", "게시판");
+
+        // 각 GROUP dropdown의 자식 href(data-menu-id로 스코프 - 라벨 중복과 무관하게 정확히 검증)
+        assertGroupDropdownHrefs(document, aboutGroupId,
+                "/pages/GREETING", "/pages/INTRODUCTION", "/pages/HISTORY", "/pages/LOCATION");
+        assertGroupDropdownHrefs(document, programGroupId,
+                "/programs?programType=COURSE", "/programs?programType=SPECIAL");
+        assertGroupDropdownHrefs(document, boardGroupId,
+                "/boards?boardType=NOTICE", "/boards?boardType=GALLERY",
+                "/boards?boardType=ARCHIVE", "/boards?boardType=REVIEW");
+
+        // 전체메뉴(mega menu): 개별 dropdown과 동일한 headerMenuItems를 재사용하므로 같은 10개 링크가
+        // 그대로 다시 노출된다(신규 Java 조회 없음 - MenuService/HeaderMenuControllerAdvice 무수정).
+        Elements megaMenuLinks = document.select("#megamenu a");
+        assertThat(megaMenuLinks.eachAttr("href")).containsExactly(
+                "/pages/GREETING", "/pages/INTRODUCTION", "/pages/HISTORY", "/pages/LOCATION",
+                "/programs?programType=COURSE", "/programs?programType=SPECIAL",
+                "/boards?boardType=NOTICE", "/boards?boardType=GALLERY",
+                "/boards?boardType=ARCHIVE", "/boards?boardType=REVIEW");
+    }
+
+    private void assertGroupDropdownHrefs(Document document, Long groupId, String... expectedHrefs) {
+        Elements links = document.select("[data-menu-id=\"" + groupId + "\"] > .site-nav__submenu a");
+        assertThat(links.eachAttr("href")).containsExactly(expectedHrefs);
     }
 
     // P13-T17: 홈 상단 #greeting(인사말 요약), 하단 #program-shortcut(CTA)를 제거했다.
