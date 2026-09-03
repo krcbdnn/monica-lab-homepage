@@ -83,12 +83,31 @@
     align-items: center;
 }
 
+/* P13-T30D(A1): 현재 hover 중이거나(:hover) 실제로 열려 있는(.is-open, hover/click/keyboard
+   불문 - nav-submenu.js가 열림 방식과 무관하게 항상 이 클래스 하나로 상태를 동기화한다) 상위
+   GROUP trigger를 시각적으로 강조한다. 새 JS 상태나 클래스를 추가하지 않고 기존 :hover/.is-open을
+   그대로 재사용하므로, trigger→submenu 이동/다른 GROUP 전환 시에도 열림 상태 전환과 항상 자동으로
+   같이 움직인다. 데스크톱(768px 이상)에서만 적용해 모바일 accordion 디자인은 건드리지 않는다.
+   focus-visible의 네이티브 outline은 별도로 손대지 않아 이 강조와 독립적으로 유지된다. */
+@media (min-width: 768px) {
+    .has-submenu:hover .site-nav__trigger,
+    .has-submenu.is-open .site-nav__trigger {
+        color: var(--color-primary);
+        font-weight: 700;
+    }
+}
+
 .site-nav__submenu {
     display: none;
     position: absolute;
     top: 100%;
     left: 0;
-    margin: 0.5rem 0 0;
+    /* P13-T30D(A1): 기존 margin-top(0.5rem)이 trigger 하단과 submenu 상단 사이에 어떤 요소도
+       차지하지 않는 pointer dead-zone을 만들어, 그 사이를 지나가는 순간 mouseleave가 조기
+       발동해 dropdown이 닫히는 회귀가 있었다(hover-open/click-open 모두 동일하게 영향).
+       margin을 없애 트리거와 패널을 시각적으로도 맞닿게 하고, 기존 padding(0.5rem)이 패널
+       내부 여백을 그대로 유지해 hover 가능 영역을 끊지 않는다. */
+    margin: 0;
     padding: 0.5rem 0;
     list-style: none;
     min-width: 10rem;

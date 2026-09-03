@@ -2524,31 +2524,70 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(submenu).toBeHidden();
 
+    // P13-T30D(A1): hover/open 상태의 시각적 강조(활성 trigger)를 검증하기 위해 닫힌 상태의
+    // 기준 font-weight를 먼저 캡처한다 - 구체적인 base 값을 하드코딩하지 않고 "달라지는지"만
+    // 비교해 취약한 assertion을 피한다.
+    const baseFontWeight = await trigger.evaluate((el) => getComputedStyle(el).fontWeight);
+
     // hover로 열림 + aria-expanded 동기화(실제 시각 상태와 일치)
     await trigger.hover();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveCSS('font-weight', '700');
 
-    // trigger에서 submenu로 포인터를 옮겨도 중간에 닫히지 않고 유지된다
-    await childLink.hover();
+    // P13-T30D(A1): trigger 하단과 submenu 상단 사이에 pointer dead-zone(양수 간격)이 없는지
+    // 기하학적으로 확인한다. margin으로 둘이 떨어져 있으면 그 사이를 지나가는 순간 어떤 요소도
+    // hit-test되지 않아 mouseleave가 조기 발동한다.
+    const triggerBox = await trigger.boundingBox();
+    const submenuBox = await submenu.boundingBox();
+    expect(submenuBox.y - (triggerBox.y + triggerBox.height),
+      'trigger 하단과 submenu 상단 사이에 pointer dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+
+    // trigger에서 submenu 하위 링크까지 실제 pointer 이동 궤적(다단계 mousemove)으로 이동해도
+    // 중간에 닫히지 않고 유지된다 - .hover()의 순간이동으로는 이 dead-zone 회귀를 재현하지 못하므로
+    // page.mouse.move()에 steps를 줘서 두 좌표 사이를 실제로 통과시킨다.
+    const childBox = await childLink.boundingBox();
+    await page.mouse.move(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+    await page.mouse.move(childBox.x + childBox.width / 2, childBox.y + childBox.height / 2, { steps: 10 });
     await expect(submenu).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // P13-T30D(A1): trigger→submenu 이동 궤적을 통과한 뒤에도 활성 강조가 유지된다
+    await expect(trigger).toHaveCSS('font-weight', '700');
 
     // GROUP 영역 밖으로 완전히 벗어나면 닫히고 aria-expanded=false로 동기화된다
     await page.locator('.site-header__brand').hover();
     await expect(submenu).toBeHidden();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // P13-T30D(A1): 닫히면 활성 강조도 함께 해제된다
+    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
 
     // click toggle
     await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveCSS('font-weight', '700');
     await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(submenu).toBeHidden();
+    // click으로 닫아도 pointer가 여전히 trigger 위에 있으면 :hover 자체는 유효하므로(의도된 동작 -
+    // 요구사항 1의 "hover 시 강조"), 강조 해제를 검증하려면 pointer를 명시적으로 옮긴 뒤 확인한다.
+    await page.locator('.site-header__brand').hover();
+    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
+
+    // click으로 연 상태도 hover-open과 동일하게, 실제 이동 궤적이 dead-zone을 지나도 유지된다
+    // (mouseleave 처리가 openedByHover 여부와 무관하게 동작해야 하는 요구사항의 회귀 방지).
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const clickTriggerBox = await trigger.boundingBox();
+    const clickChildBox = await childLink.boundingBox();
+    await page.mouse.move(clickTriggerBox.x + clickTriggerBox.width / 2, clickTriggerBox.y + clickTriggerBox.height / 2);
+    await page.mouse.move(clickChildBox.x + clickChildBox.width / 2, clickChildBox.y + clickChildBox.height / 2, { steps: 10 });
+    await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // P13-T30D(A1): click-open 상태도 hover-open과 동일하게 활성 강조가 유지된다
+    await expect(trigger).toHaveCSS('font-weight', '700');
 
     // child 링크 접근/이동
-    await trigger.click();
     await childLink.click();
     await expect(page).toHaveURL(/\/boards\?boardType=NOTICE/);
     await page.goto('/');
@@ -2564,9 +2603,17 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     }
     expect(reachedTrigger, 'Tab 이동만으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
 
+    // P13-T30D(A1): 단순 keyboard focus만으로는(아직 열지 않음) hover/open 활성 강조가 붙지
+    // 않아야 하고(강조는 open 상태 전용), 대신 네이티브 focus outline은 별도로 명확히 유지된다.
+    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
+    const outlineStyle = await trigger.evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(outlineStyle, '키보드 focus 시 native outline이 hover/open 강조와 별개로 유지되어야 한다')
+      .not.toBe('none');
+
     // Enter로 열기, submenu 링크도 다음 Tab으로 자연스럽게 접근 가능
     await page.keyboard.press('Enter');
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(trigger).toHaveCSS('font-weight', '700');
     await page.keyboard.press('Tab');
     await expect(childLink).toBeFocused();
 
@@ -2575,6 +2622,7 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     await expect(submenu).toBeHidden();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -2601,10 +2649,15 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
 
       await firstTrigger.click();
       await expect(firstTrigger).toHaveAttribute('aria-expanded', 'true');
+      // P13-T30D(A1): 열린 GROUP의 trigger가 활성 강조 상태가 된다
+      await expect(firstTrigger).toHaveCSS('font-weight', '700');
 
       await secondTrigger.click();
       await expect(secondTrigger).toHaveAttribute('aria-expanded', 'true');
       await expect(firstTrigger).toHaveAttribute('aria-expanded', 'false');
+      // P13-T30D(A1): 다른 GROUP으로 전환되면 기존 강조는 해제되고 새 GROUP만 강조된다
+      await expect(secondTrigger).toHaveCSS('font-weight', '700');
+      await expect(firstTrigger).not.toHaveCSS('font-weight', '700');
     } finally {
       await deleteMenu(context, baseURL, secondChildId);
       await deleteMenu(context, baseURL, secondGroupId);
@@ -2633,6 +2686,13 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
       await expect(trigger).toHaveAttribute('aria-expanded', 'true');
       await expect(submenu).toBeVisible();
       await expect(childLink).toBeVisible();
+
+      // P13-T30D(A1): 데스크톱 hover/open 활성 강조(font-weight 700)는 768px 미만에서 적용되지
+      // 않으므로, 모바일 accordion이 열려 있어도(.is-open) 기존 텍스트 스타일 그대로여야 한다
+      // (mobile 디자인 무변경 확인).
+      const mobileFontWeight = await trigger.evaluate((el) => getComputedStyle(el).fontWeight);
+      expect(mobileFontWeight, '모바일에서는 데스크톱 hover/open 강조 스타일이 적용되지 않아야 한다')
+        .not.toBe('700');
 
       // hamburger를 닫으면 열려 있던 submenu 상태도 함께 초기화된다
       await navToggle.tap();
@@ -2781,6 +2841,32 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(megaMenu).toBeVisible();
     await page.locator('.site-header__brand').click();
     await expect(megaMenu).toBeHidden();
+  });
+
+  // P13-T30D(A1): GROUP dropdown과 동일한 dead-zone 회귀가 mega menu에도 적용되는지만 최소로
+  // 확인한다(hover/Escape/outside-click/컬럼 구성 등 나머지 상태 머신은 위 테스트에서 이미 검증
+  // 완료했으므로 반복하지 않는다).
+  test('Desktop 1440: 전체메뉴(mega menu)도 trigger-패널 사이에 pointer dead-zone이 없고, 실제 이동 궤적으로 진입해도 열림 상태가 유지된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    const megaMenu = page.locator('.site-nav__megamenu');
+
+    await megaTrigger.hover();
+    await expect(megaMenu).toBeVisible();
+
+    const triggerBox = await megaTrigger.boundingBox();
+    const menuBox = await megaMenu.boundingBox();
+    expect(menuBox.y - (triggerBox.y + triggerBox.height),
+      'mega menu trigger 하단과 패널 상단 사이에 pointer dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+
+    const firstLink = megaMenu.locator('a').first();
+    const linkBox = await firstLink.boundingBox();
+    await page.mouse.move(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+    await page.mouse.move(linkBox.x + linkBox.width / 2, linkBox.y + linkBox.height / 2, { steps: 10 });
+    await expect(megaMenu).toBeVisible();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'true');
   });
 
   test('Desktop 1024: 전체메뉴가 viewport를 벗어나지 않는다', async ({ page }) => {
