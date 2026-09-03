@@ -2747,7 +2747,10 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test('Desktop 1440: "연구소 소개" GROUP dropdown이 4개 하위 페이지를 정확한 순서/href로 노출하고 클릭 이동된다', async ({ page }) => {
+  // P13-T30D(Task C, 후속): '인사말'(GREETING) Menu row는 is_visible=false로 전환되어 공개 dropdown에서
+  // 더 이상 보이지 않는다(CmsPage/PageType.GREETING과 /pages/GREETING 라우트 자체는 무변경 - 별도로
+  // 아래 "/pages/GREETING 상세 페이지는 그대로 유지된다" 테스트가 직접 접근 가능함을 확인한다).
+  test('Desktop 1440: "연구소 소개" GROUP dropdown이 인사말을 제외한 3개 하위 페이지를 정확한 순서/href로 노출하고 클릭 이동된다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
@@ -2759,12 +2762,15 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
 
     await trigger.hover();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(dropdownLinks).toHaveCount(4);
+    await expect(dropdownLinks).toHaveCount(3);
 
     const hrefs = await dropdownLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
-    expect(hrefs).toEqual(['/pages/GREETING', '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION']);
+    expect(hrefs).toEqual(['/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION']);
     const texts = await dropdownLinks.allTextContents();
-    expect(texts).toEqual(['인사말', '연구소 소개', '연혁', '오시는 길']);
+    expect(texts).toEqual(['연구소 소개', '연혁', '오시는 길']);
+    // 인사말 링크 자체가 아예 렌더링되지 않아야 한다(단순히 숨겨진 것이 아니라 DOM에 없어야 함 -
+    // MenuService.getPublicMenuTree()가 is_visible=false 자식을 애초에 조회에서 제외하기 때문).
+    await expect(aboutGroupItem.locator('.site-nav__submenu a', { hasText: '인사말' })).toHaveCount(0);
 
     await dropdownLinks.filter({ hasText: '연혁' }).click();
     await expect(page).toHaveURL(/\/pages\/HISTORY$/);
@@ -2811,10 +2817,29 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(topLevelLeaf('자료실')).toHaveAttribute('href', '/boards?boardType=ARCHIVE');
   });
 
-  // P13-T30D(Task C): 전체메뉴(mega menu)는 headerMenuItems를 그대로 재사용하므로(header.html 무변경),
-  // 공지사항/갤러리/자료실이 top-level LEAF로 승격되면 GROUP 3개 + LEAF 3개 = 6개 컬럼으로 자동 확장된다.
+  // P13-T30D(Task C, 후속): top-level 항목의 실제 DOM 순서(dropdown이 있는 GROUP 3개를 먼저 묶고,
+  // dropdown 없는 LEAF 3개를 전체메뉴 바로 왼쪽에 배치)를 확인한다. typography/spacing/layout(Task A2)은
+  // 이 테스트 범위가 아니다 - 순서만 검증한다.
+  test('Desktop 1440: top-level Header 항목이 HOME/연구소 소개/수강 신청/강의 후기/공지사항/갤러리/자료실/전체메뉴 순서로 배치된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const topLevelLabels = await page.locator('#quick-menu > li').evaluateAll((items) => items.map((li) => {
+      const trigger = li.querySelector('.site-nav__trigger');
+      const link = li.querySelector(':scope > a');
+      return (trigger || link).textContent.trim();
+    }));
+
+    expect(topLevelLabels).toEqual([
+      'HOME', '연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실', '전체메뉴',
+    ]);
+  });
+
+  // P13-T30D(Task C, 후속): 전체메뉴(mega menu)는 headerMenuItems를 그대로 재사용하므로(header.html
+  // 무변경), top-level sort_order 재배치가 자동으로 컬럼 순서에 반영되고(dropdown GROUP 3개 먼저,
+  // 그다음 top-level LEAF 3개), '인사말'이 비노출되면 연구소 소개 컬럼의 하위 링크도 3개로 줄어든다.
   // GROUP은 <p> 헤딩 + 하위 링크 목록, LEAF는 헤딩 자체가 <a> 링크라는 기존 템플릿 분기를 그대로 따른다.
-  test('Desktop 1440: 전체메뉴(mega menu)는 최종 IA(GROUP 3 + top-level LEAF 3)를 6개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
+  test('Desktop 1440: 전체메뉴(mega menu)는 최종 IA(GROUP 3 + top-level LEAF 3, 새 순서)를 6개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
@@ -2829,7 +2854,15 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     const columns = megaMenu.locator('.site-nav__megamenu-column');
     await expect(columns).toHaveCount(6);
     const headings = await columns.locator('.site-nav__megamenu-heading').allTextContents();
-    expect(headings).toEqual(['연구소 소개', '공지사항', '갤러리', '자료실', '수강 신청', '강의 후기']);
+    expect(headings).toEqual(['연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실']);
+
+    // 연구소 소개 컬럼은 인사말을 제외한 3개 하위 링크만 갖는다.
+    const aboutColumn = columns.filter({ hasText: '연구소 소개' }).first();
+    const aboutLinks = aboutColumn.locator('a');
+    await expect(aboutLinks).toHaveCount(3);
+    expect(await aboutLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
+    ]);
 
     // LEAF 컬럼(공지사항/갤러리/자료실)의 헤딩 자체가 목적지 링크이고 하위 목록은 없다(<a>가 헤딩 1개뿐).
     const noticeColumn = columns.filter({ hasText: '공지사항' });
@@ -2837,14 +2870,14 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(noticeColumn.locator('a')).toHaveAttribute('href', '/boards?boardType=NOTICE');
 
     const allLinks = megaMenu.locator('a');
-    // GROUP 3개(연구소소개 4 + 수강신청 2 + 강의후기 2 = 8개 하위 링크) + LEAF 3개(각 헤딩 자체가 링크) = 11개.
-    await expect(allLinks).toHaveCount(11);
+    // GROUP 3개(연구소소개 3 + 수강신청 2 + 강의후기 2 = 7개 하위 링크) + LEAF 3개(각 헤딩 자체가 링크) = 10개.
+    await expect(allLinks).toHaveCount(10);
     const hrefs = await allLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
     expect(hrefs).toEqual([
-      '/pages/GREETING', '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
-      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
+      '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
       '/programs?programType=COURSE', '/programs?programType=SPECIAL',
       '/boards?boardType=REVIEW&programType=COURSE', '/boards?boardType=REVIEW&programType=SPECIAL',
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
     ]);
 
     // viewport 이탈 없음
@@ -2949,6 +2982,35 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, '375px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  // P13-T30D(Task C, 후속): 모바일 accordion도 desktop과 동일한 headerMenuItems를 렌더링하므로
+  // (header.html 무변경), 인사말 비노출과 top-level 순서 재배치가 자동으로 동일하게 반영되는지
+  // 확인한다.
+  test('Mobile 375: hamburger accordion에서도 인사말이 숨겨지고 top-level 순서가 새 배치와 동일하다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    const topLevelLabels = await page.locator('#quick-menu > li:not([data-menu-id="all"])').evaluateAll((items) =>
+      items.map((li) => {
+        const trigger = li.querySelector('.site-nav__trigger');
+        const link = li.querySelector(':scope > a');
+        return (trigger || link).textContent.trim();
+      }));
+    expect(topLevelLabels).toEqual(['HOME', '연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실']);
+
+    const aboutTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+    await aboutTrigger.click();
+    const aboutSubmenuLinks = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__submenu a');
+    await expect(aboutSubmenuLinks).toHaveCount(3);
+    await expect(aboutSubmenuLinks.filter({ hasText: '인사말' })).toHaveCount(0);
   });
 
   // 헤더 IA가 GROUP 구조로 바뀌어도 기존 통합 URL/query parameter 동작 자체는 전혀 깨지지 않는다

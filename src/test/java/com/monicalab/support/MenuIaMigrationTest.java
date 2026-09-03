@@ -17,9 +17,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.MariaDBContainer;
 
 // P13-T30D(Task C): V5가 만든 3-GROUP IA(연구소 소개/프로그램/게시판)를 V6(Board.program_type
-// 컬럼)/V7(Menu.target_subvalue 컬럼)/V8(최종 IA 데이터 전환) migration이 실제로 최종 8-item 공개
-// IA(HOME 정적 링크 + 연구소 소개 GROUP + 공지사항/갤러리/자료실 top-level LEAF + 수강 신청 GROUP +
-// 강의 후기 GROUP + 전체메뉴 정적 트리거)로 정확히 전환하는지 검증한다.
+// 컬럼)/V7(Menu.target_subvalue 컬럼)/V8(최종 IA 데이터 전환)/V9(top-level 순서 재배치 + 인사말
+// 비노출) migration이 실제로 최종 8-item 공개 IA(HOME 정적 링크 + 연구소 소개/수강 신청/강의 후기
+// GROUP + 공지사항/갤러리/자료실 top-level LEAF + 전체메뉴 정적 트리거)로 정확히 전환하는지 검증한다.
 //
 // AbstractIntegrationTest의 정적 공유 컨테이너를 재사용하면 다른 테스트 클래스들이 menuRepository.
 // deleteAll()로 이 테이블을 자유롭게 비우기 때문에, "migration이 직접 만든 원본 상태"를 실행 순서와
@@ -43,7 +43,7 @@ class MenuIaMigrationTest {
 
     @Test
     void flywayAppliesAllTaskCMigrationsSuccessfully() {
-        for (String version : List.of("6", "7", "8")) {
+        for (String version : List.of("6", "7", "8", "9")) {
             Integer appliedCount = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM flyway_schema_history WHERE version = ? AND success = true",
                     Integer.class, version);
@@ -90,10 +90,15 @@ class MenuIaMigrationTest {
     // 않는다" 같은 문구가 그대로 포함돼 있어 단순 "DELETE" 단어 포함 여부로는 오탐이 나기 때문이다.
     @Test
     void dataMigrationSqlFileContainsNoActualDeleteStatement() throws IOException {
-        String sql = readClasspathResource("db/migration/V8__finalize_menu_ia.sql");
-
-        assertThat(Pattern.compile("(?i)delete\\s+from").matcher(sql).find())
+        String v8Sql = readClasspathResource("db/migration/V8__finalize_menu_ia.sql");
+        assertThat(Pattern.compile("(?i)delete\\s+from").matcher(v8Sql).find())
                 .as("V8 데이터 migration에는 실제 DELETE FROM 문이 없어야 한다")
+                .isFalse();
+
+        String v9Sql = readClasspathResource(
+                "db/migration/V9__adjust_menu_ia_home_order_and_greeting_visibility.sql");
+        assertThat(Pattern.compile("(?i)delete\\s+from").matcher(v9Sql).find())
+                .as("V9 미세조정 migration에도 실제 DELETE FROM 문이 없어야 한다")
                 .isFalse();
     }
 
@@ -105,7 +110,9 @@ class MenuIaMigrationTest {
     }
 
     // 최종 공개 IA의 6개 top-level Menu row(HOME/전체메뉴는 header.html 정적 마크업이라 Menu row가
-    // 아니다)가 정확한 라벨/유형/순서로 존재해야 한다.
+    // 아니다)가 정확한 라벨/유형/순서로 존재해야 한다. V9 이후 순서: dropdown이 있는 GROUP 3개
+    // (연구소 소개/수강 신청/강의 후기) 먼저, 그 다음 dropdown 없는 top-level LEAF 3개(공지사항/
+    // 갤러리/자료실).
     @Test
     void sixTopLevelItemsExistInFinalOrder() {
         List<Map<String, Object>> topLevel = jdbcTemplate.queryForList(
@@ -113,9 +120,9 @@ class MenuIaMigrationTest {
 
         assertThat(topLevel).hasSize(6);
         assertThat(topLevel).extracting(row -> row.get("label"))
-                .containsExactly("연구소 소개", "공지사항", "갤러리", "자료실", "수강 신청", "강의 후기");
+                .containsExactly("연구소 소개", "수강 신청", "강의 후기", "공지사항", "갤러리", "자료실");
         assertThat(topLevel).extracting(row -> row.get("target_type"))
-                .containsExactly("GROUP", "BOARD_LIST", "BOARD_LIST", "BOARD_LIST", "GROUP", "GROUP");
+                .containsExactly("GROUP", "GROUP", "GROUP", "BOARD_LIST", "BOARD_LIST", "BOARD_LIST");
     }
 
     // 예전 3-GROUP 구조(top-level '프로그램'/'게시판' GROUP)가 더 이상 존재하지 않아야 한다 -
@@ -130,8 +137,10 @@ class MenuIaMigrationTest {
         assertThat(legacyCount).isZero();
     }
 
+    // V9: '인사말'은 삭제되지 않고 그대로 row로 남아있다(is_visible만 false) - 전체 4개 자식은
+    // 여전히 존재해야 한다(순서/target 자체는 V8 이전과 동일, V9이 건드리는 것은 visibility뿐).
     @Test
-    void aboutGroupChildrenAreUnchanged() {
+    void aboutGroupStillHasAllFourChildrenIncludingHiddenGreeting() {
         List<Map<String, Object>> children = jdbcTemplate.queryForList(
                 "SELECT label, target_type, target_value FROM menu "
                         + "WHERE parent_id = (SELECT id FROM menu WHERE parent_id IS NULL "
@@ -143,6 +152,34 @@ class MenuIaMigrationTest {
         assertThat(children).extracting(row -> row.get("target_type")).containsOnly("PAGE");
         assertThat(children).extracting(row -> row.get("target_value"))
                 .containsExactly("GREETING", "INTRODUCTION", "HISTORY", "LOCATION");
+    }
+
+    // V9의 핵심 변경: 공개 navigation에 실제로 노출되는(visible) 연구소 소개 자식은 정확히 3개
+    // (인사말 제외)여야 한다.
+    @Test
+    void aboutGroupVisibleChildrenExcludeGreeting() {
+        List<Map<String, Object>> visibleChildren = jdbcTemplate.queryForList(
+                "SELECT label FROM menu "
+                        + "WHERE parent_id = (SELECT id FROM menu WHERE parent_id IS NULL "
+                        + "AND label = '연구소 소개' AND target_type = 'GROUP') "
+                        + "AND is_visible = TRUE ORDER BY sort_order");
+
+        assertThat(visibleChildren).hasSize(3);
+        assertThat(visibleChildren).extracting(row -> row.get("label"))
+                .containsExactly("연구소 소개", "연혁", "오시는 길");
+    }
+
+    // '인사말' row identity 보존: 삭제/재삽입이 아니라 UPDATE(is_visible만 변경)임을 확인한다.
+    // target_value(GREETING)가 그대로라는 것 자체가 기존 CmsPage(PageType.GREETING) 연결이
+    // 끊어지지 않았다는 증거다.
+    @Test
+    void greetingMenuRowIsHiddenNotDeletedAndKeepsItsPageTypeLink() {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT target_value, is_visible FROM menu WHERE label = '인사말' AND target_type = 'PAGE'");
+
+        assertThat(rows).as("인사말 row는 삭제되지 않고 정확히 1개 존재해야 한다").hasSize(1);
+        assertThat(rows.get(0).get("target_value")).isEqualTo("GREETING");
+        assertThat(rows.get(0).get("is_visible")).isEqualTo(false);
     }
 
     @Test
@@ -195,10 +232,13 @@ class MenuIaMigrationTest {
         assertThat(archiveVisible).isTrue();
     }
 
+    // V9 이후에는 '인사말' 1개만 의도적으로 is_visible=false다 - 그 행을 제외한 나머지 13개는
+    // 전부 여전히 visible이고 open_in_new_tab도 전부 false여야 한다.
     @Test
-    void allFourteenRowsAreVisibleAndNotOpenInNewTab() {
+    void allRowsExceptIntentionallyHiddenGreetingAreVisibleAndNotOpenInNewTab() {
         Integer nonCompliantCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM menu WHERE is_visible = FALSE OR open_in_new_tab = TRUE",
+                "SELECT COUNT(*) FROM menu WHERE (is_visible = FALSE OR open_in_new_tab = TRUE) "
+                        + "AND NOT (label = '인사말' AND target_type = 'PAGE' AND target_value = 'GREETING')",
                 Integer.class);
 
         assertThat(nonCompliantCount).isZero();
