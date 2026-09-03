@@ -27,9 +27,10 @@
          아니라 빈 값(key=)으로 렌더링하므로(실측 확인, pagination.html 기존 주석과 동일한 동작),
          "파라미터가 아예 없는 /boards"를 보장하려면 이렇게 명시적으로 분기해야 한다. 셋 중 일부만
          있는 경우(예: boardType만 있고 keyword/page는 없음)는 기존 필터 nav와 동일하게 빈 값
-         파라미터가 함께 렌더링되어도 안전하다(그 값들은 /boards가 이미 null/빈 값으로 처리한다). -->
-    <a th:href="${boardType == null and keyword == null and page == null} ? @{/boards}
-                : @{/boards(boardType=${boardType}, keyword=${keyword}, page=${page})}"
+         파라미터가 함께 렌더링되어도 안전하다(그 값들은 /boards가 이미 null/빈 값으로 처리한다).
+         programType(Task C)도 동일 원칙으로 판단 조건에 포함한다. -->
+    <a th:href="${boardType == null and programType == null and keyword == null and page == null} ? @{/boards}
+                : @{/boards(boardType=${boardType}, programType=${programType}, keyword=${keyword}, page=${page})}"
        class="btn btn-secondary mt-3">목록으로</a>
 </div>
 </body>

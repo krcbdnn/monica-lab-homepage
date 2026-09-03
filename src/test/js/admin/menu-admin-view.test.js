@@ -141,3 +141,50 @@ test('templates/admin/menu/form.html prefills visible/openInNewTab checkboxes an
     assert.match(html, /document\.querySelector\('#openInNewTab'\)\.checked = menu\.openInNewTab;/);
     assert.match(html, /Promise\.all\(\[[\s\S]*?parentOptionsReady[\s\S]*?\]\)/);
 });
+
+// P13-T30D(Task C): targetSubvalue(BOARD_LIST+REVIEW 전용) conditional UI.
+test('templates/admin/menu/form.html targetSubvalue field is hidden by default and offers COURSE/SPECIAL plus a NULL-compatible option', () => {
+    const html = readTemplate('admin/menu/form.html');
+    assert.match(html, /<div class="mb-3" id="targetSubvalueField" hidden>/);
+    const fieldIndex = html.indexOf('id="targetSubvalueField"');
+    const selectIndex = html.indexOf('<select class="form-select" id="targetSubvalue" name="targetSubvalue">', fieldIndex);
+    const emptyOptionIndex = html.indexOf('<option value="">', selectIndex);
+    const courseOptionIndex = html.indexOf('<option value="COURSE">', selectIndex);
+    const specialOptionIndex = html.indexOf('<option value="SPECIAL">', selectIndex);
+
+    assert.notEqual(selectIndex, -1);
+    // 기존 generic REVIEW 메뉴 호환을 위해 미지정(빈 값) 옵션도 정상적으로 선택 가능해야 한다
+    // (Board의 programType select와 달리 여기서는 빈 값 선택을 막지 않는다).
+    assert.ok(emptyOptionIndex !== -1 && courseOptionIndex !== -1 && specialOptionIndex !== -1);
+});
+
+test('templates/admin/menu/form.html toggles targetSubvalue visibility only for BOARD_LIST+REVIEW and clears it otherwise', () => {
+    const html = readTemplate('admin/menu/form.html');
+    assert.match(html, /function updateTargetSubvalueVisibility\(\)/);
+    assert.match(html, /document\.querySelector\('#targetType'\)\.value === 'BOARD_LIST'/);
+    assert.match(html, /document\.querySelector\('#targetValue'\)\.value === 'REVIEW'/);
+    assert.match(html, /document\.querySelector\('#targetSubvalueField'\)\.hidden = !isBoardReview/);
+    assert.match(html, /document\.querySelector\('#targetSubvalue'\)\.value = '';/);
+    // targetType select change AND targetValue free-text input both must re-evaluate visibility -
+    // targetValue is a plain <input>, not a <select>, so only 'change' would miss same-tick edits.
+    assert.match(html, /document\.querySelector\('#targetType'\)\.addEventListener\('change', updateTargetSubvalueVisibility\)/);
+    assert.match(html, /document\.querySelector\('#targetValue'\)\.addEventListener\('input', updateTargetSubvalueVisibility\)/);
+});
+
+test('templates/admin/menu/form.html prefills targetSubvalue from the fetched menu and re-runs visibility after both target fields are set', () => {
+    const html = readTemplate('admin/menu/form.html');
+    assert.match(html, /document\.querySelector\('#targetSubvalue'\)\.value = menu\.targetSubvalue \|\| '';/);
+    const targetValuePrefillIndex = html.indexOf("document.querySelector('#targetValue').value = menu.targetValue");
+    const subvaluePrefillIndex = html.indexOf("document.querySelector('#targetSubvalue').value = menu.targetSubvalue");
+    const visibilityCallIndex = html.indexOf('updateTargetSubvalueVisibility();', subvaluePrefillIndex);
+
+    assert.ok(targetValuePrefillIndex !== -1 && targetValuePrefillIndex < subvaluePrefillIndex,
+        'targetValue must be prefilled before targetSubvalue so the BOARD_LIST+REVIEW check is accurate');
+    assert.notEqual(visibilityCallIndex, -1);
+});
+
+test('templates/admin/menu/form.html payload normalizes targetSubvalue to null unless targetType=BOARD_LIST and targetValue=REVIEW', () => {
+    const html = readTemplate('admin/menu/form.html');
+    assert.match(html, /var isBoardReview = targetTypeValue === 'BOARD_LIST' && targetValueValue === 'REVIEW';/);
+    assert.match(html, /targetSubvalue: isBoardReview \? \(document\.querySelector\('#targetSubvalue'\)\.value \|\| null\) : null/);
+});

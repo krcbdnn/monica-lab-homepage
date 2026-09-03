@@ -211,3 +211,56 @@ test('templates/admin/board/form.html never references the physical file DELETE 
     assert.doesNotMatch(html, /DELETE/);
     assert.doesNotMatch(html, /\/api\/admin\/files/);
 });
+
+// P13-T30D(Task C): REVIEW subtype(programType) UI.
+test('templates/admin/board/form.html programType field is hidden by default and offers an empty placeholder first (no implicit COURSE default)', () => {
+    const html = readTemplate('admin/board/form.html');
+    assert.match(html, /<div class="mb-3" id="programTypeField" hidden>/);
+    const fieldIndex = html.indexOf('id="programTypeField"');
+    const selectIndex = html.indexOf('<select class="form-select" id="programType" name="programType">', fieldIndex);
+    const placeholderIndex = html.indexOf('<option value="">', selectIndex);
+    const courseOptionIndex = html.indexOf('<option value="COURSE">', selectIndex);
+    const specialOptionIndex = html.indexOf('<option value="SPECIAL">', selectIndex);
+
+    assert.notEqual(selectIndex, -1);
+    assert.ok(placeholderIndex !== -1 && placeholderIndex < courseOptionIndex,
+        'a value="" placeholder option must come before the COURSE option so the browser never implicitly defaults to COURSE');
+    assert.ok(courseOptionIndex < specialOptionIndex);
+});
+
+test('templates/admin/board/form.html toggles programType field visibility on boardType change and clears the value when hidden', () => {
+    const html = readTemplate('admin/board/form.html');
+    assert.match(html, /function updateProgramTypeVisibility\(\)/);
+    assert.match(html, /document\.querySelector\('#boardType'\)\.value === 'REVIEW'/);
+    assert.match(html, /document\.querySelector\('#programTypeField'\)\.hidden = !isReview/);
+    assert.match(html, /document\.querySelector\('#programType'\)\.value = '';/);
+    assert.match(html, /document\.querySelector\('#boardType'\)\.addEventListener\('change', updateProgramTypeVisibility\)/);
+});
+
+test('templates/admin/board/form.html prefills programType from the fetched board without defaulting legacy NULL to COURSE', () => {
+    const html = readTemplate('admin/board/form.html');
+    assert.match(html, /document\.querySelector\('#programType'\)\.value = board\.programType \|\| '';/);
+    // updateProgramTypeVisibility() must run AFTER the value is set, and must not itself write 'COURSE'.
+    const prefillIndex = html.indexOf("document.querySelector('#programType').value = board.programType");
+    const visibilityCallAfterPrefillIndex = html.indexOf('updateProgramTypeVisibility();', prefillIndex);
+    assert.notEqual(visibilityCallAfterPrefillIndex, -1);
+    assert.doesNotMatch(html, /#programType'\)\.value = 'COURSE'/);
+});
+
+test('templates/admin/board/form.html blocks submission when boardType is REVIEW and programType is still the empty placeholder', () => {
+    const html = readTemplate('admin/board/form.html');
+    const submitHandlerIndex = html.indexOf("#boardForm').addEventListener('submit'");
+    const guardIndex = html.indexOf("boardTypeValue === 'REVIEW' && !programTypeValue", submitHandlerIndex);
+    const returnAfterGuardIndex = html.indexOf('return;', guardIndex);
+    const payloadIndex = html.indexOf('var payload = {', submitHandlerIndex);
+
+    assert.notEqual(submitHandlerIndex, -1);
+    assert.notEqual(guardIndex, -1, 'submit handler must check boardType===REVIEW && empty programType');
+    assert.ok(returnAfterGuardIndex !== -1 && returnAfterGuardIndex < payloadIndex,
+        'the guard must return before building/sending the payload');
+});
+
+test('templates/admin/board/form.html payload normalizes programType to null for every boardType except REVIEW', () => {
+    const html = readTemplate('admin/board/form.html');
+    assert.match(html, /programType: boardTypeValue === 'REVIEW' \? programTypeValue : null/);
+});

@@ -453,6 +453,136 @@ class AdminMenuControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("MENU_NOT_FOUND"));
     }
 
+    // P13-T30D(Task C): targetSubvalue validation matrix. BOARD_LIST+REVIEW만 COURSE/SPECIAL/NULL을
+    // 허용하고, 그 외 모든 targetType/targetValue 조합은 targetSubvalue가 있으면 무조건 400이다.
+    @Test
+    void createBoardListReviewWithCourseSubvalueReturns201() throws Exception {
+        String body = "{\"label\":\"수강 후기\",\"targetType\":\"BOARD_LIST\",\"targetValue\":\"REVIEW\","
+                + "\"targetSubvalue\":\"COURSE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.targetSubvalue").value("COURSE"));
+    }
+
+    @Test
+    void createBoardListReviewWithSpecialSubvalueReturns201() throws Exception {
+        String body = "{\"label\":\"특강 후기\",\"targetType\":\"BOARD_LIST\",\"targetValue\":\"REVIEW\","
+                + "\"targetSubvalue\":\"SPECIAL\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.targetSubvalue").value("SPECIAL"));
+    }
+
+    @Test
+    void createBoardListReviewWithoutSubvalueReturns201WithNullSubvalue() throws Exception {
+        String body = "{\"label\":\"강의 후기\",\"targetType\":\"BOARD_LIST\",\"targetValue\":\"REVIEW\","
+                + "\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.targetSubvalue").doesNotExist());
+    }
+
+    @Test
+    void createBoardListNoticeWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"공지사항\",\"targetType\":\"BOARD_LIST\",\"targetValue\":\"NOTICE\","
+                + "\"targetSubvalue\":\"COURSE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createBoardListGalleryWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"갤러리\",\"targetType\":\"BOARD_LIST\",\"targetValue\":\"GALLERY\","
+                + "\"targetSubvalue\":\"SPECIAL\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createBoardListArchiveWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"자료실\",\"targetType\":\"BOARD_LIST\",\"targetValue\":\"ARCHIVE\","
+                + "\"targetSubvalue\":\"COURSE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createBoardListReviewWithInvalidSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"강의 후기\",\"targetType\":\"BOARD_LIST\",\"targetValue\":\"REVIEW\","
+                + "\"targetSubvalue\":\"NOT_A_TYPE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createPageWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"연구소 소개\",\"targetType\":\"PAGE\",\"targetValue\":\"INTRODUCTION\","
+                + "\"targetSubvalue\":\"COURSE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createProgramListWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"프로그램\",\"targetType\":\"PROGRAM_LIST\",\"targetValue\":\"COURSE\","
+                + "\"targetSubvalue\":\"COURSE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createInternalUrlWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"내부\",\"targetType\":\"INTERNAL_URL\",\"targetValue\":\"/boards\","
+                + "\"targetSubvalue\":\"COURSE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createExternalUrlWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"외부\",\"targetType\":\"EXTERNAL_URL\",\"targetValue\":\"https://example.com\","
+                + "\"targetSubvalue\":\"SPECIAL\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createGroupWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"ABOUT\",\"targetType\":\"GROUP\",\"targetSubvalue\":\"COURSE\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createHomeWithSubvalueReturns400() throws Exception {
+        String body = "{\"label\":\"HOME\",\"targetType\":\"HOME\",\"targetSubvalue\":\"SPECIAL\",\"sortOrder\":0}";
+
+        mockMvc.perform(admin(post("/api/admin/menus")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
     private Menu groupMenu(String label) {
         return Menu.builder().label(label).targetType(MenuTargetType.GROUP).sortOrder(0).isVisible(true).build();
     }

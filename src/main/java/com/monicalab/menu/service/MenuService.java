@@ -40,13 +40,15 @@ public class MenuService {
     public MenuResponse create(MenuRequest request) {
         validateParentAndGroupPlacement(null, request.parentId(), request.targetType());
         String normalizedTargetValue = normalize(request.targetValue());
-        validateTarget(request.targetType(), normalizedTargetValue);
+        String normalizedTargetSubvalue = normalize(request.targetSubvalue());
+        validateTarget(request.targetType(), normalizedTargetValue, normalizedTargetSubvalue);
 
         Menu menu = Menu.builder()
                 .label(request.label())
                 .parentId(request.parentId())
                 .targetType(request.targetType())
                 .targetValue(normalizedTargetValue)
+                .targetSubvalue(normalizedTargetSubvalue)
                 .sortOrder(request.sortOrder())
                 .isVisible(request.visible() != null ? request.visible() : false)
                 .openInNewTab(request.openInNewTab() != null ? request.openInNewTab() : false)
@@ -138,20 +140,25 @@ public class MenuService {
 
     private HeaderMenuItem toHeaderMenuLeaf(Menu menu) {
         return new HeaderMenuItem(menu.getId(), menu.getLabel(),
-                toHref(menu.getTargetType(), menu.getTargetValue()), menu.isOpenInNewTab(), List.of());
+                toHref(menu.getTargetType(), menu.getTargetValue(), menu.getTargetSubvalue()),
+                menu.isOpenInNewTab(), List.of());
     }
 
     // targetType별 실제 공개 href 계약. Thymeleaf에는 이 결과만 전달하고, View에서는 targetType 분기를
     // 하지 않는다. PAGE/PROGRAM_LIST/BOARD_LIST의 경로/쿼리 파라미터명은 PageViewController(GET
     // /pages/{type}), ProgramViewController(GET /programs?programType=), BoardViewController(GET
-    // /boards?boardType=)의 실제 매핑과 일치해야 한다.
-    private String toHref(MenuTargetType targetType, String targetValue) {
+    // /boards?boardType=&programType=)의 실제 매핑과 일치해야 한다. targetSubvalue는 BOARD_LIST+REVIEW
+    // 조합에서만 값을 가지며(validateTarget이 그 외 조합에서는 항상 null임을 보장), BoardViewController가
+    // 이미 읽고 있는 것과 같은 "programType" 쿼리 파라미터명으로 그대로 실어 보낸다(Task C).
+    private String toHref(MenuTargetType targetType, String targetValue, String targetSubvalue) {
         return switch (targetType) {
             case GROUP -> null;
             case HOME -> "/";
             case PAGE -> "/pages/" + targetValue;
             case PROGRAM_LIST -> targetValue == null ? "/programs" : "/programs?programType=" + targetValue;
-            case BOARD_LIST -> targetValue == null ? "/boards" : "/boards?boardType=" + targetValue;
+            case BOARD_LIST -> targetValue == null ? "/boards"
+                    : "/boards?boardType=" + targetValue
+                            + (targetSubvalue != null ? "&programType=" + targetSubvalue : "");
             case INTERNAL_URL, EXTERNAL_URL -> targetValue;
         };
     }
@@ -161,7 +168,8 @@ public class MenuService {
         Menu menu = getEntity(id);
         validateParentAndGroupPlacement(id, request.parentId(), request.targetType());
         String normalizedTargetValue = normalize(request.targetValue());
-        validateTarget(request.targetType(), normalizedTargetValue);
+        String normalizedTargetSubvalue = normalize(request.targetSubvalue());
+        validateTarget(request.targetType(), normalizedTargetValue, normalizedTargetSubvalue);
         if (request.targetType() != MenuTargetType.GROUP && menuRepository.existsByParentId(id)) {
             throw new CustomException(ErrorCode.MENU_HAS_CHILDREN);
         }
@@ -171,6 +179,7 @@ public class MenuService {
                 request.parentId(),
                 request.targetType(),
                 normalizedTargetValue,
+                normalizedTargetSubvalue,
                 request.sortOrder(),
                 request.visible(),
                 request.openInNewTab());
@@ -229,8 +238,15 @@ public class MenuService {
         }
     }
 
-    private void validateTarget(MenuTargetType targetType, String targetValue) {
+    // P13-T30D(Task C): targetSubvalue는 BOARD_LIST+REVIEW 조합에서만 값을 가질 수 있다(COURSE/SPECIAL/
+    // NULL 전부 허용 - NULL은 기존 generic REVIEW 메뉴 호환용). 그 외 모든 targetType/targetValue
+    // 조합에서는 targetSubvalue가 반드시 NULL이어야 한다. UI(admin/menu/form.html)가 조건부로만
+    // 보여주더라도 이 서버 검증은 그대로 유지해 UI를 우회한 잘못된 조합도 항상 400으로 막는다.
+    private void validateTarget(MenuTargetType targetType, String targetValue, String targetSubvalue) {
         boolean blank = targetValue == null;
+        if (targetType != MenuTargetType.BOARD_LIST && targetSubvalue != null) {
+            throw new CustomException(ErrorCode.INVALID_INPUT_VALUE);
+        }
         switch (targetType) {
             case GROUP, HOME -> {
                 if (!blank) {
@@ -252,6 +268,13 @@ public class MenuService {
             }
             case BOARD_LIST -> {
                 if (!blank && !isEnumValue(targetValue, BoardType.class)) {
+                    throw new CustomException(ErrorCode.INVALID_INPUT_VALUE);
+                }
+                boolean isReview = "REVIEW".equals(targetValue);
+                if (!isReview && targetSubvalue != null) {
+                    throw new CustomException(ErrorCode.INVALID_INPUT_VALUE);
+                }
+                if (isReview && targetSubvalue != null && !isEnumValue(targetSubvalue, ProgramType.class)) {
                     throw new CustomException(ErrorCode.INVALID_INPUT_VALUE);
                 }
             }

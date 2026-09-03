@@ -7,6 +7,7 @@ import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
 import com.monicalab.common.dto.PageResponse;
 import com.monicalab.common.response.ApiResponse;
+import com.monicalab.program.entity.ProgramType;
 import jakarta.validation.Valid;
 import jakarta.validation.groups.Default;
 import lombok.RequiredArgsConstructor;
@@ -37,9 +38,10 @@ public class AdminBoardController {
     @GetMapping
     public ApiResponse<PageResponse<BoardResponse>> list(
             @RequestParam(required = false) BoardType boardType,
+            @RequestParam(required = false) ProgramType programType,
             @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ApiResponse.success(boardService.getAdminList(boardType, keyword, pageable));
+        return ApiResponse.success(boardService.getAdminList(boardType, programType, keyword, pageable));
     }
 
     @GetMapping("/{id}")

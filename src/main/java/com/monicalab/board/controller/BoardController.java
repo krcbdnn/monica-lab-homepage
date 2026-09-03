@@ -5,6 +5,7 @@ import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
 import com.monicalab.common.dto.PageResponse;
 import com.monicalab.common.response.ApiResponse;
+import com.monicalab.program.entity.ProgramType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -25,9 +26,10 @@ public class BoardController {
     @GetMapping
     public ApiResponse<PageResponse<BoardResponse>> list(
             @RequestParam(required = false) BoardType boardType,
+            @RequestParam(required = false) ProgramType programType,
             @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ApiResponse.success(boardService.getPublicList(boardType, keyword, pageable));
+        return ApiResponse.success(boardService.getPublicList(boardType, programType, keyword, pageable));
     }
 
     @GetMapping("/{id}")

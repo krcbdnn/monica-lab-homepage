@@ -28,7 +28,7 @@ public class DashboardController {
     public ApiResponse<DashboardResponse> dashboard() {
         PageRequest recentBoardsPageable =
                 PageRequest.of(0, RECENT_BOARD_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"));
-        List<BoardSummaryResponse> recentBoards = boardService.getAdminList(null, null, recentBoardsPageable)
+        List<BoardSummaryResponse> recentBoards = boardService.getAdminList(null, null, null, recentBoardsPageable)
                 .getContent().stream()
                 .map(BoardSummaryResponse::from)
                 .toList();

@@ -8,10 +8,12 @@ import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
 import com.monicalab.board.service.BoardService;
+import com.monicalab.program.entity.ProgramType;
 import com.monicalab.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 class BoardIntegrationTest extends AbstractIntegrationTest {
@@ -41,7 +43,7 @@ class BoardIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createAppliesPostDefaultsWhenIsPublicIsOmitted() {
-        BoardRequest request = new BoardRequest(BoardType.NOTICE, "공지사항", null, null, null, null);
+        BoardRequest request = new BoardRequest(BoardType.NOTICE, "공지사항", null, null, null, null, null);
 
         BoardResponse response = boardService.create(request);
 
@@ -53,10 +55,28 @@ class BoardIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createHonorsExplicitIsPublicWhenProvided() {
-        BoardRequest request = new BoardRequest(BoardType.ARCHIVE, "공개 자료", null, null, null, true);
+        BoardRequest request = new BoardRequest(BoardType.ARCHIVE, "공개 자료", null, null, null, true, null);
 
         BoardResponse response = boardService.create(request);
 
         assertThat(response.isPublic()).isTrue();
+    }
+
+    // P13-T30D(Task C): REVIEW는 programType(COURSE/SPECIAL/NULL) 전부 저장/조회가 정상 round-trip
+    // 되어야 한다(NULL은 기존 legacy REVIEW 게시글과의 호환을 위해 계속 허용).
+    @ParameterizedTest
+    @EnumSource(ProgramType.class)
+    @NullSource
+    void reviewProgramTypeRoundTripsThroughRepository(ProgramType programType) {
+        Board saved = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW)
+                .title("강의 후기")
+                .isPublic(true)
+                .programType(programType)
+                .build());
+
+        Board found = boardRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getProgramType()).isEqualTo(programType);
     }
 }

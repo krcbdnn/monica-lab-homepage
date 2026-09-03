@@ -39,11 +39,11 @@ public class HomeController {
         model.addAttribute("latestPrograms",
                 programService.getPublicList(null, null, latestProgramPageable()).getContent());
         model.addAttribute("latestReviews",
-                boardService.getPublicList(BoardType.REVIEW, null, latestReviewPageable()).getContent());
+                boardService.getPublicList(BoardType.REVIEW, null, null, latestReviewPageable()).getContent());
         model.addAttribute("latestNotices",
-                boardService.getPublicList(BoardType.NOTICE, null, latestBoardPageable()).getContent());
+                boardService.getPublicList(BoardType.NOTICE, null, null, latestBoardPageable()).getContent());
         model.addAttribute("latestGallery",
-                boardService.getPublicList(BoardType.GALLERY, null, latestBoardPageable()).getContent());
+                boardService.getPublicList(BoardType.GALLERY, null, null, latestBoardPageable()).getContent());
         return "home/index";
     }
 

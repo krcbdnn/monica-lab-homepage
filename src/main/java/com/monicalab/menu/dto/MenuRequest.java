@@ -11,6 +11,7 @@ public record MenuRequest(
         Long parentId,
         @NotNull MenuTargetType targetType,
         @Size(max = 255) String targetValue,
+        @Size(max = 50) String targetSubvalue,
         @NotNull @Min(0) Integer sortOrder,
         @NotNull(groups = MenuRequest.OnUpdate.class) Boolean visible,
         @NotNull(groups = MenuRequest.OnUpdate.class) Boolean openInNewTab) {

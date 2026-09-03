@@ -34,7 +34,7 @@ class BoardRequestValidationTest {
 
     @Test
     void blankTitleFailsValidation() {
-        BoardRequest request = new BoardRequest(BoardType.NOTICE, " ", null, null, null, null);
+        BoardRequest request = new BoardRequest(BoardType.NOTICE, " ", null, null, null, null, null);
 
         Set<ConstraintViolation<BoardRequest>> violations = validator.validate(request);
 
@@ -43,7 +43,7 @@ class BoardRequestValidationTest {
 
     @Test
     void missingBoardTypeFailsValidation() {
-        BoardRequest request = new BoardRequest(null, "제목", null, null, null, null);
+        BoardRequest request = new BoardRequest(null, "제목", null, null, null, null, null);
 
         Set<ConstraintViolation<BoardRequest>> violations = validator.validate(request);
 
@@ -52,7 +52,7 @@ class BoardRequestValidationTest {
 
     @Test
     void validRequestPassesValidation() {
-        BoardRequest request = new BoardRequest(BoardType.GALLERY, "제목", "<p>내용</p>", null, null, true);
+        BoardRequest request = new BoardRequest(BoardType.GALLERY, "제목", "<p>내용</p>", null, null, true, null);
 
         Set<ConstraintViolation<BoardRequest>> violations = validator.validate(request);
 
