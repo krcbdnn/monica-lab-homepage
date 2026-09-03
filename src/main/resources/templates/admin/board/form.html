@@ -19,6 +19,19 @@
                 <option value="REVIEW">강의 후기</option>
             </select>
         </div>
+        <!-- P13-T30D(Task C): 강의 후기(REVIEW)일 때만 노출되는 subtype 선택. 신규 작성 시 COURSE/SPECIAL
+             중 하나를 반드시 명시적으로 선택하게 하기 위해 첫 옵션은 빈 값(placeholder)이다 - 브라우저가
+             옵션 순서상 첫 번째("수강 후기")를 암묵적으로 기본 선택하지 않도록 하는 장치다. 기존 REVIEW+NULL
+             (legacy) 게시글을 수정 화면에서 열어도 이 placeholder가 그대로 선택된 채로 보여야 하므로,
+             JS에서 board.programType이 없을 때 임의로 COURSE를 채우지 않는다(아래 스크립트 참고). -->
+        <div class="mb-3" id="programTypeField" hidden>
+            <label for="programType" class="form-label">후기 대상</label>
+            <select class="form-select" id="programType" name="programType">
+                <option value="">후기 대상을 선택하세요</option>
+                <option value="COURSE">수강 후기</option>
+                <option value="SPECIAL">특강 후기</option>
+            </select>
+        </div>
         <div class="mb-3">
             <label for="title" class="form-label">제목</label>
             <input type="text" class="form-control" id="title" name="title" required maxlength="200">
@@ -82,6 +95,20 @@
 
     var editingBoardId = extractBoardIdFromPath();
 
+    // P13-T30D(Task C): boardType이 REVIEW일 때만 programType 필드를 노출한다. REVIEW가 아닌 값으로
+    // 바뀌면 필드를 숨기고 값도 함께 비워(payload에서 항상 null로 나가도록) 서버에 stale programType이
+    // 실려 가지 않게 한다. REVIEW로 바뀌었을 때는 기존 선택값(있다면)을 지우지 않는다 - 이 함수는
+    // "숨김 전환 시 초기화"만 담당하고, 값 채우기는 아래 edit-mode 로딩/사용자의 직접 선택이 담당한다.
+    function updateProgramTypeVisibility() {
+        var isReview = document.querySelector('#boardType').value === 'REVIEW';
+        document.querySelector('#programTypeField').hidden = !isReview;
+        if (!isReview) {
+            document.querySelector('#programType').value = '';
+        }
+    }
+    document.querySelector('#boardType').addEventListener('change', updateProgramTypeVisibility);
+    updateProgramTypeVisibility();
+
     if (editingBoardId) {
         document.querySelector('#boardId').value = editingBoardId;
 
@@ -97,6 +124,12 @@
             var board = body.data;
 
             document.querySelector('#boardType').value = board.boardType;
+            // P13-T30D(Task C): 기존 REVIEW+NULL(legacy) 게시글은 board.programType이 없으므로 ''로
+            // 남겨 placeholder("후기 대상을 선택하세요")가 그대로 보이게 한다 - 절대 COURSE를 임의로
+            // 채우지 않는다. updateProgramTypeVisibility()는 REVIEW일 때 값을 건드리지 않으므로 이
+            // 대입 이후에 호출해도 방금 채운 값이 유지된다.
+            document.querySelector('#programType').value = board.programType || '';
+            updateProgramTypeVisibility();
             document.querySelector('#title').value = board.title;
             if (editor) {
                 editor.setData(board.content || '');
@@ -192,14 +225,29 @@
         var errorMessage = document.querySelector('#errorMessage');
         errorMessage.style.display = 'none';
 
+        var boardTypeValue = document.querySelector('#boardType').value;
+        var programTypeValue = document.querySelector('#programType').value;
+
+        // P13-T30D(Task C): REVIEW인데 placeholder(빈 값)인 채로는 저장을 막고 명시적 선택을
+        // 요구한다 - "브라우저가 COURSE를 기본 선택해서 무심코 저장되는" 경로를 클라이언트에서부터
+        // 차단한다(서버 MenuService/BoardService 쪽은 REVIEW+NULL을 계속 허용하는 것과 별개로,
+        // 이 화면을 통한 신규/수정 저장에서는 명시적 선택을 강제한다).
+        if (boardTypeValue === 'REVIEW' && !programTypeValue) {
+            errorMessage.textContent = '후기 대상(수강 후기/특강 후기)을 선택해야 합니다.';
+            errorMessage.style.display = 'block';
+            return;
+        }
+
         var boardId = document.querySelector('#boardId').value;
         var payload = {
-            boardType: document.querySelector('#boardType').value,
+            boardType: boardTypeValue,
             title: document.querySelector('#title').value,
             content: contentEditor ? contentEditor.getData() : document.querySelector('#content').value,
             thumbnail: document.querySelector('#thumbnail').value || null,
             attachment: document.querySelector('#attachment').value || null,
-            isPublic: document.querySelector('#isPublic').checked
+            isPublic: document.querySelector('#isPublic').checked,
+            // REVIEW가 아니면 select 값이 남아있더라도 항상 null로 정규화해 전송한다.
+            programType: boardTypeValue === 'REVIEW' ? programTypeValue : null
         };
 
         var url = boardId ? '/api/admin/boards/' + boardId : '/api/admin/boards';

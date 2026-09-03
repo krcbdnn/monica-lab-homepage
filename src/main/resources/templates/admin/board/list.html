@@ -62,6 +62,19 @@
             return params.toString();
         }
 
+        function reviewSubtypeLabel(board) {
+            if (board.boardType !== 'REVIEW') {
+                return '';
+            }
+            if (board.programType === 'COURSE') {
+                return ' (수강 후기)';
+            }
+            if (board.programType === 'SPECIAL') {
+                return ' (특강 후기)';
+            }
+            return ' (미지정)';
+        }
+
         function renderRow(board) {
             var tr = document.createElement('tr');
 
@@ -69,8 +82,10 @@
             titleTd.textContent = board.title;
             tr.appendChild(titleTd);
 
+            // P13-T30D(Task C): REVIEW 게시글만 subtype을 함께 보여준다(전면 UI polish 아님, 목록에서
+            // 구분 가능한 최소 텍스트만 추가). NOTICE/GALLERY/ARCHIVE는 기존 그대로 boardType만 표시한다.
             var typeTd = document.createElement('td');
-            typeTd.textContent = board.boardType;
+            typeTd.textContent = board.boardType + reviewSubtypeLabel(board);
             tr.appendChild(typeTd);
 
             var publicTd = document.createElement('td');

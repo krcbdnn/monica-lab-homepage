@@ -173,15 +173,17 @@ test.describe('모바일 햄버거 메뉴', () => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#site-nav')).toBeVisible();
 
-    // P13-T30C: HOME(정적 링크) + 3개 GROUP trigger가 모바일 accordion에 노출된다. 전체메뉴(mega
-    // menu) 트리거는 모바일에서 숨겨진다(hamburger accordion과 동일 정보가 중복되는 것을 피함).
+    // P13-T30D(Task C): HOME(정적 링크) + 3개 GROUP trigger(최종 IA: 연구소 소개/수강 신청/강의 후기)가
+    // 모바일 accordion에 노출된다. 공지사항/갤러리/자료실은 top-level LEAF라 GROUP trigger가 아닌
+    // 일반 링크로 함께 렌더링되므로 이 locator(그룹 trigger만 대상) 개수에는 포함되지 않는다.
+    // 전체메뉴(mega menu) 트리거는 모바일에서 숨겨진다(hamburger accordion과 동일 정보가 중복되는 것을 피함).
     await expect(page.locator('#quick-menu > li:first-child > a[href="/"]')).toBeVisible();
     const groupTriggers = page.locator(
       '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
     await expect(groupTriggers).toHaveCount(3);
     await expect(groupTriggers.nth(0)).toHaveText('연구소 소개');
-    await expect(groupTriggers.nth(1)).toHaveText('프로그램');
-    await expect(groupTriggers.nth(2)).toHaveText('게시판');
+    await expect(groupTriggers.nth(1)).toHaveText('수강 신청');
+    await expect(groupTriggers.nth(2)).toHaveText('강의 후기');
     await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
 
     await toggle.click();
@@ -2768,38 +2770,51 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(page).toHaveURL(/\/pages\/HISTORY$/);
   });
 
-  test('Desktop 1440: "프로그램"/"게시판" GROUP dropdown 콘텐츠가 정확하다(대표 상호작용은 위 테스트에서 이미 확인)', async ({ page }) => {
+  // P13-T30D(Task C): 최종 IA로 전환된 뒤의 "수강 신청"/"강의 후기" GROUP dropdown 콘텐츠와, 게시판
+  // GROUP에서 승격된 공지사항/갤러리/자료실 top-level LEAF를 함께 검증한다(대표 hover/click 상호작용
+  // 자체는 위 P13-T30B 테스트에서 이미 확인했으므로 여기서는 콘텐츠/href 정확성에 집중한다).
+  test('Desktop 1440: "수강 신청"/"강의 후기" GROUP dropdown 콘텐츠가 정확하고, 공지사항/갤러리/자료실은 top-level LEAF로 노출된다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
-    const programGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
-      hasText: '프로그램',
+    const courseGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '수강 신청',
     });
-    await programGroupItem.locator('.site-nav__trigger').hover();
-    const programLinks = programGroupItem.locator('.site-nav__submenu a');
-    await expect(programLinks).toHaveCount(2);
-    expect(await programLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+    await courseGroupItem.locator('.site-nav__trigger').hover();
+    const courseLinks = courseGroupItem.locator('.site-nav__submenu a');
+    await expect(courseLinks).toHaveCount(2);
+    expect(await courseLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
       '/programs?programType=COURSE',
       '/programs?programType=SPECIAL',
     ]);
-    expect(await programLinks.allTextContents()).toEqual(['수강 프로그램', '특강']);
+    expect(await courseLinks.allTextContents()).toEqual(['수강 신청', '특강 신청']);
 
-    const boardGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
-      hasText: '게시판',
+    // 수강 후기/특강 후기는 같은 REVIEW boardType을 공유하지만 programType 쿼리 파라미터로 분리된다.
+    const reviewGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '강의 후기',
     });
-    await boardGroupItem.locator('.site-nav__trigger').hover();
-    const boardLinks = boardGroupItem.locator('.site-nav__submenu a');
-    await expect(boardLinks).toHaveCount(4);
-    expect(await boardLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
-      '/boards?boardType=NOTICE',
-      '/boards?boardType=GALLERY',
-      '/boards?boardType=ARCHIVE',
-      '/boards?boardType=REVIEW',
+    await reviewGroupItem.locator('.site-nav__trigger').hover();
+    const reviewLinks = reviewGroupItem.locator('.site-nav__submenu a');
+    await expect(reviewLinks).toHaveCount(2);
+    expect(await reviewLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=REVIEW&programType=COURSE',
+      '/boards?boardType=REVIEW&programType=SPECIAL',
     ]);
-    expect(await boardLinks.allTextContents()).toEqual(['공지사항', '갤러리', '자료실', '강의 후기']);
+    expect(await reviewLinks.allTextContents()).toEqual(['수강 후기', '특강 후기']);
+
+    // 공지사항/갤러리/자료실은 더 이상 GROUP의 자식이 아니라 #quick-menu 바로 아래의 top-level LEAF다.
+    const topLevelLeaf = (label) => page.locator('#quick-menu > li.site-nav__item:not(.has-submenu) > a', {
+      hasText: label,
+    });
+    await expect(topLevelLeaf('공지사항')).toHaveAttribute('href', '/boards?boardType=NOTICE');
+    await expect(topLevelLeaf('갤러리')).toHaveAttribute('href', '/boards?boardType=GALLERY');
+    await expect(topLevelLeaf('자료실')).toHaveAttribute('href', '/boards?boardType=ARCHIVE');
   });
 
-  test('Desktop 1440: 전체메뉴(mega menu)는 동일한 10개 링크를 3개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
+  // P13-T30D(Task C): 전체메뉴(mega menu)는 headerMenuItems를 그대로 재사용하므로(header.html 무변경),
+  // 공지사항/갤러리/자료실이 top-level LEAF로 승격되면 GROUP 3개 + LEAF 3개 = 6개 컬럼으로 자동 확장된다.
+  // GROUP은 <p> 헤딩 + 하위 링크 목록, LEAF는 헤딩 자체가 <a> 링크라는 기존 템플릿 분기를 그대로 따른다.
+  test('Desktop 1440: 전체메뉴(mega menu)는 최종 IA(GROUP 3 + top-level LEAF 3)를 6개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
@@ -2812,17 +2827,24 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(megaMenu).toBeVisible();
 
     const columns = megaMenu.locator('.site-nav__megamenu-column');
-    await expect(columns).toHaveCount(3);
+    await expect(columns).toHaveCount(6);
     const headings = await columns.locator('.site-nav__megamenu-heading').allTextContents();
-    expect(headings).toEqual(['연구소 소개', '프로그램', '게시판']);
+    expect(headings).toEqual(['연구소 소개', '공지사항', '갤러리', '자료실', '수강 신청', '강의 후기']);
+
+    // LEAF 컬럼(공지사항/갤러리/자료실)의 헤딩 자체가 목적지 링크이고 하위 목록은 없다(<a>가 헤딩 1개뿐).
+    const noticeColumn = columns.filter({ hasText: '공지사항' });
+    await expect(noticeColumn.locator('a')).toHaveCount(1);
+    await expect(noticeColumn.locator('a')).toHaveAttribute('href', '/boards?boardType=NOTICE');
 
     const allLinks = megaMenu.locator('a');
-    await expect(allLinks).toHaveCount(10);
+    // GROUP 3개(연구소소개 4 + 수강신청 2 + 강의후기 2 = 8개 하위 링크) + LEAF 3개(각 헤딩 자체가 링크) = 11개.
+    await expect(allLinks).toHaveCount(11);
     const hrefs = await allLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
     expect(hrefs).toEqual([
       '/pages/GREETING', '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
       '/programs?programType=COURSE', '/programs?programType=SPECIAL',
-      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE', '/boards?boardType=REVIEW',
+      '/boards?boardType=REVIEW&programType=COURSE', '/boards?boardType=REVIEW&programType=SPECIAL',
     ]);
 
     // viewport 이탈 없음
@@ -2937,5 +2959,141 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
 
     await page.goto('/programs');
     await expect(page.locator('#program-list')).toBeVisible();
+  });
+});
+
+// P13-T30D(Task C): 공개 강의 후기(REVIEW) subtype 필터링 + pagination/keyword/목록 복귀 state 보존.
+// typography/spacing/layout 조정(Task A2)은 이 블록에서 다루지 않는다 - 구조/링크/state만 검증한다.
+test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardIds;
+
+  async function createBoard(context, baseURL, payload) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: payload,
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardIds = [];
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    for (const id of boardIds) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('필터 nav에서 수강 후기/특강 후기를 클릭하면 정확한 programType으로만 필터링된다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const courseTitle = `T30D 수강후기 ${runId}`;
+    const specialTitle = `T30D 특강후기 ${runId}`;
+    boardIds.push(await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
+    }));
+    boardIds.push(await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: specialTitle, programType: 'SPECIAL', isPublic: true,
+    }));
+
+    await page.goto('/boards');
+    await page.locator('#board-type-filter a', { hasText: '수강 후기' }).click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW&programType=COURSE/);
+    await expect(page.locator('body')).toContainText(courseTitle);
+    await expect(page.locator('body')).not.toContainText(specialTitle);
+
+    await page.locator('#board-type-filter a', { hasText: '특강 후기' }).click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW&programType=SPECIAL/);
+    await expect(page.locator('body')).toContainText(specialTitle);
+    await expect(page.locator('body')).not.toContainText(courseTitle);
+  });
+
+  // REVIEW without programType은 기존 generic 호환 경로다 - subtype과 무관하게 전부 노출된다.
+  test('boardType=REVIEW만 있고 programType이 없으면 subtype과 무관하게 전체 강의 후기가 노출된다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const courseTitle = `T30D 전체보기 수강 ${runId}`;
+    const specialTitle = `T30D 전체보기 특강 ${runId}`;
+    boardIds.push(await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
+    }));
+    boardIds.push(await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: specialTitle, programType: 'SPECIAL', isPublic: true,
+    }));
+
+    await page.goto('/boards?boardType=REVIEW');
+    await expect(page.locator('body')).toContainText(courseTitle);
+    await expect(page.locator('body')).toContainText(specialTitle);
+  });
+
+  test('강의 후기 필터에서 공지사항으로 전환하면 이전 programType 쿼리가 남지 않는다', async ({ page }) => {
+    await page.goto('/boards?boardType=REVIEW&programType=COURSE');
+    await page.locator('#board-type-filter a', { hasText: '공지사항' }).click();
+
+    await expect(page).toHaveURL(/\/boards\?boardType=NOTICE/);
+    const url = new URL(page.url());
+    expect(url.searchParams.has('programType'),
+      'NOTICE로 전환하면 stale programType 파라미터가 URL에 남아있지 않아야 한다').toBeFalsy();
+  });
+
+  test('REVIEW 상세 페이지의 "목록으로" 링크가 programType을 보존해 필터된 목록으로 정확히 복귀한다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const courseTitle = `T30D 상세복귀 ${runId}`;
+    boardIds.push(await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
+    }));
+
+    await page.goto('/boards?boardType=REVIEW&programType=COURSE');
+    await page.locator('a', { hasText: courseTitle }).click();
+    await expect(page.locator('h2, .card-title')).toContainText(courseTitle);
+
+    const backLink = page.locator('a', { hasText: '목록으로' });
+    await expect(backLink).toHaveAttribute('href', /boardType=REVIEW.*programType=COURSE|programType=COURSE.*boardType=REVIEW/);
+    await backLink.click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW&programType=COURSE/);
+  });
+
+  // pagination fragment는 programType 슬롯을 이미 갖고 있었다(board/list.html이 이번에 null 대신
+  // 실값을 전달하도록만 바뀌었다) - 필터된 목록에서 pagination 링크에도 programType이 실려 있는지 확인.
+  test('강의 후기 subtype 필터 상태에서 pagination 링크도 programType을 함께 실어 보낸다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    for (let i = 0; i < 12; i++) {
+      boardIds.push(await createBoard(context, baseURL, {
+        boardType: 'REVIEW', title: `T30D 페이지네이션 ${runId} #${i}`, programType: 'COURSE', isPublic: true,
+      }));
+    }
+
+    await page.goto('/boards?boardType=REVIEW&programType=COURSE');
+    const nextPage = page.locator('#next-page');
+    await expect(nextPage).toBeVisible();
+    await expect(nextPage).toHaveAttribute('href', /boardType=REVIEW/);
+    await expect(nextPage).toHaveAttribute('href', /programType=COURSE/);
+
+    await nextPage.click();
+    await expect(page).toHaveURL(/programType=COURSE/);
+    await expect(page.locator('body')).toContainText(`T30D 페이지네이션 ${runId}`);
+  });
+
+  // NOTICE/GALLERY/ARCHIVE 공개 목록은 REVIEW subtype 도입과 무관하게 기존 그대로 동작해야 한다.
+  test('NOTICE/GALLERY/ARCHIVE 공개 목록은 REVIEW subtype 도입 이후에도 기존과 동일하게 동작한다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const noticeTitle = `T30D 공지 회귀 ${runId}`;
+    boardIds.push(await createBoard(context, baseURL, {
+      boardType: 'NOTICE', title: noticeTitle, isPublic: true,
+    }));
+
+    await page.goto('/boards?boardType=NOTICE');
+    await expect(page.locator('body')).toContainText(noticeTitle);
+
+    // stale programType 쿼리가 실려도(예: 잘못 만들어진 링크) NOTICE 결과가 오염되지 않는다.
+    await page.goto('/boards?boardType=NOTICE&programType=COURSE');
+    await expect(page.locator('body')).toContainText(noticeTitle);
   });
 });

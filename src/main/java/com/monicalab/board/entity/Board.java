@@ -1,6 +1,7 @@
 package com.monicalab.board.entity;
 
 import com.monicalab.common.entity.BaseEntity;
+import com.monicalab.program.entity.ProgramType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -43,25 +44,34 @@ public class Board extends BaseEntity {
     @Column(name = "is_public", nullable = false)
     private boolean isPublic;
 
+    // P13-T30D(Task C): boardType=REVIEW일 때만 의미를 갖는 subtype(강의 후기/특강 후기 구분).
+    // 별도 ReviewType enum이나 별도 Review entity를 만들지 않고 program.ProgramType을 재사용한다.
+    // REVIEW가 아닌 boardType에서는 항상 NULL이어야 하며, 이는 BoardService가 강제한다.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "program_type", length = 20)
+    private ProgramType programType;
+
     @Builder
     private Board(BoardType boardType, String title, String content, String thumbnail, String attachment,
-            boolean isPublic) {
+            boolean isPublic, ProgramType programType) {
         this.boardType = boardType;
         this.title = title;
         this.content = content;
         this.thumbnail = thumbnail;
         this.attachment = attachment;
         this.isPublic = isPublic;
+        this.programType = programType;
     }
 
     public void update(BoardType boardType, String title, String content, String thumbnail, String attachment,
-            boolean isPublic) {
+            boolean isPublic, ProgramType programType) {
         this.boardType = boardType;
         this.title = title;
         this.content = content;
         this.thumbnail = thumbnail;
         this.attachment = attachment;
         this.isPublic = isPublic;
+        this.programType = programType;
     }
 
     public void updateVisibility(boolean isPublic) {

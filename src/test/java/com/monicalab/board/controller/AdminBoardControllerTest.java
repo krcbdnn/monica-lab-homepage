@@ -230,6 +230,94 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.thumbnail").value("/api/files/9"));
     }
 
+    // P13-T30D(Task C): REVIEW + programType(COURSE/SPECIAL/NULL) 저장 계약. NULL은 기존 legacy
+    // REVIEW 게시글과의 호환을 위해 API 레벨에서는 계속 허용한다(관리자 화면의 client-side 강제와는
+    // 별개의 계약 - form.html이 어떤 UI를 강제하든 API 자체는 여기서 검증된 대로 동작해야 한다).
+    @Test
+    void createReviewWithCourseProgramTypeSucceeds() throws Exception {
+        String body = "{\"boardType\":\"REVIEW\",\"title\":\"수강 후기\",\"programType\":\"COURSE\"}";
+
+        mockMvc.perform(admin(post("/api/admin/boards")).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.programType").value("COURSE"));
+    }
+
+    @Test
+    void createReviewWithSpecialProgramTypeSucceeds() throws Exception {
+        String body = "{\"boardType\":\"REVIEW\",\"title\":\"특강 후기\",\"programType\":\"SPECIAL\"}";
+
+        mockMvc.perform(admin(post("/api/admin/boards")).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.programType").value("SPECIAL"));
+    }
+
+    @Test
+    void createReviewWithoutProgramTypeSucceedsAsLegacyCompatibleNull() throws Exception {
+        String body = "{\"boardType\":\"REVIEW\",\"title\":\"미지정 후기\"}";
+
+        mockMvc.perform(admin(post("/api/admin/boards")).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.programType").doesNotExist());
+    }
+
+    @Test
+    void createNoticeWithNonNullProgramTypeReturns400() throws Exception {
+        String body = "{\"boardType\":\"NOTICE\",\"title\":\"공지\",\"programType\":\"COURSE\"}";
+
+        mockMvc.perform(admin(post("/api/admin/boards")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createGalleryWithNonNullProgramTypeReturns400() throws Exception {
+        String body = "{\"boardType\":\"GALLERY\",\"title\":\"갤러리\",\"programType\":\"SPECIAL\"}";
+
+        mockMvc.perform(admin(post("/api/admin/boards")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    @Test
+    void createArchiveWithNonNullProgramTypeReturns400() throws Exception {
+        String body = "{\"boardType\":\"ARCHIVE\",\"title\":\"자료\",\"programType\":\"COURSE\"}";
+
+        mockMvc.perform(admin(post("/api/admin/boards")).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
+    }
+
+    // P13-T30D(Task C): 공개 목록에서 boardType=REVIEW + programType 조합이 수강 후기/특강 후기를
+    // 정확히 분리하고, NOTICE 등 REVIEW가 아닌 타입에서는 stale programType이 무시됨을 확인한다.
+    @Test
+    void publicListFiltersReviewBoardsBySubtypeAndIgnoresStaleProgramTypeForOtherBoardTypes() throws Exception {
+        String courseBody = "{\"boardType\":\"REVIEW\",\"title\":\"수강 후기 공개\",\"programType\":\"COURSE\","
+                + "\"isPublic\":true}";
+        String specialBody = "{\"boardType\":\"REVIEW\",\"title\":\"특강 후기 공개\",\"programType\":\"SPECIAL\","
+                + "\"isPublic\":true}";
+        mockMvc.perform(admin(post("/api/admin/boards")).content(courseBody)).andExpect(status().isCreated());
+        mockMvc.perform(admin(post("/api/admin/boards")).content(specialBody)).andExpect(status().isCreated());
+        Board notice = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지").isPublic(true).build());
+
+        mockMvc.perform(get("/api/boards").param("boardType", "REVIEW").param("programType", "COURSE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].title").value("수강 후기 공개"));
+
+        mockMvc.perform(get("/api/boards").param("boardType", "REVIEW").param("programType", "SPECIAL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].title").value("특강 후기 공개"));
+
+        // NOTICE인데 programType=COURSE가 함께 들어와도(stale/잘못된 조합) 결과가 오염되지 않고
+        // 정상적으로 그 NOTICE 게시글이 그대로 조회된다(400으로 거부하지 않는다 - 조회는 조용히 무시).
+        mockMvc.perform(get("/api/boards").param("boardType", "NOTICE").param("programType", "COURSE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(notice.getId()));
+    }
+
     private MockHttpServletRequestBuilder admin(MockHttpServletRequestBuilder builder) {
         return builder
                 .with(user("admin").authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))

@@ -55,8 +55,14 @@
             targetTypeTd.textContent = menu.targetType;
             tr.appendChild(targetTypeTd);
 
+            // P13-T30D(Task C): BOARD_LIST+REVIEW 메뉴는 targetSubvalue(COURSE/SPECIAL/미지정)를
+            // 대상 값 옆에 함께 표시한다(전면 UI polish는 Task B 범위 - 여기서는 텍스트만 추가).
             var targetValueTd = document.createElement('td');
-            targetValueTd.textContent = menu.targetValue || '-';
+            var targetValueText = menu.targetValue || '-';
+            if (menu.targetType === 'BOARD_LIST' && menu.targetValue === 'REVIEW') {
+                targetValueText += ' / ' + (menu.targetSubvalue || '미지정');
+            }
+            targetValueTd.textContent = targetValueText;
             tr.appendChild(targetValueTd);
 
             var sortOrderTd = document.createElement('td');

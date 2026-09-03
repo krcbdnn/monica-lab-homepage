@@ -8,6 +8,14 @@
 <div id="board-list-content" class="container" style="margin-top: 40px;">
     <h2 class="mb-4">게시판</h2>
 
+    <!-- P13-T30D(Task C): 강의 후기(REVIEW)는 하나의 boardType이지만 공개 화면에서는 programType으로
+         수강 후기/특강 후기 두 목록으로 분리해 노출한다. 내부 Board 도메인/저장 구조는 그대로 재사용하며
+         (별도 boardType 분리 아님), 필터 nav의 각 링크는 자신이 가리키는 조합만 명시적으로 실어 보내므로
+         다른 링크로 이동하면 현재 페이지에 남아있던 programType이 자동으로 사라진다(전체/공지사항/갤러리/
+         자료실 링크는 애초에 programType 파라미터 자체가 없다).
+         기존 "강의 후기"(P13-T16, subtype 구분 없이 전체 REVIEW를 보여주는 generic 링크)는 계속 유지한다
+         (legacy/전체보기 호환 - REVIEW+programType 없음 상태에서만 active). 세 링크(강의 후기/수강 후기/
+         특강 후기)의 active 조건은 상호 배타적이라 동시에 두 개가 active로 보이는 경우가 없다. -->
     <nav id="board-type-filter" class="filter-nav mb-3">
         <a th:href="@{/boards(keyword=${keyword})}" class="filter-nav__link"
            th:classappend="${boardType == null} ? ' is-active'">전체</a>
@@ -18,11 +26,16 @@
         <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
            th:classappend="${boardType != null and boardType.name() == 'ARCHIVE'} ? ' is-active'">자료실</a>
         <a th:href="@{/boards(boardType='REVIEW', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType != null and boardType.name() == 'REVIEW'} ? ' is-active'">강의 후기</a>
+           th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType == null} ? ' is-active'">강의 후기</a>
+        <a th:href="@{/boards(boardType='REVIEW', programType='COURSE', keyword=${keyword})}" class="filter-nav__link"
+           th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'COURSE'} ? ' is-active'">수강 후기</a>
+        <a th:href="@{/boards(boardType='REVIEW', programType='SPECIAL', keyword=${keyword})}" class="filter-nav__link"
+           th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'SPECIAL'} ? ' is-active'">특강 후기</a>
     </nav>
 
     <form method="get" th:action="@{/boards}" class="row g-2 mb-4">
         <input type="hidden" name="boardType" th:if="${boardType != null}" th:value="${boardType}">
+        <input type="hidden" name="programType" th:if="${programType != null}" th:value="${programType}">
         <div class="col-auto">
             <input type="text" name="keyword" class="form-control" placeholder="검색어" th:value="${keyword}">
         </div>
@@ -45,7 +58,7 @@
     <ul id="board-grid" class="gallery-grid"
         th:if="${boardType != null and (boardType.name() == 'GALLERY' or boardType.name() == 'REVIEW')}">
         <li class="gallery-card" th:each="board : ${boards.content}">
-            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, keyword=${keyword}, page=${boards.page})}"
+            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, programType=${programType}, keyword=${keyword}, page=${boards.page})}"
                class="gallery-card__link">
                 <div class="gallery-card__thumb">
                     <img th:unless="${#strings.isEmpty(#strings.trim(board.thumbnail()))}"
@@ -62,7 +75,7 @@
     <ul id="board-list" class="list-group mb-4"
         th:unless="${boardType != null and (boardType.name() == 'GALLERY' or boardType.name() == 'REVIEW')}">
         <li class="list-group-item" th:each="board : ${boards.content}">
-            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, keyword=${keyword}, page=${boards.page})}"
+            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, programType=${programType}, keyword=${keyword}, page=${boards.page})}"
                class="board-list__link">
                 <span class="board-list__row">
                     <span class="badge bg-secondary board-list__type" th:text="${board.boardType()}"></span>
@@ -76,7 +89,7 @@
     </ul>
 
     <nav th:replace="~{home/fragments/pagination :: pagination(
-            '/boards', ${boards.page}, ${boards.totalPages}, ${boards.size}, ${boardType}, null, ${keyword})}"></nav>
+            '/boards', ${boards.page}, ${boards.totalPages}, ${boards.size}, ${boardType}, ${programType}, ${keyword})}"></nav>
 </div>
 </body>
 </html>
