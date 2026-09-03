@@ -110,6 +110,50 @@
     display: block;
 }
 
+/* P13-T30C: 전체메뉴(mega menu). 헤더의 가장 오른쪽 항목이라 기존 .site-nav__submenu의
+   left:0(오른쪽으로 확장) 기준을 그대로 쓰면 뷰포트 밖으로 나갈 수 있어 right:0(왼쪽으로 확장)로
+   뒤집는다. .has-submenu.is-open .site-nav__submenu{display:block}과 동일한 specificity(클래스 3개)라
+   소스 순서에 기대지 않도록 #site-nav로 명시적으로 specificity를 높여 display:grid가 항상 이긴다. */
+.site-nav__megamenu {
+    left: auto;
+    right: 0;
+    min-width: 24rem;
+    max-width: min(90vw, 48rem);
+    padding: 1.5rem;
+}
+
+#site-nav .has-submenu.is-open .site-nav__megamenu {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 2rem;
+}
+
+.site-nav__megamenu-column ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.site-nav__megamenu-heading {
+    display: block;
+    margin: 0 0 0.5rem;
+    font-weight: 700;
+    color: inherit;
+    text-decoration: none;
+}
+
+a.site-nav__megamenu-heading:hover {
+    text-decoration: underline;
+}
+
+.site-nav__megamenu-column a {
+    display: block;
+    padding: 0.25rem 0;
+    text-decoration: none;
+    color: inherit;
+    white-space: nowrap;
+}
+
 .nav-toggle {
     display: none;
     align-items: center;
@@ -213,6 +257,12 @@
         padding-left: 1rem;
         border: none;
         box-shadow: none;
+    }
+
+    /* P13-T30C: hamburger를 열면 이미 HOME + 3개 GROUP accordion이 전체 메뉴를 그대로 보여주므로,
+       모바일에서는 "전체메뉴" 트리거 자체를 노출하지 않는다(동일 정보 중복 방지). */
+    [data-menu-id="all"] {
+        display: none;
     }
 }
 

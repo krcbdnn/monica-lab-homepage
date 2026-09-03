@@ -13,6 +13,7 @@
 
         <nav id="site-nav" class="site-nav" aria-label="주요 메뉴">
             <ul id="quick-menu" class="site-nav__list">
+                <li class="site-nav__item"><a href="/">HOME</a></li>
                 <li th:each="item : ${headerMenuItems}" class="site-nav__item" th:data-menu-id="${item.id}"
                     th:classappend="${item.href == null} ? ' has-submenu' : ''">
                     <a th:if="${item.href != null}" th:href="${item.href}" th:text="${item.label}"
@@ -29,6 +30,34 @@
                             </li>
                         </ul>
                     </th:block>
+                </li>
+                <!-- P13-T30C: 전체메뉴(mega menu). 신규 Java 조회 없이 위와 동일한 headerMenuItems를
+                     한 번 더 순회한다 - GROUP/노출여부/openInNewTab 정책이 자동으로 개별 dropdown과
+                     동일하게 유지된다. headerMenuItems가 비어 있으면(메뉴 0건) 트리거 자체를 렌더링하지
+                     않는다(빈 GROUP을 숨기는 기존 정책과 같은 맥락). 모바일에서는 hamburger 안에 이미
+                     동일한 정보가 accordion으로 전부 노출되므로 home.css가 이 li를 숨긴다. -->
+                <li class="site-nav__item has-submenu" data-menu-id="all"
+                    th:if="${not #lists.isEmpty(headerMenuItems)}">
+                    <button type="button" class="site-nav__trigger" aria-expanded="false"
+                            aria-controls="megamenu">전체메뉴</button>
+                    <div class="site-nav__submenu site-nav__megamenu" id="megamenu">
+                        <div class="site-nav__megamenu-column" th:each="item : ${headerMenuItems}">
+                            <a th:if="${item.href != null}" class="site-nav__megamenu-heading"
+                               th:href="${item.href}" th:text="${item.label}"
+                               th:target="${item.openInNewTab} ? '_blank' : null"
+                               th:rel="${item.openInNewTab} ? 'noopener noreferrer' : null">직접 링크</a>
+                            <th:block th:if="${item.href == null}">
+                                <p class="site-nav__megamenu-heading" th:text="${item.label}">그룹명</p>
+                                <ul>
+                                    <li th:each="child : ${item.children}">
+                                        <a th:href="${child.href}" th:text="${child.label}"
+                                           th:target="${child.openInNewTab} ? '_blank' : null"
+                                           th:rel="${child.openInNewTab} ? 'noopener noreferrer' : null">하위 메뉴</a>
+                                    </li>
+                                </ul>
+                            </th:block>
+                        </div>
+                    </div>
                 </li>
             </ul>
         </nav>

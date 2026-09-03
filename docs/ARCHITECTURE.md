@@ -381,8 +381,18 @@ EXTERNAL_URL
 - `visible=true`인 최상위 항목만 후보이며, `visible=false`인 GROUP의 자식은 자식의 visible 여부와 무관하게 전부 제외된다. GROUP의 자식 중 `visible=false`인 것도 제외되고, 남은 visible 자식이 하나도 없는 GROUP은 GROUP 자체도 숨긴다.
 - fail-closed: orphan(부모가 없거나 GROUP이 아닌 parentId를 가리키는) 행, GROUP의 자식인데 그 자신도 `targetType=GROUP`인 비정상 행(정상 CRUD로는 생성 불가)은 트리 구성 알고리즘상 자연히 순회되지 않아 공개 화면에 노출되지 않는다. 별도 복구/자동수정 로직은 두지 않는다.
 - `HeaderMenuItem`(`id`, `label`, `href`, `openInNewTab`, `children`)은 Entity/`MenuTargetType`을 Thymeleaf에 노출하지 않기 위한 공개 전용 View 모델이며, `href`가 `null`인 항목만 GROUP(submenu trigger)이라는 사실만으로 템플릿이 분기한다. `targetType`별 href 계산(`GROUP→null`, `HOME→/`, `PAGE→/pages/{targetValue}`, `PROGRAM_LIST→targetValue 없으면 /programs, 있으면 /programs?programType={value}`, `BOARD_LIST→targetValue 없으면 /boards, 있으면 /boards?boardType={value}`, `INTERNAL_URL`/`EXTERNAL_URL→targetValue 그대로`)는 `MenuService`가 전담하고 Thymeleaf는 `targetType` 분기를 하지 않는다.
-- 헤더 마크업: 일반 메뉴는 `<a>`, GROUP은 `<a href="#">`가 아닌 `<button type="button" aria-expanded aria-controls>`로 렌더링한다. `openInNewTab=true`인 링크는 `target="_blank" rel="noopener noreferrer"`를 함께 렌더링한다(GROUP에는 적용되지 않음). `static/js/home/nav-submenu.js`(신규, `nav-toggle.js`와 별도 파일)가 desktop hover/focus/click, mobile accordion, Escape, outside-click을 담당하며 실제 open 상태와 `aria-expanded`가 항상 일치하도록 `is-open` 클래스를 단일 source of truth로 사용한다(순수 함수 `resolveOpenGroupId`만 Node 테스트 대상).
+- 헤더 마크업: 일반 메뉴는 `<a>`, GROUP은 `<a href="#">`가 아닌 `<button type="button" aria-expanded aria-controls>`로 렌더링한다. `openInNewTab=true`인 링크는 `target="_blank" rel="noopener noreferrer"`를 함께 렌더링한다(GROUP에는 적용되지 않음). `static/js/home/nav-submenu.js`(신규, `nav-toggle.js`와 별도 파일)가 desktop hover/click, mobile accordion, Escape, outside-click을 담당하며 실제 open 상태와 `aria-expanded`가 항상 일치하도록 `is-open` 클래스를 단일 source of truth로 사용한다(순수 함수 `resolveOpenGroupId`만 Node 테스트 대상; 키보드 포커스는 네이티브 Tab 이동 + `<button>`의 기본 Enter/Space 클릭 동작만으로 지원하며, focus 자체가 자동으로 여닫는 별도 로직은 두지 않는다).
 - Footer(`home/layout/footer.html`)는 P13-T30B에서도 동적화하지 않고 기존 4개 하드코딩 링크를 유지한다.
+
+### 최종 IA + 전체메뉴(P13-T30C)
+
+Menu 테이블은 `HOME`/`ABOUT`/`OUR PROGRAMS`/`Blog` 같은 미확정 가안 대신, PRD.md/FEATURES.md에 실제 문서화된 콘텐츠만으로 구성한 최종 IA를 담는다: `연구소 소개`(GROUP: 인사말/연구소 소개/연혁/오시는 길), `프로그램`(GROUP: 수강 프로그램/특강), `게시판`(GROUP: 공지사항/갤러리/자료실/강의 후기) — 3 GROUP + 10 child = 13행(`V5__update_menu_ia.sql`). "Blog"는 어느 문서에도 정의된 기능이 아니어서 제외했다.
+
+- `HOME`과 `전체메뉴`(mega menu trigger)는 Menu DB row가 아니라 `home/layout/header.html`의 정적 마크업이다. `HOME`은 항상 `#quick-menu`의 첫 항목으로 `/`로 이동하는 `<a>`이고, `전체메뉴`는 `headerMenuItems`가 비어 있지 않을 때만 렌더링되는 mega menu trigger다.
+- 전체메뉴는 개별 GROUP dropdown과 **동일한 `headerMenuItems`를 템플릿에서 한 번 더 순회**해 렌더링한다(신규 Java 조회 없음). 최상위 항목이 GROUP이면 헤딩+children 목록, LEAF(관리자가 향후 최상위에 PAGE/PROGRAM_LIST/BOARD_LIST 등을 직접 추가하는 경우)면 헤딩 자체가 클릭 가능한 링크가 되도록 개별 dropdown과 동일한 `item.href == null` 분기를 재사용한다 - 관리자가 GROUP을 LEAF로 바꾸거나 그 반대로 바꿔도, 혹은 visible/openInNewTab을 바꿔도 개별 dropdown과 전체메뉴가 항상 같은 데이터를 보므로 두 UI가 어긋날 수 없다.
+- `static/js/home/nav-submenu.js`는 무수정이다. `.site-nav__item.has-submenu`를 문서 전체에서 범위 제한 없이 스캔하므로 전체메뉴 트리거도 기존 GROUP dropdown과 완전히 동일한 단일 상태 머신(하나만 열림, 다른 것을 열면 자동으로 닫힘, Escape/outside-click 공통 처리)에 자동으로 편입된다.
+- `home.css`의 `.site-nav__megamenu`는 헤더의 가장 오른쪽 항목이라는 특성상 기존 `.site-nav__submenu`의 `left:0`(오른쪽으로 확장) 대신 `right:0; left:auto`(왼쪽으로 확장)를 사용해 1024/1440px에서 뷰포트 밖으로 나가지 않도록 한다. 모바일에서는 hamburger accordion이 이미 동일한 정보를 전부 보여주므로 `[data-menu-id="all"]`을 `display:none`으로 숨겨 중복 노출을 피한다.
+- **향후 원칙**: V5는 Menu 도메인이 아직 어떤 프로덕션 추적 브랜치에도 배포되지 않아 관리자 커스터마이징이 존재할 수 없었던 시점의 1회성 IA 교체다. 이 시점 이후로는 관리자가 CRUD로 수정한 메뉴 데이터를 향후 migration이 DELETE 후 재생성(destructive reset)하는 방식으로 다루지 않는다.
 
 ---
 

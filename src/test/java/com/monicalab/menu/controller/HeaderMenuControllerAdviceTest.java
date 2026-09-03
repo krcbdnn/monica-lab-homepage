@@ -24,6 +24,13 @@ import org.springframework.test.web.servlet.MvcResult;
 @AutoConfigureMockMvc
 class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
+    // P13-T30C: #quick-menu는 이제 항상 정적 HOME 항목(첫 번째 li)을 포함하고, headerMenuItems가
+    // 비어 있지 않으면 항상 전체메뉴(mega menu, data-menu-id="all") 트리거도 함께 렌더링한다. 이
+    // 클래스는 "Menu DB row가 실제로 만들어내는 항목"만 검증하는 것이 목적이므로, 두 정적/집계
+    // 요소를 제외한 selector를 공용으로 사용한다.
+    private static final String MENU_DRIVEN_ITEMS_SELECTOR =
+            "#quick-menu > li:not(:first-child):not([data-menu-id=\"all\"])";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -41,7 +48,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
         menuRepository.saveAndFlush(topLevel("숨김 메뉴", MenuTargetType.HOME, null, false));
 
         Document document = renderHome();
-        Elements links = document.select("#quick-menu > li a");
+        Elements links = document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > a");
 
         assertThat(links).hasSize(1);
         assertThat(links.text()).isEqualTo("보이는 메뉴");
@@ -54,7 +61,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
         Document document = renderHome();
 
-        assertThat(document.select("#quick-menu > li")).isEmpty();
+        assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR)).isEmpty();
         // #site-nav로 범위를 좁힌다 - footer.html도 별도로 "연구소 소개" 하드코딩 링크를 갖고 있어(P13-T30A
         // 무변경 범위) document 전체 텍스트로 검사하면 header와 무관한 footer 텍스트와 우연히 일치한다.
         assertThat(document.select("#site-nav").text()).doesNotContain("ABOUT", "연구소 소개");
@@ -67,7 +74,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
         Document document = renderHome();
 
-        assertThat(document.select("#quick-menu > li")).isEmpty();
+        assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR)).isEmpty();
     }
 
     @Test
@@ -77,7 +84,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
         Document document = renderHome();
 
-        Elements groupLi = document.select("#quick-menu > li.has-submenu");
+        Elements groupLi = document.select(MENU_DRIVEN_ITEMS_SELECTOR + ".has-submenu");
         assertThat(groupLi).hasSize(1);
 
         Elements trigger = groupLi.select("button.site-nav__trigger");
@@ -107,8 +114,8 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
         Document document = renderHome();
 
-        assertThat(document.select("#quick-menu > li.has-submenu")).hasSize(1);
-        assertThat(document.select(".site-nav__trigger")).hasSize(1);
+        assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR + ".has-submenu")).hasSize(1);
+        assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > .site-nav__trigger")).hasSize(1);
         Elements submenuLinks = document.select("#submenu-" + group.getId() + " a");
         assertThat(submenuLinks).hasSize(1);
         assertThat(submenuLinks.text()).isEqualTo("정상 자식");
@@ -122,7 +129,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
         Document document = renderHome();
 
-        assertThat(document.select("#quick-menu > li")).isEmpty();
+        assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR)).isEmpty();
         assertThat(document.text()).doesNotContain("고아 메뉴");
     }
 
@@ -132,7 +139,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
         menuRepository.saveAndFlush(child(nonGroupParent.getId(), "잘못된 자식", MenuTargetType.HOME, null, true));
 
         Document document = renderHome();
-        Elements links = document.select("#quick-menu > li a");
+        Elements links = document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > a");
 
         assertThat(links).hasSize(1);
         assertThat(links.text()).isEqualTo("일반 메뉴");
@@ -151,7 +158,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
         menuRepository.saveAndFlush(topLevel("외부 링크", MenuTargetType.EXTERNAL_URL, "https://example.com", true));
 
         Document document = renderHome();
-        Elements links = document.select("#quick-menu > li a");
+        Elements links = document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > a");
 
         assertThat(links.eachAttr("href")).containsExactly(
                 "/",
@@ -175,21 +182,35 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
         Document document = renderHome();
 
-        Elements newTabLink = document.select("a[href=https://example.com]");
+        // 동일한 href를 가진 링크가 개별 항목과 mega menu 양쪽에 렌더링되므로(P13-T30C), 최상위
+        // Menu 영역(MENU_DRIVEN_ITEMS_SELECTOR)으로 스코프해 정확히 하나만 선택한다.
+        Elements newTabLink = document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > a[href=https://example.com]");
+        assertThat(newTabLink).hasSize(1);
         assertThat(newTabLink.attr("target")).isEqualTo("_blank");
         assertThat(newTabLink.attr("rel")).isEqualTo("noopener noreferrer");
 
-        Elements sameTabLink = document.select("a[href=https://example.org]");
+        Elements sameTabLink = document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > a[href=https://example.org]");
+        assertThat(sameTabLink).hasSize(1);
         assertThat(sameTabLink.hasAttr("target")).isFalse();
         assertThat(sameTabLink.hasAttr("rel")).isFalse();
+
+        // mega menu 쪽 사본도 동일한 target/rel 정책을 따르는지 함께 확인한다.
+        Elements megaMenuNewTabLink = document.select(".site-nav__megamenu a[href=https://example.com]");
+        assertThat(megaMenuNewTabLink.attr("target")).isEqualTo("_blank");
+        assertThat(megaMenuNewTabLink.attr("rel")).isEqualTo("noopener noreferrer");
     }
 
     @Test
     void zeroMenuRendersEmptyQuickMenuWithoutError() throws Exception {
         Document document = renderHome();
 
+        // headerMenuItems가 비어 있으면 정적 HOME 링크만 남고(전체메뉴 트리거도 함께 숨겨짐),
+        // Menu DB가 만들어내는 항목/전체메뉴는 전혀 렌더링되지 않는다.
         assertThat(document.select("#quick-menu")).hasSize(1);
-        assertThat(document.select("#quick-menu > li")).isEmpty();
+        assertThat(document.select("#quick-menu > li")).hasSize(1);
+        assertThat(document.select("#quick-menu > li:first-child > a").attr("href")).isEqualTo("/");
+        assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR)).isEmpty();
+        assertThat(document.select("[data-menu-id=\"all\"]")).isEmpty();
         assertThat(document.select("#nav-toggle")).hasSize(1);
     }
 
@@ -205,7 +226,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
             assertThat(result.getModelAndView().getModel()).containsKey("headerMenuItems");
 
             Document document = Jsoup.parse(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
-            assertThat(document.select("#quick-menu > li a").text()).isEqualTo("연구소 소개");
+            assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > a").text()).isEqualTo("연구소 소개");
         }
     }
 
