@@ -32,6 +32,7 @@
 #site-header {
     position: relative;
     z-index: 10;
+    border-bottom: 1px solid #dee2e6;
 }
 
 #site-header .site-header__inner {
@@ -40,7 +41,6 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid #dee2e6;
 }
 
 .site-header__brand {
@@ -83,17 +83,80 @@
     align-items: center;
 }
 
-/* P13-T30D(A1): 현재 hover 중이거나(:hover) 실제로 열려 있는(.is-open, hover/click/keyboard
-   불문 - nav-submenu.js가 열림 방식과 무관하게 항상 이 클래스 하나로 상태를 동기화한다) 상위
-   GROUP trigger를 시각적으로 강조한다. 새 JS 상태나 클래스를 추가하지 않고 기존 :hover/.is-open을
-   그대로 재사용하므로, trigger→submenu 이동/다른 GROUP 전환 시에도 열림 상태 전환과 항상 자동으로
-   같이 움직인다. 데스크톱(768px 이상)에서만 적용해 모바일 accordion 디자인은 건드리지 않는다.
-   focus-visible의 네이티브 outline은 별도로 손대지 않아 이 강조와 독립적으로 유지된다. */
-@media (min-width: 768px) {
+/* P13-T30D(A2): desktop/tablet nav 배치·타이포그래피 breakpoint. 최종 IA(HOME + GROUP 3 + LEAF 3 +
+   전체메뉴, top-level 8개)를 label 줄바꿈 없이 한 줄로 배치하는 데 필요한 최소 폭을 실측하면(font 16px/
+   gap 20px - 이 media query가 시작하는 값, 아래서 그대로 유지) 768px에서는 물리적으로 불가능하고
+   (필요 폭 ~812px, 8개 label 총폭+gap 7개 합이 가용폭을 초과) 812px부터 한 줄이 성립한다. 900px는 그
+   경계에서 Windows 스크롤바(~15~17px)와 서브픽셀 오차를 흡수하고도 여유(~88px)가 남는 가장 가까운
+   자연스러운 값이라 desktop 시작점으로 채택했다(단순 반올림이 아니라 실측 기반). 기존에는 A1(hover/open
+   강조)만 768px에서 시작하고 모바일 accordion은 767.98px에서 끝나 두 경계가 항상 같았는데, 여기서도
+   그 원칙을 유지해 A1과 A2가 같은 900px 경계 하나만 공유한다 - 중간 폭에서 "데스크톱 강조는 켜졌는데
+   레이아웃은 아직 좁은 폭 그대로"인 hybrid 상태가 생기지 않는다. focus-visible의 네이티브 outline은
+   별도로 손대지 않아 이 강조와 독립적으로 유지된다. */
+@media (min-width: 900px) {
+    /* P13-T30D(A1): 현재 hover 중이거나(:hover) 실제로 열려 있는(.is-open, hover/click/keyboard
+       불문 - nav-submenu.js가 열림 방식과 무관하게 항상 이 클래스 하나로 상태를 동기화한다) 상위
+       GROUP trigger를 시각적으로 강조한다. 새 JS 상태나 클래스를 추가하지 않고 기존 :hover/.is-open을
+       그대로 재사용하므로, trigger→submenu 이동/다른 GROUP 전환 시에도 열림 상태 전환과 항상 자동으로
+       같이 움직인다. */
     .has-submenu:hover .site-nav__trigger,
     .has-submenu.is-open .site-nav__trigger {
         color: var(--color-primary);
         font-weight: 700;
+    }
+
+    /* P13-T30D(A2): 기존 .site-header__inner{justify-content:space-between}은 데스크톱에서 flex
+       자식이 brand/nav 단 2개뿐이라 남는 폭 전부를 그 사이 간격 하나에 몰아줘 nav가 항상 오른쪽
+       padding에 붙어 보였다(1440px에서 로고-nav 간격이 실측 612px까지 벌어짐). nav가 잔여 폭을
+       직접 차지하도록 flex-grow를 주고, 그 잔여 폭 "안에서" 메뉴를 중앙 정렬한다 - 즉 이 중앙 정렬은
+       viewport 정중앙이 아니라 "로고를 제외한 나머지 영역"의 중앙이며, 로고 폭(160px) + inner gap(16px)
+       때문에 뷰포트 중심보다 상수 (160+16)/2=88px만큼 오른쪽에 위치한다(실측: 388~626px에 달했던
+       치우침을 뷰포트 크기와 무관한 고정 88px로 줄임). min-width:0이 없으면 flex item은 콘텐츠
+       min-content 밑으로 줄어들 수 없어 overflow가 나므로 반드시 함께 필요하다. */
+    #site-header .site-header__inner {
+        max-width: 1320px;
+        margin-inline: auto;
+    }
+
+    .site-header__brand {
+        white-space: nowrap;
+    }
+
+    #site-nav {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    #quick-menu {
+        justify-content: center;
+        /* P13-T30D(A2): flex-wrap은 기본 8개 IA를 이 breakpoint에서 우겨넣기 위한 장치가 아니다 -
+           900px부터는 아래 font-size/gap의 최소값(각각 16px/20px)만으로 이미 한 줄에 들어간다
+           (실측 여유 ~88px). wrap은 오직 관리자가 top-level Menu를 추가해 8개보다 많아졌을 때의
+           안전장치로만 남겨둔다: 그 경우 overlap/overflow보다 header 세로 높이 증가를 선택한다. */
+        flex-wrap: wrap;
+        row-gap: 0.25rem;
+        /* 900px(하한, 기존 gap 1.25rem=20px과 동일 - 축소 없음)에서 1440px(28px)까지 서서히 증가.
+           gap: clamp(1.25rem, 0.4167rem + 1.4815vw, 1.75rem) */
+        column-gap: clamp(1.25rem, 0.4167rem + 1.4815vw, 1.75rem);
+    }
+
+    /* P13-T30D(A2): li 자체를 flex로 만들어 자식(a/button)의 line-box 높이에 정확히 밀착시킨다.
+       이게 없으면 clamp()가 만드는 소수점 font-size(예: 16.6px)에서 li의 텍스트 line-box가 button의
+       border-box보다 미세하게 커져, dropdown이 열렸을 때 trigger 하단과 submenu 상단 사이에 최대
+       0.8px pointer dead-zone이 생긴다(A1이 막았던 것과 동일한 종류의 회귀 - 실측으로 재현/확인).
+       submenu 쪽에 별도 margin을 다시 주지 않고 li 쪽에서 막아 A1의 "margin 없이 맞닿는다" 전제를
+       그대로 유지한다. */
+    #quick-menu > li {
+        display: flex;
+        align-items: center;
+    }
+
+    #quick-menu > li > a,
+    #quick-menu > li > .site-nav__trigger {
+        white-space: nowrap;
+        /* 900px(16px, 기존과 동일 - 축소 없음)에서 1024px(18px)까지 커지고 그 이상은 18px로 고정.
+           font-size: clamp(1rem, 0.0927rem + 1.6129vw, 1.125rem) */
+        font-size: clamp(1rem, 0.0927rem + 1.6129vw, 1.125rem);
     }
 }
 
@@ -243,10 +306,14 @@ a.site-nav__megamenu-heading:hover {
     color: inherit;
 }
 
-/* 모바일: 햄버거 토글 노출, 내비게이션은 토글 전까지 접힘.
-   데스크톱/태블릿(768px 이상)은 이 media query 밖의 기본 규칙(#quick-menu 상시 flex)이 그대로 적용되므로
+/* 모바일/좁은 태블릿: 햄버거 토글 노출, 내비게이션은 토글 전까지 접힘.
+   P13-T30D(A2): 기존 767.98px에서 899.98px로 확장 - 최종 IA 8개가 label 줄바꿈 없이 한 줄로 들어가는
+   실측 최소 폭이 900px이라(위 @media (min-width: 900px) 블록 주석 참고), hamburger 구간을 그 경계까지
+   유지해야 "정상 기본 상태가 2줄 desktop nav"가 되는 것을 피할 수 있다. A1 강조·nav flex-grow 등
+   desktop 전용 규칙과 항상 같은 900px 경계를 공유해 중간 폭에서 hybrid 상태가 생기지 않는다.
+   데스크톱/태블릿(900px 이상)은 이 media query 밖의 기본 규칙(#quick-menu 상시 flex)이 그대로 적용되므로
    모바일에서 메뉴를 연 채로 뷰포트가 넓어져도 별도 JS 없이 CSS만으로 항상 노출된다. */
-@media (max-width: 767.98px) {
+@media (max-width: 899.98px) {
     .nav-toggle {
         display: inline-flex;
     }
