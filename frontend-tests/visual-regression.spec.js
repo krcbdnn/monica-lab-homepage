@@ -74,7 +74,9 @@ test.beforeEach(async ({ context, baseURL }) => {
 
 const VIEWPORTS = [
   { name: '375px (mobile)', width: 375, height: 812 },
-  { name: '768px (tablet)', width: 768, height: 1024 },
+  // P13-T30D(A2): 900px 미만은 hamburger/accordion 구간이므로 라벨을 "tablet"이 아니라
+  // "mobile nav"로 바꿔 아래 MOBILE_BREAKPOINT 기준 분기와 일치시킨다(§1).
+  { name: '768px (tablet, mobile nav)', width: 768, height: 1024 },
   { name: '1024px (tablet landscape)', width: 1024, height: 768 },
   { name: '1440px (desktop)', width: 1440, height: 900 },
 ];
@@ -118,10 +120,14 @@ const PAGES = [
 ];
 
 // P13-T1: 공개 공통 Header가 도입되면서 메인 페이지의 주요 내비게이션(#quick-menu)은
-// 모바일(768px 미만)에서 햄버거 토글(#nav-toggle) 뒤로 접힌다.
-// 768px 이상(태블릿/데스크톱)에서는 기존과 동일하게 내비게이션이 바로 visible해야 한다.
+// 모바일(900px 미만)에서 햄버거 토글(#nav-toggle) 뒤로 접힌다.
+// 900px 이상(태블릿/데스크톱)에서는 기존과 동일하게 내비게이션이 바로 visible해야 한다.
+// P13-T30D(A2): 기존 768px에서 900px로 상향. 최종 IA(top-level 8개)가 label 줄바꿈 없이 한 줄로
+// 들어가는 실측 최소 폭이 900px이고(home.css의 `@media (min-width: 900px)` 블록 주석 참고),
+// 그 아래에서 desktop nav를 강제로 보여주면 정상 기본 상태가 2줄 header가 되므로 hamburger 구간을
+// 이 경계까지 넓혔다 - A1 hover/open 강조, mobile accordion과 항상 같은 900px 경계를 공유한다.
 const HEADER_NAV_SELECTOR = '#quick-menu';
-const MOBILE_BREAKPOINT = 768;
+const MOBILE_BREAKPOINT = 900;
 
 for (const viewport of VIEWPORTS) {
   test.describe(`반응형 뷰포트 ${viewport.name}`, () => {
@@ -2689,7 +2695,7 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
       await expect(submenu).toBeVisible();
       await expect(childLink).toBeVisible();
 
-      // P13-T30D(A1): 데스크톱 hover/open 활성 강조(font-weight 700)는 768px 미만에서 적용되지
+      // P13-T30D(A1): 데스크톱 hover/open 활성 강조(font-weight 700)는 900px 미만에서 적용되지
       // 않으므로, 모바일 accordion이 열려 있어도(.is-open) 기존 텍스트 스타일 그대로여야 한다
       // (mobile 디자인 무변경 확인).
       const mobileFontWeight = await trigger.evaluate((el) => getComputedStyle(el).fontWeight);
@@ -2712,8 +2718,10 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     });
   });
 
-  test('768px/1024px: 기존 반응형 navigation 경계에서 GROUP이 추가돼도 핵심 navigation/overflow 회귀가 없다', async ({ page }) => {
-    for (const width of [768, 1024]) {
+  // P13-T30D(A2): desktop nav 시작 경계가 768px에서 900px로 상향됐으므로(home.css의
+  // `@media (min-width: 900px)` 블록 참고) 이 회귀 테스트도 새 경계값으로 갱신한다.
+  test('900px/1024px: desktop navigation 경계에서 GROUP이 추가돼도 핵심 navigation/overflow 회귀가 없다', async ({ page }) => {
+    for (const width of [900, 1024]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
 
@@ -2939,13 +2947,18 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     expect(overflow, '1024px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
   });
 
-  // 기존 CSS breakpoint(max-width: 767.98px)의 정확한 경계 양쪽에서 desktop/mobile nav가
-  // 동시에 보이거나 동시에 숨는 off-by-one 회귀가 없는지 실측한다.
-  test('767px/768px/769px 경계에서 desktop/mobile navigation이 정확히 한쪽만 노출된다', async ({ page }) => {
+  // P13-T30D(A2): CSS breakpoint가 768px에서 900px로 상향됐으므로(home.css의
+  // `@media (max-width: 899.98px)` / `@media (min-width: 900px)`) 새 경계 양쪽에서 desktop/mobile
+  // nav가 동시에 보이거나 동시에 숨는 off-by-one 회귀가 없는지 실측한다. 기존 767/768/769 경계도
+  // 여전히 mobile 쪽으로 정상 동작하는지 함께 확인한다(과거 breakpoint였던 지점의 무회귀).
+  test('899px/900px/901px 경계(및 기존 767/768/769)에서 desktop/mobile navigation이 정확히 한쪽만 노출된다', async ({ page }) => {
     const cases = [
       { width: 767, mobile: true },
-      { width: 768, mobile: false },
-      { width: 769, mobile: false },
+      { width: 768, mobile: true },
+      { width: 769, mobile: true },
+      { width: 899, mobile: true },
+      { width: 900, mobile: false },
+      { width: 901, mobile: false },
     ];
 
     for (const { width, mobile } of cases) {
@@ -3021,6 +3034,260 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
 
     await page.goto('/programs');
     await expect(page.locator('#program-list')).toBeVisible();
+  });
+});
+
+// P13-T30D(A2): desktop/tablet Header top-level 배치(치우침 개선)·타이포그래피(font-size/gap) 최적화.
+// IA/기능은 무변경(그 검증은 위 P13-T30C가 담당) - 여기서는 오직 기하(위치/폭/폰트/gap/줄바꿈)만 다룬다.
+// 기존 desktop breakpoint(768px)에서는 최종 IA top-level 8개가 물리적으로 한 줄에 들어가지 않음이
+// 실측으로 확인되어(§1) 900px로 상향했고, home.css의 두 media query(`max-width:899.98px` /
+// `min-width:900px`)가 이 값을 공유한다. 이 파일 상단 MOBILE_BREAKPOINT 상수도 동일하게 900으로
+// 갱신되어 있다(§ 반응형 뷰포트 루프가 자동으로 새 경계를 검증).
+test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래피', () => {
+  const DESKTOP_BREAKPOINT = 900;
+
+  // top-level li 각각의 boundingBox + 텍스트를 가져와 "한 줄인지", "겹치는지"를 기하로 판정하는
+  // 공통 헬퍼. GROUP/LEAF/HOME/전체메뉴를 구분하지 않고 현재 DOM에 노출된 모든 top-level item을 그대로
+  // 사용하므로, synthetic fixture로 item이 늘어나도(§ 아래 degradation 테스트) 그대로 재사용된다.
+  async function readTopLevelItems(page) {
+    return page.locator('#quick-menu > li').evaluateAll((items) => items
+      .filter((li) => getComputedStyle(li).display !== 'none')
+      .map((li) => {
+        const r = li.getBoundingClientRect();
+        const el = li.querySelector(':scope > a, :scope > button');
+        return {
+          label: el.textContent.trim(),
+          x: r.x, right: r.right, top: r.top, bottom: r.bottom, width: r.width,
+          whiteSpace: getComputedStyle(el).whiteSpace,
+        };
+      }));
+  }
+
+  function rowsOf(items) {
+    const rows = new Map();
+    for (const it of items) {
+      const key = Math.round(it.top);
+      if (!rows.has(key)) rows.set(key, []);
+      rows.get(key).push(it);
+    }
+    return [...rows.values()].map((row) => row.sort((a, b) => a.x - b.x));
+  }
+
+  function maxOverlap(items) {
+    let worst = -Infinity;
+    for (const row of rowsOf(items)) {
+      for (let i = 1; i < row.length; i++) worst = Math.max(worst, row[i - 1].right - row[i].x);
+    }
+    return worst;
+  }
+
+  test.describe('Mobile/tablet 구간(hamburger) - 375 / 767 / 768 / 899', () => {
+    for (const width of [375, 767, 768, 899]) {
+      test(`${width}px: desktop nav가 노출되지 않고 hamburger accordion만 정상 동작한다`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        // 닫힌 기본 상태: hamburger만 보이고 desktop nav는 숨어 있다(오검출 없음 - 새 900px 경계
+        // 바로 아래인 899px까지 desktop nav가 새어 나오지 않는지가 이 테스트의 핵심).
+        await expect(page.locator('#nav-toggle')).toBeVisible();
+        await expect(page.locator('#site-nav')).toBeHidden();
+
+        await page.locator('#nav-toggle').click();
+        await expect(page.locator('#site-nav')).toBeVisible();
+        // 전체메뉴는 hamburger accordion과 중복 노출되지 않는다(기존 정책, 무회귀).
+        await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
+
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+      });
+    }
+  });
+
+  test.describe('Desktop 구간 - 900 / 901 / 1024 / 1366 / 1440', () => {
+    for (const width of [900, 901, 1024, 1366, 1440]) {
+      test(`${width}px: 최종 IA 8개가 한 줄로, label 줄바꿈/겹침 없이 배치된다`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        await expect(page.locator('#nav-toggle')).toBeHidden();
+        await expect(page.locator('#site-nav')).toBeVisible();
+
+        const items = await readTopLevelItems(page);
+        expect(items.map((i) => i.label)).toEqual([
+          'HOME', '연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실', '전체메뉴',
+        ]);
+
+        // 한 줄 배치(§5 - flex-wrap은 8개 기본 IA를 여기서 우겨넣는 용도가 아니라 순수 degradation
+        // 안전장치이므로, 정상 기본 상태에서는 반드시 1줄이어야 한다).
+        const rows = rowsOf(items);
+        expect(rows.length, `${width}px에서 기본 IA 8개는 1줄로 배치돼야 한다`).toBe(1);
+
+        // label이 중간에 줄바꿈되지 않는다(연구소 소개처럼 공백 포함 라벨도 한 덩어리로 유지).
+        for (const it of items) expect(it.whiteSpace).toBe('nowrap');
+
+        // 겹침 없음(같은 줄 내 인접 item)
+        expect(maxOverlap(items), `${width}px에서 top-level item이 서로 겹치면 안 된다`).toBeLessThanOrEqual(0);
+
+        // 로고-nav 겹침 없음
+        const brandBox = await page.locator('.site-header__brand').boundingBox();
+        const firstItem = items[0];
+        expect(brandBox.x + brandBox.width, `${width}px에서 로고와 nav가 겹치면 안 된다`)
+          .toBeLessThanOrEqual(firstItem.x);
+
+        // 전체메뉴는 viewport 안에 있어야 한다(트리거 자체 - mega panel의 viewport 이탈 여부는
+        // 기존 P13-T30C 테스트가 이미 1440에서 커버하므로 여기서는 반복하지 않는다).
+        const lastItem = items[items.length - 1];
+        expect(lastItem.label).toBe('전체메뉴');
+        expect(lastItem.right, `${width}px에서 전체메뉴 트리거가 viewport 밖으로 나가면 안 된다`)
+          .toBeLessThanOrEqual(width);
+
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+      });
+    }
+
+    // P13-T30D(A2): "가운데로 옮겼다"를 감각으로 보지 않고 boundingBox로 증명한다. 단, nav는
+    // flex-grow로 "로고를 제외한 잔여 영역"을 차지하고 그 안에서 중앙 정렬되므로 viewport 정중앙이
+    // 아니라 로고 폭만큼 우측으로 치우친 상수 오프셋이 남는 것이 기하학적으로 정상이다(주석 §3).
+    // 그 상수가 기존(768px 시절 실측 +306~+386px 수준)보다 훨씬 작아졌음과, 로고→메뉴 여백과
+    // 메뉴→우측 여백이 더는 극단적으로 비대칭이 아님(과거엔 우측 여백이 거의 0에 가깝게 붙어 있었다)
+    // 두 가지를 함께 확인한다.
+    for (const width of [1024, 1440]) {
+      test(`${width}px: nav 우측 치우침이 개선되고 logo/nav 시각적 균형이 확보된다(boundingBox 근거)`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        const items = await readTopLevelItems(page);
+        const menuStart = Math.min(...items.map((i) => i.x));
+        const menuEnd = Math.max(...items.map((i) => i.right));
+        const menuCenter = (menuStart + menuEnd) / 2;
+        const centerOffset = menuCenter - width / 2;
+
+        // "viewport 정중앙 강제"가 목표가 아니라 "심한 우측 치우침 제거"가 목표이므로 완화된 상한을
+        // 쓴다 - 기존(768px 시절) 실측은 1024에서 +178px, 1440에서 +386px였다.
+        expect(centerOffset, `${width}px에서 nav 시각적 중심이 viewport 중심에서 크게 벗어나면 안 된다`)
+          .toBeLessThan(150);
+        expect(centerOffset, 'nav가 로고 왼쪽으로 넘어가는 등 반대 방향 회귀가 없어야 한다')
+          .toBeGreaterThan(0);
+
+        const brandBox = await page.locator('.site-header__brand').boundingBox();
+        const innerBox = await page.locator('.site-header__inner').boundingBox();
+        const leftGap = menuStart - (brandBox.x + brandBox.width);
+        const rightGap = (innerBox.x + innerBox.width) - 16 - menuEnd;
+        // 기존에는 rightGap이 항상 16px(패딩만)로 고정되고 leftGap만 뷰포트 크기에 비례해 커졌다
+        // (1440에서 leftGap 612px vs rightGap 16px). 균형 확보를 "두 여백의 차이가 더는 그 정도로
+        // 극단적이지 않다"로 검증한다.
+        expect(Math.abs(leftGap - rightGap), `${width}px에서 로고-nav 여백과 nav-우측 여백이 균형 잡혀야 한다`)
+          .toBeLessThan(120);
+      });
+    }
+
+    test('1024px: top-level font-size가 16px 초과 18px 이하로, 지나치게 압축되지 않고 커진다', async ({ page }) => {
+      await page.setViewportSize({ width: 1024, height: 900 });
+      await page.goto('/');
+      const fs = await page.locator('#quick-menu > li:first-child > a').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(fs, '1024px font-size는 900px 기준값(16px)보다 커야 한다').toBeGreaterThan(16);
+      expect(fs, '1024px font-size가 목표 상한(18px)을 넘으면 안 된다').toBeLessThanOrEqual(18);
+    });
+
+    test('1440px: top-level font-size가 목표값 18px에 도달한다', async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('/');
+      const fs = await page.locator('#quick-menu > li:first-child > a').evaluate((el) => getComputedStyle(el).fontSize);
+      expect(fs).toBe('18px');
+    });
+
+    test(`${DESKTOP_BREAKPOINT}px(breakpoint 시작점): font-size/gap이 기존 모바일 기준값에서 축소되지 않는다`, async ({ page }) => {
+      await page.setViewportSize({ width: DESKTOP_BREAKPOINT, height: 900 });
+      await page.goto('/');
+      const fs = await page.locator('#quick-menu > li:first-child > a')
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      const gap = await page.locator('#quick-menu')
+        .evaluate((el) => parseFloat(getComputedStyle(el).columnGap));
+      expect(fs, `${DESKTOP_BREAKPOINT}px font-size는 기존 16px 아래로 줄어들면 안 된다`).toBeGreaterThanOrEqual(16);
+      expect(gap, `${DESKTOP_BREAKPOINT}px gap은 기존 20px 아래로 줄어들면 안 된다`).toBeGreaterThanOrEqual(20);
+    });
+  });
+
+  test.describe('A1 hover/open dead-zone 무회귀 (레이아웃 변경 후 재확인)', () => {
+    for (const width of [900, 1024, 1440]) {
+      test(`${width}px: "연구소 소개" GROUP dropdown이 dead-zone 없이 열리고 mouse trajectory로도 유지된다`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+          hasText: '연구소 소개',
+        });
+        const trigger = groupItem.locator('.site-nav__trigger');
+        const submenu = groupItem.locator('.site-nav__submenu');
+        const childLink = submenu.locator('a').first();
+
+        await trigger.hover();
+        await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        await expect(submenu).toBeVisible();
+        // A1이 막았던 pointer dead-zone 회귀 - trigger 하단과 submenu 상단 사이에 양수 간격이
+        // 있으면 그 사이를 지나가는 순간 mouseleave가 조기 발동한다(§6). A2가 도입한 clamp()
+        // font-size가 소수점 값을 만들 때 재현되는 것을 실측으로 확인했다.
+        const triggerBox = await trigger.boundingBox();
+        const submenuBox = await submenu.boundingBox();
+        expect(submenuBox.y - (triggerBox.y + triggerBox.height),
+          `${width}px에서 trigger-submenu 사이에 pointer dead-zone이 없어야 한다`).toBeLessThanOrEqual(0);
+
+        // 실제 mouse trajectory(순간이동이 아닌 다단계 이동)로 trigger에서 하위 링크까지 이동해도
+        // 중간에 닫히지 않아야 한다.
+        const childBox = await childLink.boundingBox();
+        await page.mouse.move(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+        await page.mouse.move(childBox.x + childBox.width / 2, childBox.y + childBox.height / 2, { steps: 10 });
+        await expect(submenu).toBeVisible();
+        await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        // hover/open 활성 강조(A1)도 레이아웃 변경 후 그대로 유지된다.
+        await expect(trigger).toHaveCSS('font-weight', '700');
+      });
+    }
+  });
+
+  test.describe('>8 top-level Menu synthetic - wrap degradation (실 IA E2E를 대체하지 않음, 보조 검증)', () => {
+    // 관리자가 top-level LEAF Menu를 추가로 만든 상황을 DOM 복제로 시뮬레이션한다. 실 DB/Menu API를
+    // 전혀 건드리지 않고 순수 CSS 레이아웃 규칙(flex-wrap degradation)만 검증하는 것이 목적이므로,
+    // admin 로그인/실제 Menu 생성이 필요한 P13-T30B 패턴 대신 DOM 조작을 쓴다.
+    async function addSyntheticTopLevelItems(page, count) {
+      await page.evaluate((n) => {
+        const ul = document.querySelector('#quick-menu');
+        const mega = ul.querySelector('[data-menu-id="all"]');
+        for (let i = 0; i < n; i++) {
+          const li = document.createElement('li');
+          li.className = 'site-nav__item';
+          li.innerHTML = `<a href="/synthetic-${i}">추가메뉴${i + 1}</a>`;
+          ul.insertBefore(li, mega);
+        }
+      }, count);
+    }
+
+    for (const extraCount of [2, 6]) {
+      test(`top-level 총 ${8 + extraCount}개일 때 900px/1440px에서 겹침·overflow 없이 wrap되고 전체메뉴는 계속 접근 가능하다`, async ({ page }) => {
+        for (const width of [900, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.goto('/');
+          await addSyntheticTopLevelItems(page, extraCount);
+
+          const items = await readTopLevelItems(page);
+          expect(items.length).toBe(8 + extraCount);
+          expect(maxOverlap(items), `${width}px, ${8 + extraCount}개 item에서 겹침이 없어야 한다`).toBeLessThanOrEqual(0);
+
+          const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+          expect(overflow, `${width}px, ${8 + extraCount}개 item에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+
+          const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+          await expect(megaTrigger, '전체메뉴 트리거는 item이 늘어나도 계속 노출/접근 가능해야 한다').toBeVisible();
+          const megaBox = await megaTrigger.boundingBox();
+          expect(megaBox.x).toBeGreaterThanOrEqual(0);
+          expect(megaBox.x + megaBox.width).toBeLessThanOrEqual(width);
+        }
+      });
+    }
   });
 });
 

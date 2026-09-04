@@ -969,6 +969,23 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T30D(A2). Header desktop/tablet nav 배치·타이포그래피 최적화
+- 의존성: P13-T30C
+- 산출물: `static/css/home.css`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: P13-T30C가 확정한 최종 IA(top-level 8개)는 그대로 두고, desktop/tablet에서 top-level nav의 배치(로고 대비 치우침)와 타이포그래피(font-size/gap)만 최적화한다. IA/기능/Menu DB/`header.html`/JS는 변경하지 않는다.
+  1. desktop nav 시작 breakpoint를 기존 768px에서 900px로 상향한다. 실측 결과 최종 IA 8개는 기존 폰트(16px)/gap(20px) 기준으로 768px에서 물리적으로 한 줄에 들어가지 않고(필요 폭 대비 부족), 812px부터 성립하며 900px가 Windows 스크롤바 등 실측 오차를 흡수하고도 여유가 남는 지점이다. `home.css`의 `@media (min-width: 900px)`(A1 hover/open 강조 + A2 배치 규칙 통합)와 `@media (max-width: 899.98px)`(mobile accordion)가 이 값 하나만 공유해 hybrid 구간이 생기지 않는다.
+  2. desktop 구간에서 `#site-nav{flex:1 1 auto}` + `#quick-menu{justify-content:center}`로 nav가 로고 오른쪽 잔여 폭을 차지하고 그 안에서 중앙 정렬되도록 해, 기존 `space-between`이 만들던 심한 우측 치우침(1440px에서 로고-nav 간격 실측 612px)을 로고 폭 기준 상수 오프셋 수준으로 줄인다. font-size는 16px(900px)~18px(1024px 이상)로, gap은 20px(900px)~28px(1440px)로 자연스럽게 커진다(둘 다 기존 값 아래로 축소되지 않음). `#quick-menu > li{display:flex;align-items:center}`로 A1이 막았던 trigger-submenu pointer dead-zone이 소수점 font-size에서 재발하지 않게 한다.
+  3. `flex-wrap:wrap`은 기본 8개 IA를 배치하는 수단이 아니라, 관리자가 top-level Menu를 추가해 8개보다 많아졌을 때 overlap/overflow 대신 header 세로 높이 증가를 선택하는 degradation 전용 안전장치로만 사용한다.
+- DoD:
+  - 900/901/1024/1366/1440px에서 최종 IA 8개가 label 줄바꿈 없이 1줄로 배치, top-level item 겹침 없음, 로고-nav 겹침 없음, 전체메뉴 viewport 이탈 없음.
+  - 375/767/768/899px에서 desktop nav가 노출되지 않고 hamburger/accordion 기존 동작 무회귀.
+  - P13-T30D(A1)의 hover/open dead-zone 없음·mouse trajectory 유지·활성 강조(font-weight 700) 무회귀(900/1024/1440px 재확인).
+  - top-level Menu가 8개를 초과하는 synthetic 상황에서도 겹침/overflow 없이 wrap degradation, 전체메뉴 계속 접근 가능.
+  - 기존 Playwright 전체(P13-T1~T30C) 무회귀 통과, Java/Node 전체 회귀 통과, `./gradlew build` 성공.
+  - `docker-compose.local-test.yml`(untracked 유지), DB volume 보존.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
