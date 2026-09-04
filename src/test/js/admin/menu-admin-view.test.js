@@ -83,10 +83,53 @@ test('templates/admin/menu/list.html does not implement +/-1 nudge buttons or dr
 });
 
 // P13-T30A: /api/admin/menus는 이미 "부모 바로 뒤에 자식"이 오는 순서로 응답하므로, 화면은 그
-// 순서를 그대로 렌더링하되 자식 행만 라벨 앞에 들여쓰기 접두사를 붙인다(별도 트리 조립 없음).
-test('templates/admin/menu/list.html indents child rows (parentId present) without rebuilding the tree client-side', () => {
+// 순서를 그대로 렌더링하되 자식 행만 CSS로 들여쓰기한다(별도 트리 조립 없음).
+// P13-T30E(Task B): 텍스트 접두사('— ')를 CSS class 기반 들여쓰기(admin.css의
+// .admin-menu-row--child .admin-menu-row__label)로 교체했다.
+test('templates/admin/menu/list.html indents child rows (parentId present) via a CSS class, without rebuilding the tree client-side', () => {
     const html = readTemplate('admin/menu/list.html');
-    assert.match(html, /menu\.parentId \? '— ' : ''/);
+    assert.match(html, /if \(menu\.parentId\) \{\s*tr\.classList\.add\('admin-menu-row--child'\);/);
+    assert.match(html, /labelSpan\.className = 'admin-menu-row__label';/);
+    assert.doesNotMatch(html, /'— '/);
+});
+
+// P13-T30E(Task B): 유형(targetType)을 raw enum 문자열이 아니라 Bootstrap badge + 한글 라벨로
+// 표시한다. class/구조만 검증하고 정확한 색상 클래스 조합이나 문구 전체를 과도하게 고정하지 않는다.
+test('templates/admin/menu/list.html renders targetType as a Bootstrap badge instead of the raw enum string', () => {
+    const html = readTemplate('admin/menu/list.html');
+    assert.match(html, /function typeBadge\(targetType\)/);
+    assert.match(html, /span\.className = 'badge ' \+ info\.cls;/);
+    assert.doesNotMatch(html, /targetTypeTd\.textContent = menu\.targetType;/);
+});
+
+// P13-T30E(Task B): 알 수 없는 targetType/targetValue를 만나도 raw 값으로 fallback해야 한다(빈
+// 문자열로 숨기지 않음) - typeBadge와 targetDisplayLabel 양쪽 모두.
+test('templates/admin/menu/list.html falls back to the raw value for unmapped targetType/targetValue instead of hiding it', () => {
+    const html = readTemplate('admin/menu/list.html');
+    assert.match(html, /TARGET_TYPE_BADGE\[targetType\] \|\| \{text: targetType/);
+    assert.match(html, /valueLabels\[menu\.targetValue\] \|\| menu\.targetValue/);
+});
+
+// P13-T30E(Task B): GROUP은 target_value 자체가 없는 구조적 요소라 '-', HOME은 target_value가 항상
+// 비어 있어도 targetType 자체가 목적지(메인 화면)를 의미하므로 GROUP과 동일하게 '-' 처리하지 않고
+// '홈'으로 명시한다.
+test('templates/admin/menu/list.html displays GROUP target as "-" and HOME target as "홈" (not both as "-")', () => {
+    const html = readTemplate('admin/menu/list.html');
+    const fnBody = html.slice(html.indexOf('function targetDisplayLabel'), html.indexOf('function typeBadge'));
+    assert.match(fnBody, /if \(menu\.targetType === 'GROUP'\) \{\s*return '-';/);
+    assert.match(fnBody, /if \(menu\.targetType === 'HOME'\) \{\s*return '홈';/);
+});
+
+// P13-T30E(Task B): GROUP도 실제 is_visible 값을 갖고 getPublicMenuTree()에 영향을 주므로, GROUP
+// 행이라고 해서 공개/숨김 badge를 다른 행과 다르게 생략하거나 조건 분기하지 않는다 - 모든 행이
+// menu.visible 값을 그대로 배지로 보여준다.
+test('templates/admin/menu/list.html shows a visible/hidden badge for every row including GROUP rows (no GROUP-specific branching)', () => {
+    const html = readTemplate('admin/menu/list.html');
+    assert.match(html, /function visibilityBadge\(visible\)/);
+    assert.match(html, /visibleTd\.appendChild\(visibilityBadge\(menu\.visible\)\);/);
+    // renderRow 안에서 targetType==='GROUP'을 조건으로 visibleTd/visibilityBadge를 분기하지 않는다.
+    const renderRowBody = html.slice(html.indexOf('function renderRow'), html.indexOf('function loadMenus'));
+    assert.doesNotMatch(renderRowBody, /targetType === 'GROUP'/);
 });
 
 test('templates/admin/menu/form.html inherits the common admin layout', () => {
@@ -187,4 +230,45 @@ test('templates/admin/menu/form.html payload normalizes targetSubvalue to null u
     const html = readTemplate('admin/menu/form.html');
     assert.match(html, /var isBoardReview = targetTypeValue === 'BOARD_LIST' && targetValueValue === 'REVIEW';/);
     assert.match(html, /targetSubvalue: isBoardReview \? \(document\.querySelector\('#targetSubvalue'\)\.value \|\| null\) : null/);
+});
+
+// P13-T30E(Task B): targetValue는 여전히 자유 텍스트 input이고 payload 조립은 무변경이지만,
+// targetType별 후보를 datalist로 제공해 오타를 줄인다. option.value는 항상 원본 enum 문자열이어야
+// 하고(서버로 그대로 전송되는 값), 임의 값 입력 자체를 막는 기능(예: <select>로 완전 대체)이 아니어야
+// 한다 - <input list="..."> 구조와 targetValue의 type="text"가 그대로 유지되는지로 이를 검증한다.
+test('templates/admin/menu/form.html provides a datalist of targetValue candidates per targetType without restricting free text input', () => {
+    const html = readTemplate('admin/menu/form.html');
+    assert.match(html, /<input type="text" class="form-control" id="targetValue" name="targetValue" maxlength="255"\s*\n\s*list="targetValueCandidates">/);
+    assert.match(html, /<datalist id="targetValueCandidates"><\/datalist>/);
+    assert.match(html, /function updateTargetValueCandidates\(\)/);
+    assert.match(html, /document\.querySelector\('#targetType'\)\.addEventListener\('change', updateTargetValueCandidates\)/);
+
+    const candidatesBlock = html.slice(html.indexOf('var TARGET_VALUE_CANDIDATES'), html.indexOf('function updateTargetValueCandidates'));
+    for (const value of ['GREETING', 'INTRODUCTION', 'HISTORY', 'LOCATION', 'COURSE', 'SPECIAL',
+        'NOTICE', 'GALLERY', 'ARCHIVE', 'REVIEW']) {
+        assert.match(candidatesBlock, new RegExp(`value: '${value}'`),
+            `datalist candidates must include the raw enum value '${value}'`);
+    }
+});
+
+// P13-T30E(Task B): datalist 후보는 편집 중인 메뉴를 불러온 뒤(targetType가 서버 값으로 갱신된 뒤)에도
+// 다시 계산되어야 한다 - 그래야 수정 화면에서도 올바른 후보가 뜬다.
+test('templates/admin/menu/form.html re-computes targetValue candidates after targetType is set from the fetched menu', () => {
+    const html = readTemplate('admin/menu/form.html');
+    const targetTypePrefillIndex = html.indexOf("document.querySelector('#targetType').value = menu.targetType;");
+    const candidatesRecomputeIndex = html.indexOf('updateTargetValueCandidates();', targetTypePrefillIndex);
+    const targetValuePrefillIndex = html.indexOf("document.querySelector('#targetValue').value = menu.targetValue", targetTypePrefillIndex);
+
+    assert.notEqual(targetTypePrefillIndex, -1);
+    assert.ok(candidatesRecomputeIndex !== -1 && candidatesRecomputeIndex < targetValuePrefillIndex,
+        'updateTargetValueCandidates() must run after targetType is prefilled and before/around targetValue prefill');
+});
+
+// P13-T30E(Task B): 상위 메뉴 select의 표시 텍스트에만 "(그룹)"을 덧붙인다 - value/필터 조건은 무변경
+// (기존 "restricts the parent select to top-level GROUP menus" 테스트가 이미 그 필터 로직 자체를
+// 검증하므로 여기서는 표시 텍스트만 확인한다).
+test('templates/admin/menu/form.html appends "(그룹)" to parent select option labels without changing option.value', () => {
+    const html = readTemplate('admin/menu/form.html');
+    assert.match(html, /option\.textContent = menu\.label \+ ' \(그룹\)';/);
+    assert.match(html, /option\.value = menu\.id;/);
 });

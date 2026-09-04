@@ -19,9 +19,9 @@
             <th>메뉴명</th>
             <th>상위 메뉴</th>
             <th>유형</th>
-            <th>대상 값</th>
+            <th>대상</th>
             <th>정렬 순서</th>
-            <th>노출 여부</th>
+            <th>공개 여부</th>
             <th>관리</th>
         </tr>
         </thead>
@@ -36,15 +36,90 @@
             errorMessage.style.display = 'block';
         }
 
+        // P13-T30E(Task B): 목록/폼 표시 전용 매핑. 서버로 보내는 payload나 비교 조건(targetType 등)은
+        // 이 파일 어디에서도 원본 enum 문자열 그대로만 쓰고, 아래 맵들은 오직 사람이 읽는 badge/라벨
+        // 표시에만 쓰인다. 여기 없는 값(향후 추가된 PageType/BoardType/ProgramType 등)을 만나도 화면이
+        // 값을 숨기지 않도록 항상 raw 값으로 fallback한다. admin/page·admin/board 목록이 이미 쓰고
+        // 있는 한글 표현(인사말/연구소 소개/연혁/오시는 길, 공지사항/갤러리/자료실/강의 후기)을 그대로
+        // 재사용해 화면마다 같은 값을 다른 말로 부르지 않는다. PROGRAM_LIST만 admin/program/list.html의
+        // "정규 강좌"를 그대로 따른다.
+        var TARGET_TYPE_BADGE = {
+            GROUP: {text: '그룹', cls: 'text-bg-secondary'},
+            HOME: {text: '홈', cls: 'text-bg-light text-dark border'},
+            PAGE: {text: '고정 페이지', cls: 'text-bg-primary'},
+            PROGRAM_LIST: {text: '프로그램', cls: 'text-bg-success'},
+            BOARD_LIST: {text: '게시판', cls: 'text-bg-info'},
+            INTERNAL_URL: {text: '내부 경로', cls: 'text-bg-dark'},
+            EXTERNAL_URL: {text: '외부 링크', cls: 'text-bg-warning text-dark'}
+        };
+
+        var TARGET_VALUE_LABELS = {
+            PAGE: {GREETING: '인사말', INTRODUCTION: '연구소 소개', HISTORY: '연혁', LOCATION: '오시는 길'},
+            PROGRAM_LIST: {COURSE: '정규 강좌', SPECIAL: '특강'},
+            BOARD_LIST: {NOTICE: '공지사항', GALLERY: '갤러리', ARCHIVE: '자료실', REVIEW: '강의 후기'}
+        };
+        var TARGET_EMPTY_VALUE_LABELS = {PROGRAM_LIST: '전체 프로그램', BOARD_LIST: '전체 게시판'};
+        // BOARD_LIST+REVIEW 전용 targetSubvalue 표시(Task C). PROGRAM_LIST 자체의 COURSE/SPECIAL
+        // 표시(위 TARGET_VALUE_LABELS)와는 별개의, 괄호 안에만 쓰는 축약 표현이다.
+        var REVIEW_SUBVALUE_LABELS = {COURSE: '수강', SPECIAL: '특강'};
+
+        // GROUP은 target_value를 갖지 않는 구조적 요소라 '-', HOME은 target_value가 항상 비어 있어도
+        // targetType 자체가 목적지(메인 화면)를 의미하므로 '홈'으로 명시한다(GROUP과 동일하게
+        // '-' 처리하지 않음).
+        function targetDisplayLabel(menu) {
+            if (menu.targetType === 'GROUP') {
+                return '-';
+            }
+            if (menu.targetType === 'HOME') {
+                return '홈';
+            }
+            if (menu.targetType === 'INTERNAL_URL' || menu.targetType === 'EXTERNAL_URL') {
+                return menu.targetValue;
+            }
+            if (!menu.targetValue) {
+                return TARGET_EMPTY_VALUE_LABELS[menu.targetType] || '전체';
+            }
+            var valueLabels = TARGET_VALUE_LABELS[menu.targetType] || {};
+            var label = valueLabels[menu.targetValue] || menu.targetValue;
+            if (menu.targetType === 'BOARD_LIST' && menu.targetValue === 'REVIEW' && menu.targetSubvalue) {
+                label += '(' + (REVIEW_SUBVALUE_LABELS[menu.targetSubvalue] || menu.targetSubvalue) + ')';
+            }
+            return label;
+        }
+
+        function typeBadge(targetType) {
+            var info = TARGET_TYPE_BADGE[targetType] || {text: targetType, cls: 'text-bg-light text-dark border'};
+            var span = document.createElement('span');
+            span.className = 'badge ' + info.cls;
+            span.textContent = info.text;
+            return span;
+        }
+
+        // GROUP도 실제 is_visible 값을 갖고 공개 헤더 렌더링(getPublicMenuTree)에 영향을 주므로,
+        // GROUP 행이라고 해서 이 badge를 생략하지 않는다 - 모든 행이 동일하게 공개/숨김을 보여준다.
+        function visibilityBadge(visible) {
+            var span = document.createElement('span');
+            span.className = 'badge ' + (visible ? 'text-bg-success' : 'text-bg-secondary');
+            span.textContent = visible ? '공개' : '숨김';
+            return span;
+        }
+
         // P13-T30A: /api/admin/menus는 이미 "부모 바로 뒤에 그 자식들"이 오는 순서로 응답하므로,
-        // 화면에서 별도로 트리를 다시 조립하지 않고 응답 순서 그대로 렌더링하되, 자식 행(parentId가
-        // 있는 행)만 라벨 앞에 들여쓰기 접두사를 붙여 시각적으로 구분한다. "상위 메뉴" 열은 같은 응답
-        // 안에서 id -> label을 미리 만들어 둔 맵으로 조회한다(별도 API 호출 없음).
+        // 화면에서 별도로 트리를 다시 조립하지 않고 응답 순서 그대로 렌더링한다. 자식 행(parentId가
+        // 있는 행)만 tr에 admin-menu-row--child 클래스를 부여해 CSS(admin.css)가 들여쓰기+"└" 접두사를
+        // 붙인다 - 2-depth만 존재함이 MenuService에서 이미 보장되므로 depth 계산은 하지 않는다.
+        // "상위 메뉴" 열은 같은 응답 안에서 id -> label을 미리 만들어 둔 맵으로 조회한다(별도 API 호출 없음).
         function renderRow(menu, labelById) {
             var tr = document.createElement('tr');
+            if (menu.parentId) {
+                tr.classList.add('admin-menu-row--child');
+            }
 
             var labelTd = document.createElement('td');
-            labelTd.textContent = (menu.parentId ? '— ' : '') + menu.label;
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'admin-menu-row__label';
+            labelSpan.textContent = menu.label;
+            labelTd.appendChild(labelSpan);
             tr.appendChild(labelTd);
 
             var parentTd = document.createElement('td');
@@ -52,17 +127,11 @@
             tr.appendChild(parentTd);
 
             var targetTypeTd = document.createElement('td');
-            targetTypeTd.textContent = menu.targetType;
+            targetTypeTd.appendChild(typeBadge(menu.targetType));
             tr.appendChild(targetTypeTd);
 
-            // P13-T30D(Task C): BOARD_LIST+REVIEW 메뉴는 targetSubvalue(COURSE/SPECIAL/미지정)를
-            // 대상 값 옆에 함께 표시한다(전면 UI polish는 Task B 범위 - 여기서는 텍스트만 추가).
             var targetValueTd = document.createElement('td');
-            var targetValueText = menu.targetValue || '-';
-            if (menu.targetType === 'BOARD_LIST' && menu.targetValue === 'REVIEW') {
-                targetValueText += ' / ' + (menu.targetSubvalue || '미지정');
-            }
-            targetValueTd.textContent = targetValueText;
+            targetValueTd.textContent = targetDisplayLabel(menu);
             tr.appendChild(targetValueTd);
 
             var sortOrderTd = document.createElement('td');
@@ -106,7 +175,7 @@
             tr.appendChild(sortOrderTd);
 
             var visibleTd = document.createElement('td');
-            visibleTd.textContent = menu.visible ? '노출' : '비노출';
+            visibleTd.appendChild(visibilityBadge(menu.visible));
             tr.appendChild(visibleTd);
 
             var actionTd = document.createElement('td');

@@ -16,6 +16,9 @@ const ADMIN_PAGES = [
   '/admin/banners',
   '/admin/popups',
   '/admin/files',
+  // P13-T30E(Task B): admin menu 화면(list/form)이 이 회귀 목록에 없었던 기존 갭을 메운다.
+  '/admin/menus',
+  '/admin/menus/new',
 ];
 
 async function loginAsAdmin(context, baseURL) {

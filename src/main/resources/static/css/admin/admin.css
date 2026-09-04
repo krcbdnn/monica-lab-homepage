@@ -31,3 +31,17 @@
     max-height: 150px;
     display: block;
 }
+
+/* P13-T30E(Task B): 관리자 메뉴 목록 - 자식 행(parentId 존재) 들여쓰기. Menu는 GROUP만 부모가 될 수
+   있어 2-depth만 존재함이 이미 보장되므로(MenuService.validateParentAndGroupPlacement) depth 계산 없이
+   단일 클래스로 충분하다. 다른 admin 화면에 영향이 없도록 .admin-menu- 접두사로 scope한다. */
+.admin-menu-row--child .admin-menu-row__label {
+    display: inline-block;
+    padding-left: 1.5rem;
+}
+
+.admin-menu-row--child .admin-menu-row__label::before {
+    content: "└";
+    margin-right: 0.375rem;
+    color: #6c757d;
+}

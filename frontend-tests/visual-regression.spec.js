@@ -3426,3 +3426,91 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
     await expect(page.locator('body')).toContainText(noticeTitle);
   });
 });
+
+// P13-T30E(Task B): Admin Menu UI Polish 최소 E2E. 신규 Menu row를 만들지 않고, 이미 seed되어 있는
+// 최종 IA(연구소 소개/수강 신청/강의 후기 GROUP + 공지사항/갤러리/자료실 top-level LEAF - P13-T30D
+// Task C/A2가 이미 이 구조 자체를 전수 검증했다)를 그대로 검증 대상으로 삼아, Task B가 바꾼 "표현"
+// (들여쓰기 class/badge/target 라벨/datalist)만 확인한다. Bootstrap 실제 RGB 색상이나 pixel 값은
+// 검증하지 않고 class 존재/텍스트만 본다.
+test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+  });
+
+  test('/admin/menus: GROUP/child 계층이 CSS class로 구분되고, 유형/공개여부는 badge로, 대상은 사람이 읽는 라벨로 표시된다', async ({ page }) => {
+    await page.goto('/admin/menus');
+
+    const rows = page.locator('#menu-list-body tr');
+    await expect(rows.first()).toBeVisible();
+
+    // 최상위 GROUP 행("연구소 소개"): 자식 class가 없고, 유형 badge는 "그룹", 대상은 '-'다.
+    // "부모 바로 뒤에 자식" 응답 순서상 같은 라벨을 가진 행 중 GROUP 자신이 항상 먼저 오므로 first()로
+    // 특정한다("연구소 소개"는 GROUP명이자 그 자식 PAGE의 라벨이기도 해 구조 기반으로만 구분한다).
+    const aboutGroupRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '연구소 소개' }) }).first();
+    await expect(aboutGroupRow).not.toHaveClass(/admin-menu-row--child/);
+    await expect(aboutGroupRow.locator('.badge', { hasText: '그룹' })).toBeVisible();
+    const aboutCells = aboutGroupRow.locator('td');
+    await expect(aboutCells.nth(3)).toHaveText('-');
+    // GROUP도 다른 행과 동일하게 공개/숨김 badge를 갖는다(생략되지 않음).
+    await expect(aboutCells.nth(5).locator('.badge')).toBeVisible();
+
+    // 자식 행("인사말", PAGE, seed 데이터상 is_visible=false): admin-menu-row--child class, PAGE
+    // badge, 대상은 raw "GREETING"이 아니라 한글 라벨 "인사말", 공개여부는 "숨김".
+    const greetingRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '인사말' }) }).first();
+    await expect(greetingRow).toHaveClass(/admin-menu-row--child/);
+    await expect(greetingRow.locator('.badge', { hasText: '고정 페이지' })).toBeVisible();
+    const greetingCells = greetingRow.locator('td');
+    await expect(greetingCells.nth(3)).toHaveText('인사말');
+    await expect(greetingCells.nth(5).locator('.badge')).toHaveText('숨김');
+
+    // top-level LEAF 행("공지사항", BOARD_LIST): 자식 class 없음, 대상은 "공지사항", 공개 badge.
+    const noticeRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '공지사항' }) }).first();
+    await expect(noticeRow).not.toHaveClass(/admin-menu-row--child/);
+    await expect(noticeRow.locator('.badge', { hasText: '게시판' })).toBeVisible();
+    const noticeCells = noticeRow.locator('td');
+    await expect(noticeCells.nth(3)).toHaveText('공지사항');
+    await expect(noticeCells.nth(5).locator('.badge')).toHaveText('공개');
+
+    // BOARD_LIST+REVIEW+targetSubvalue 조합("수강 후기"): 대상이 "강의 후기(수강)"으로 조합 표시된다.
+    const courseReviewRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '수강 후기' }) }).first();
+    await expect(courseReviewRow.locator('td').nth(3)).toHaveText('강의 후기(수강)');
+  });
+
+  test('/admin/menus/new: targetType을 바꾸면 targetValue datalist 후보가 그에 맞게 갱신된다', async ({ page }) => {
+    await page.goto('/admin/menus/new');
+
+    await page.locator('#targetType').selectOption('PAGE');
+    let optionValues = await page.locator('#targetValueCandidates option').evaluateAll(
+      (options) => options.map((o) => o.getAttribute('value')));
+    expect(optionValues).toEqual(['GREETING', 'INTRODUCTION', 'HISTORY', 'LOCATION']);
+
+    await page.locator('#targetType').selectOption('BOARD_LIST');
+    optionValues = await page.locator('#targetValueCandidates option').evaluateAll(
+      (options) => options.map((o) => o.getAttribute('value')));
+    expect(optionValues).toEqual(['NOTICE', 'GALLERY', 'ARCHIVE', 'REVIEW']);
+
+    // GROUP/HOME/INTERNAL_URL/EXTERNAL_URL은 자유 입력(또는 빈 값)이라 후보를 두지 않는다.
+    await page.locator('#targetType').selectOption('GROUP');
+    await expect(page.locator('#targetValueCandidates option')).toHaveCount(0);
+
+    // datalist는 힌트일 뿐 다른 값 입력 자체를 막지 않는다(자유 텍스트 input 그대로).
+    await page.locator('#targetType').selectOption('PAGE');
+    await page.locator('#targetValue').fill('NOT_IN_DATALIST');
+    await expect(page.locator('#targetValue')).toHaveValue('NOT_IN_DATALIST');
+  });
+
+  test('/admin/menus/new: 상위 메뉴 select는 기존과 동일하게 top-level GROUP만 후보로 제공한다(무회귀)', async ({ page }) => {
+    await page.goto('/admin/menus/new');
+
+    const parentOptions = page.locator('#parentId option');
+    const texts = await parentOptions.allTextContents();
+
+    // GROUP이 아닌 LEAF/자식 메뉴는 후보에 없어야 한다(기존 필터링 로직 무회귀).
+    expect(texts.some((t) => t.includes('공지사항'))).toBe(false);
+    expect(texts.some((t) => t.includes('인사말'))).toBe(false);
+    // top-level GROUP은 후보에 있고, 표시 텍스트에만 "(그룹)"이 덧붙는다.
+    expect(texts).toContain('연구소 소개 (그룹)');
+  });
+});
