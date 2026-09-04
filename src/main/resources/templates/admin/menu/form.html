@@ -23,19 +23,26 @@
         </div>
         <div class="mb-3">
             <label for="targetType" class="form-label">유형</label>
+            <!-- P13-T30E(Task B): option value(서버로 보내는 실제 enum 문자열)는 그대로 두고 표시
+                 텍스트만 한글 우선으로 바꾼다. -->
             <select class="form-select" id="targetType" name="targetType">
-                <option value="GROUP">GROUP(하위 메뉴 묶음, 자체 링크 없음)</option>
-                <option value="HOME">HOME(메인 화면)</option>
-                <option value="PAGE">PAGE(기관소개 고정 페이지)</option>
-                <option value="PROGRAM_LIST">PROGRAM_LIST(프로그램 목록)</option>
-                <option value="BOARD_LIST">BOARD_LIST(게시판 목록)</option>
-                <option value="INTERNAL_URL">INTERNAL_URL(내부 경로)</option>
-                <option value="EXTERNAL_URL">EXTERNAL_URL(외부 URL)</option>
+                <option value="GROUP">그룹(하위 메뉴 묶음, 자체 링크 없음)</option>
+                <option value="HOME">홈(메인 화면)</option>
+                <option value="PAGE">고정 페이지(기관소개)</option>
+                <option value="PROGRAM_LIST">프로그램 목록</option>
+                <option value="BOARD_LIST">게시판 목록</option>
+                <option value="INTERNAL_URL">내부 경로</option>
+                <option value="EXTERNAL_URL">외부 링크</option>
             </select>
         </div>
         <div class="mb-3">
             <label for="targetValue" class="form-label">대상 값</label>
-            <input type="text" class="form-control" id="targetValue" name="targetValue" maxlength="255">
+            <!-- P13-T30E(Task B): list 속성으로 datalist 후보를 연결한다. 자유 텍스트 입력/payload
+                 조립 로직은 그대로이며, 후보는 목록 노출용 힌트일 뿐 다른 값 입력을 막지 않는다
+                 (최종 검증은 여전히 서버 MenuService.validateTarget). -->
+            <input type="text" class="form-control" id="targetValue" name="targetValue" maxlength="255"
+                   list="targetValueCandidates">
+            <datalist id="targetValueCandidates"></datalist>
             <div class="form-text">
                 GROUP/HOME은 비워둡니다. PAGE는 GREETING/INTRODUCTION/HISTORY/LOCATION 중 하나,
                 PROGRAM_LIST는 COURSE/SPECIAL(비우면 전체), BOARD_LIST는 NOTICE/GALLERY/ARCHIVE/REVIEW(비우면 전체),
@@ -101,13 +108,52 @@
                     .forEach(function (menu) {
                         var option = document.createElement('option');
                         option.value = menu.id;
-                        option.textContent = menu.label;
+                        // P13-T30E(Task B): 표시 텍스트에만 "(그룹)"을 덧붙인다 - option.value/필터
+                        // 조건/parentId 변환 로직은 무변경.
+                        option.textContent = menu.label + ' (그룹)';
                         select.appendChild(option);
                     });
             });
     }
 
     var parentOptionsReady = loadParentOptions();
+
+    // P13-T30E(Task B): targetType별로 자주 쓰는 targetValue 후보를 datalist에 채워 오타를 줄인다.
+    // admin/page·admin/board 목록이 이미 쓰는 한글 표현을 label로만 보여주고, 실제 입력/전송되는
+    // 값(option.value)은 항상 원본 enum 문자열이다. INTERNAL_URL/EXTERNAL_URL/GROUP/HOME은 자유
+    // 입력(또는 빈 값)이라 후보를 두지 않는다.
+    var TARGET_VALUE_CANDIDATES = {
+        PAGE: [
+            {value: 'GREETING', label: '인사말'},
+            {value: 'INTRODUCTION', label: '연구소 소개'},
+            {value: 'HISTORY', label: '연혁'},
+            {value: 'LOCATION', label: '오시는 길'}
+        ],
+        PROGRAM_LIST: [
+            {value: 'COURSE', label: '정규 강좌'},
+            {value: 'SPECIAL', label: '특강'}
+        ],
+        BOARD_LIST: [
+            {value: 'NOTICE', label: '공지사항'},
+            {value: 'GALLERY', label: '갤러리'},
+            {value: 'ARCHIVE', label: '자료실'},
+            {value: 'REVIEW', label: '강의 후기'}
+        ]
+    };
+
+    function updateTargetValueCandidates() {
+        var datalist = document.querySelector('#targetValueCandidates');
+        datalist.innerHTML = '';
+        var candidates = TARGET_VALUE_CANDIDATES[document.querySelector('#targetType').value] || [];
+        candidates.forEach(function (candidate) {
+            var option = document.createElement('option');
+            option.value = candidate.value;
+            option.label = candidate.label;
+            datalist.appendChild(option);
+        });
+    }
+    document.querySelector('#targetType').addEventListener('change', updateTargetValueCandidates);
+    updateTargetValueCandidates();
 
     // P13-T30D(Task C): targetType=BOARD_LIST이고 targetValue=REVIEW일 때만 targetSubvalue 선택
     // UI를 노출한다. 그 외 조합으로 바뀌면 필드를 숨기고 값도 비워(payload에서 항상 null로 나가도록)
@@ -139,6 +185,7 @@
             document.querySelector('#label').value = menu.label;
             document.querySelector('#parentId').value = menu.parentId || '';
             document.querySelector('#targetType').value = menu.targetType;
+            updateTargetValueCandidates();
             document.querySelector('#targetValue').value = menu.targetValue || '';
             document.querySelector('#targetSubvalue').value = menu.targetSubvalue || '';
             updateTargetSubvalueVisibility();

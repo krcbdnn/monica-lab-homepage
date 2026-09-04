@@ -986,6 +986,23 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T30E(Task B). Admin Menu UI Polish
+- 의존성: P13-T30D(A2)
+- 산출물: `admin/menu/list.html`, `admin/menu/form.html`, `static/css/admin/admin.css`, `src/test/js/admin/menu-admin-view.test.js`
+- 작업 내용: 기능은 그대로 두고 관리자 메뉴 목록/폼 화면의 가독성·입력 UX만 개선한다. `/api/admin/menus*` API 계약, Menu Entity/Service/DTO/Controller, 공개 Header(`getPublicMenuTree`/`header.html`/`home.css`), Flyway/Menu 데이터는 전혀 건드리지 않는다.
+  1. `list.html`: GROUP/자식 계층을 `menu.parentId ? '— ' : ''` 텍스트 접두사 대신 `admin-menu-row--child` CSS class(들여쓰기+"└", `admin.css`)로 표시. `targetType`을 raw enum 대신 Bootstrap badge(`text-bg-*`)로, `targetValue`/`targetSubvalue`를 raw 값 대신 사람이 읽는 한글 라벨(매핑에 없는 값은 raw fallback)로 표시. GROUP도 다른 행과 동일하게 실제 `visible` 값을 배지로 보여준다(GROUP만 예외 처리하지 않음). GROUP의 대상은 "-", HOME의 대상은 "홈"으로 구분 표시.
+  2. `form.html`: `targetType` select는 `value`(서버 전송 enum) 무변경, 표시 텍스트만 한글화. `targetValue` 자유 텍스트 input은 그대로 두고 `targetType`별 후보를 `<datalist>`로 제공(오타 감소 목적, 임의 값 입력 자체는 막지 않음). Parent select는 필터링 로직 무변경, 표시 텍스트에만 "(그룹)" 접미사 추가. `targetSubvalue` 조건부 표시/드래그앤드롭 없음/sort_order 숫자 입력+PATCH 방식은 기존 그대로 유지.
+  3. `menu-admin-view.test.js`: 표현이 바뀐 지점(들여쓰기)만 국소적으로 갱신하고, 기존 계약 assertion(POST/PUT 분기, parentId 변환, targetSubvalue 조건부 표시/정규화, order PATCH payload, 7종 option value)은 그대로 유지. badge/target 라벨/fallback/datalist 신규 assertion 추가.
+- DoD:
+  - Menu CRUD API 계약·Entity/Service/Controller/DTO·Flyway·Menu 데이터·공개 Header 전부 무변경.
+  - GROUP/LEAF 계층이 목록에서 즉시 식별 가능(들여쓰기+badge), raw enum 대신 한글 라벨 표시, 매핑에 없는 값은 raw fallback.
+  - GROUP 포함 모든 행이 실제 공개/숨김 상태를 배지로 표시.
+  - Form `targetValue` datalist 제공, 기존 parent GROUP-only 필터링·targetSubvalue 조건부 동작 무회귀.
+  - `menu-admin-view.test.js` 전체 통과, Java 전체 회귀 통과, Playwright 기존(T1~T30D/A2) 전체 회귀 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
