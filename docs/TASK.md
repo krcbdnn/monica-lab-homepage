@@ -1018,6 +1018,21 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T32. 공개 메인 배너 caption 제거(접근성 유지)
+- 의존성: P13-T31
+- 산출물: `home/index.html`, `static/css/home.css`, `HomeControllerTest.java`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 공개 메인 Hero의 시각적 배너 title caption을 미노출 처리한다. `Banner.title` 데이터/관리자 배너 목록·등록·수정 기능은 무변경이며, `img alt`/indicator `aria-label`을 통한 접근성 정보는 그대로 유지한다.
+  1. `home/index.html`의 `<p class="hero__caption" th:text="${banner.title()}"></p>`를 제거한다(`display:none` 대신 template에서 출력 자체를 없앰). `img alt`, indicator `aria-label` 바인딩은 그대로 둔다.
+  2. `home.css`의 `.hero__caption` 전용 규칙을 제거한다. 다른 Hero CSS(레이아웃/크기/반응형)는 무변경.
+  3. `HomeControllerTest.java`에 `.hero__caption` 부재 + `img alt`/indicator `aria-label`이 `Banner.title` 값과 일치함을 확인하는 회귀 테스트를 추가한다.
+- DoD:
+  - 공개 Hero에서 `.hero__caption` DOM/CSS 모두 제거, `img alt`/indicator `aria-label`은 `Banner.title` 값 그대로 유지.
+  - `Banner.title` 데이터·관리자 배너 기능·hero-carousel.js·Hero layout/반응형 무변경.
+  - Java 신규 테스트 통과, Java 전체 build 통과, Node 전체 회귀 통과, Playwright 신규 통과 + 기존 전체 무회귀.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

@@ -303,6 +303,34 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(slides.get(2).hasAttr("hidden")).isTrue();
     }
 
+    // P13-T32: 공개 Hero에서 관리자가 입력한 배너 title이 시각적 caption(<p class="hero__caption">)으로는
+    // 더 이상 노출되지 않아야 하지만, img alt/indicator aria-label을 통한 접근성 정보는 title 값 그대로
+    // 유지돼야 한다. linkUrl이 있는 배너(<a> 안에 img 하나뿐)의 accessible name도 img alt로 결정되므로
+    // 별도 검증 없이 img alt 확인만으로 충분하다.
+    @Test
+    void heroDoesNotRenderVisualCaptionButKeepsAltAndIndicatorAriaLabelFromBannerTitle() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("가을 메인 배너").image("/api/files/1").linkUrl("/programs").sortOrder(0)
+                .isVisible(true).build());
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("수강 모집 배너").image("/api/files/2").sortOrder(1).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#banners .hero__caption")).isEmpty();
+
+        Elements images = document.select("#banners .hero__slide img");
+        assertThat(images.eachAttr("alt")).containsExactly("가을 메인 배너", "수강 모집 배너");
+
+        Elements indicators = document.select("#banners .hero__indicator");
+        assertThat(indicators.eachAttr("aria-label")).containsExactly(
+                "가을 메인 배너 배너로 이동", "수강 모집 배너 배너로 이동");
+    }
+
     // hidden 상태인 두 번째 이후 슬라이드는 loading="lazy"의 뷰포트 교차 트리거가 발동하지 않아
     // 최초 전환 순간까지 이미지 요청 자체가 시작되지 않는 문제가 있었다(Docker 8088 Playwright 네트워크
     // 추적으로 확인). 모든 슬라이드를 eager로 페이지 로드 시점에 미리 받아오되, fetchpriority="high"는
