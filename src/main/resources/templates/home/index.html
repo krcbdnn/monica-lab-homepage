@@ -19,7 +19,6 @@
                     <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
                          th:attr="fetchpriority=${iter.first} ? 'high' : null">
                 </div>
-                <p class="hero__caption" th:text="${banner.title()}"></p>
             </div>
         </div>
 

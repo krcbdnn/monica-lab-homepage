@@ -417,19 +417,6 @@ a.site-nav__megamenu-heading:hover {
     object-fit: cover;
 }
 
-.hero__caption {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    margin: 0;
-    padding: var(--space-3);
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
-    color: #ffffff;
-    font-size: 1.125rem;
-    font-weight: 600;
-}
-
 /* Hero 캐러셀 컨트롤. .hero__controls 자체는 위치를 갖지 않는 순수 래퍼이고,
    이전/다음 버튼과 하단 바(재생-일시정지+인디케이터)가 각각 .hero를 기준으로 절대 배치된다
    (컨트롤 래퍼에 position을 주면 자식의 top:50%가 전체 이미지가 아니라 래퍼 높이 기준으로 계산되므로 피한다). */

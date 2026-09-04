@@ -505,6 +505,23 @@ test.describe('Hero 배너 캐러셀', () => {
       `세 번째 배너 이미지(${thirdSlideImageSrc}) 요청도 페이지 로드만으로 발생해야 한다. 실제 요청 목록: ${requestedImageUrls.join(', ')}`
     ).toBeTruthy();
   });
+
+  // P13-T32: 시각적 caption(<p class="hero__caption">)은 사라졌지만, img alt와 indicator
+  // aria-label을 통한 접근성 이름은 배너 title 값 그대로 유지되는지 한 테스트에서 함께 증명한다.
+  test('배너 title이 시각적 caption으로는 노출되지 않지만 img alt/indicator aria-label 접근성 이름은 유지된다', async ({ page }) => {
+    await page.goto('/');
+
+    // 시각적 caption DOM 자체가 없어야 한다.
+    await expect(page.locator('#hero-viewport .hero__caption')).toHaveCount(0);
+
+    for (const title of titles) {
+      const slideImage = slideFor(page, title).locator('img');
+      await expect(slideImage).toHaveAttribute('alt', title);
+
+      const indicator = indicatorFor(page, title);
+      await expect(indicator).toHaveAttribute('aria-label', `${title} 배너로 이동`);
+    }
+  });
 });
 
 // 반응형 조사에서 확인된 회귀 #1: /programs, /boards는 순수 Bootstrap list-group이라
