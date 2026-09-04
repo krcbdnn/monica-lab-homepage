@@ -3514,3 +3514,147 @@ test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
     expect(texts).toContain('연구소 소개 (그룹)');
   });
 });
+
+// P13-T31: 관리자 게시판/프로그램 목록의 boardType/programType select를 검색 버튼 없이 즉시 적용한다.
+// 서버 API/쿼리 계약은 무변경(순수 프론트 이벤트 배선 변경)이므로, 여기서는 실제 사용자가 보는 목록
+// 결과가 select 변경만으로 즉시 갱신되는지를 행동 기반으로 검증한다. state.page 같은 내부 JS 상태는
+// 직접 읽지 않는다 - page reset의 구조적 계약은 board/program-admin-view.test.js(Node)가 이미 검증한다.
+test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardIds;
+  let programIds;
+
+  async function createBoard(context, baseURL, boardType, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType, title, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  async function createProgram(context, baseURL, programType, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType, title, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardIds = [];
+    programIds = [];
+  });
+
+  test.afterEach(async ({ context, baseURL }) => {
+    for (const id of boardIds) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+    for (const id of programIds) {
+      await context.request.delete(`${baseURL}/api/admin/programs/${id}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+  });
+
+  test('게시판 관리: boardType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const noticeTitle = `P13-T31 공지 ${runId}`;
+    const galleryTitle = `P13-T31 갤러리 ${runId}`;
+    boardIds.push(await createBoard(context, baseURL, 'NOTICE', noticeTitle));
+    boardIds.push(await createBoard(context, baseURL, 'GALLERY', galleryTitle));
+
+    await page.goto('/admin/boards');
+    await expect(page.locator('#board-list-body')).toContainText(noticeTitle);
+    await expect(page.locator('#board-list-body')).toContainText(galleryTitle);
+
+    // 검색 버튼을 누르지 않고 select만 변경한다.
+    await page.locator('#searchBoardType').selectOption('NOTICE');
+
+    await expect(page.locator('#board-list-body')).toContainText(noticeTitle);
+    await expect(page.locator('#board-list-body')).not.toContainText(galleryTitle);
+    // 필터 변경은 항상 첫 페이지 기준으로 갱신된다 - "이전" 버튼이 비활성인지로 사용자 관점에서 확인한다.
+    await expect(page.locator('#prev-page')).toBeDisabled();
+  });
+
+  test('게시판 관리: 검색 버튼으로 확정한 keyword는 boardType select 변경 후에도 유지된다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const matchTitle = `P13-T31 키워드유지 ${runId} 확인용`;
+    const otherNoticeTitle = `P13-T31 다른공지 ${runId}`;
+    boardIds.push(await createBoard(context, baseURL, 'NOTICE', matchTitle));
+    boardIds.push(await createBoard(context, baseURL, 'NOTICE', otherNoticeTitle));
+    boardIds.push(await createBoard(context, baseURL, 'GALLERY', matchTitle));
+
+    await page.goto('/admin/boards');
+    await page.locator('#searchKeyword').fill(`키워드유지 ${runId}`);
+    await page.locator('#searchForm button[type="submit"]').click();
+
+    await expect(page.locator('#board-list-body')).toContainText(matchTitle);
+    await expect(page.locator('#board-list-body')).not.toContainText(otherNoticeTitle);
+
+    // keyword를 검색 버튼으로 확정한 뒤에는 boardType만 select로 바꾼다(검색 버튼은 다시 누르지 않는다).
+    await page.locator('#searchBoardType').selectOption('GALLERY');
+
+    // GALLERY + 이미 확정된 keyword 조건이 함께 적용되어야 한다(keyword가 사라지지 않음).
+    await expect(page.locator('#board-list-body')).toContainText(matchTitle);
+  });
+
+  test('게시판 관리: 검색창에 아직 확정하지 않은 입력은 boardType select 변경으로 자동 실행되지 않는다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const title = `P13-T31 미확정 ${runId}`;
+    boardIds.push(await createBoard(context, baseURL, 'NOTICE', title));
+
+    await page.goto('/admin/boards');
+    // 검색 버튼을 누르지 않고 keyword만 입력한다(미확정 상태).
+    await page.locator('#searchKeyword').fill('절대매칭되지않는존재하지않는검색어');
+    await page.locator('#searchBoardType').selectOption('NOTICE');
+
+    // 미확정 keyword는 select change로 조건에 반영되지 않았으므로 여전히 목록에 보인다.
+    await expect(page.locator('#board-list-body')).toContainText(title);
+  });
+
+  test('프로그램 관리: programType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const courseTitle = `P13-T31 정규 ${runId}`;
+    const specialTitle = `P13-T31 특강 ${runId}`;
+    programIds.push(await createProgram(context, baseURL, 'COURSE', courseTitle));
+    programIds.push(await createProgram(context, baseURL, 'SPECIAL', specialTitle));
+
+    await page.goto('/admin/programs');
+    await expect(page.locator('#program-list-body')).toContainText(courseTitle);
+    await expect(page.locator('#program-list-body')).toContainText(specialTitle);
+
+    await page.locator('#searchProgramType').selectOption('SPECIAL');
+
+    await expect(page.locator('#program-list-body')).toContainText(specialTitle);
+    await expect(page.locator('#program-list-body')).not.toContainText(courseTitle);
+    await expect(page.locator('#prev-page')).toBeDisabled();
+  });
+
+  test('프로그램 관리: 검색 버튼으로 확정한 keyword는 programType select 변경 후에도 유지된다', async ({ page, context, baseURL }) => {
+    const runId = Date.now();
+    const matchTitle = `P13-T31 프로그램키워드유지 ${runId} 확인용`;
+    const otherCourseTitle = `P13-T31 다른정규 ${runId}`;
+    programIds.push(await createProgram(context, baseURL, 'COURSE', matchTitle));
+    programIds.push(await createProgram(context, baseURL, 'COURSE', otherCourseTitle));
+    programIds.push(await createProgram(context, baseURL, 'SPECIAL', matchTitle));
+
+    await page.goto('/admin/programs');
+    await page.locator('#searchKeyword').fill(`프로그램키워드유지 ${runId}`);
+    await page.locator('#searchForm button[type="submit"]').click();
+
+    await expect(page.locator('#program-list-body')).toContainText(matchTitle);
+    await expect(page.locator('#program-list-body')).not.toContainText(otherCourseTitle);
+
+    await page.locator('#searchProgramType').selectOption('SPECIAL');
+
+    await expect(page.locator('#program-list-body')).toContainText(matchTitle);
+  });
+});

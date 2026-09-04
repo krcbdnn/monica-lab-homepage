@@ -1003,6 +1003,21 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T31. Admin 목록 필터(boardType/programType) 즉시 적용
+- 의존성: P13-T30E(Task B)
+- 산출물: `admin/board/list.html`, `admin/program/list.html`, `src/test/js/admin/board-admin-view.test.js`, `src/test/js/admin/program-admin-view.test.js`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 게시판/프로그램 관리자 목록에서 `#searchBoardType`/`#searchProgramType` select를 검색 버튼 없이 변경 즉시 재조회하도록 순수 프론트 이벤트 배선만 추가한다. 조사 결과 이 패턴(필터 select + 검색 버튼)을 가진 admin 목록 화면은 게시판/프로그램 2개뿐이며(팝업/배너/페이지/파일/메뉴 관리는 필터 select 자체가 없음), API/Service/DTO는 이미 조합 필터링을 지원하므로 서버는 전혀 건드리지 않는다.
+  1. 각 template의 기존 `submit` 핸들러(검색 버튼)는 무변경. `#searchBoardType`/`#searchProgramType`에 `change` 리스너를 추가해 `state.page = 0`, `state.boardType`(또는 `programType`)만 갱신 후 기존 `loadBoards()`/`loadPrograms()`를 그대로 재사용한다.
+  2. `change` 핸들러는 `state.keyword`를 다시 읽지 않는다 - 검색어의 실행(커밋)은 여전히 기존 검색 버튼(submit)을 통해서만 이뤄진다. 이미 검색 버튼으로 확정된 keyword는 select 변경 후에도 유지되고, 아직 확정하지 않고 입력만 한 keyword는 select 변경으로 자동 실행되지 않는다(의도된 동작).
+- DoD:
+  - 게시판/프로그램 관리 모두 select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 갱신, page는 0으로 초기화.
+  - 확정된 keyword는 select 변경 후에도 유지, 미확정 keyword 입력은 select 변경으로 실행되지 않음.
+  - 기존 검색 버튼/pagination 동작 무회귀, Board/Program API 계약·Java 코드 무변경.
+  - `board-admin-view.test.js`/`program-admin-view.test.js` 전체 통과, 신규 Playwright 통과, Java/Node/기존 Playwright 전체 회귀 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

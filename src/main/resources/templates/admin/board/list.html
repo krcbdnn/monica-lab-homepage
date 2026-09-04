@@ -156,6 +156,17 @@
             loadBoards();
         });
 
+        // P13-T31: boardType select는 검색 버튼을 누르지 않아도 변경 즉시 재조회한다. keyword는
+        // 여기서 다시 읽지 않는다 - 검색어 자체의 실행(state.keyword 갱신)은 여전히 검색 버튼(위
+        // submit 핸들러)을 통해서만 커밋된다. 그래서 검색창에 아직 확정하지 않은 글자가 남아 있어도
+        // select만 바꾸면 마지막으로 "검색"을 눌렀을 때의 keyword를 그대로 유지한 채 boardType만
+        // 갈아끼워 재조회한다(의도된 동작).
+        document.getElementById('searchBoardType').addEventListener('change', function () {
+            state.page = 0;
+            state.boardType = document.getElementById('searchBoardType').value;
+            loadBoards();
+        });
+
         document.getElementById('prev-page').addEventListener('click', function () {
             if (state.page > 0) {
                 state.page -= 1;
