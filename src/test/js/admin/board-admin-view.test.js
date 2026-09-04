@@ -57,6 +57,38 @@ test('templates/admin/board/list.html no longer displays a view count column or 
     assert.doesNotMatch(html, /viewCount/);
 });
 
+// P13-T31: boardType select는 검색 버튼 없이 변경 즉시 재조회한다(page를 0으로 초기화). keyword는
+// 이 change 핸들러에서 다시 읽지 않는다 - 검색어 실행은 여전히 기존 submit 핸들러(검색 버튼)를 통해서만
+// 커밋되는 계약을 그대로 유지한다.
+test('templates/admin/board/list.html #searchBoardType change listener resets page and re-fetches with the new boardType, without re-reading keyword', () => {
+    const html = readTemplate('admin/board/list.html');
+    const changeHandlerIndex = html.indexOf("document.getElementById('searchBoardType').addEventListener('change'");
+    assert.notEqual(changeHandlerIndex, -1, 'searchBoardType must have a change listener');
+
+    const handlerEnd = html.indexOf('});', changeHandlerIndex);
+    const handlerBody = html.slice(changeHandlerIndex, handlerEnd);
+
+    assert.match(handlerBody, /state\.page = 0;/);
+    assert.match(handlerBody, /state\.boardType = document\.getElementById\('searchBoardType'\)\.value;/);
+    assert.match(handlerBody, /loadBoards\(\);/);
+    // keyword는 change 핸들러 안에서 다시 읽지 않는다(§keyword 정책) - state.keyword 대입이 없어야 한다.
+    assert.doesNotMatch(handlerBody, /state\.keyword/);
+});
+
+// 기존 submit 핸들러(검색 버튼/Enter)는 그대로 boardType과 keyword를 함께 커밋한다 - P13-T31이
+// 이 계약을 바꾸지 않았는지 확인한다.
+test('templates/admin/board/list.html existing search form submit still commits both boardType and keyword together', () => {
+    const html = readTemplate('admin/board/list.html');
+    const submitHandlerIndex = html.indexOf("document.getElementById('searchForm').addEventListener('submit'");
+    const changeHandlerIndex = html.indexOf("document.getElementById('searchBoardType').addEventListener('change'");
+    assert.notEqual(submitHandlerIndex, -1);
+    assert.ok(submitHandlerIndex < changeHandlerIndex, 'submit handler must remain defined before the new change listener');
+
+    const submitHandlerBody = html.slice(submitHandlerIndex, changeHandlerIndex);
+    assert.match(submitHandlerBody, /state\.boardType = document\.getElementById\('searchBoardType'\)\.value;/);
+    assert.match(submitHandlerBody, /state\.keyword = document\.getElementById\('searchKeyword'\)\.value;/);
+});
+
 test('templates/admin/board/form.html inherits the common admin layout', () => {
     const html = readTemplate('admin/board/form.html');
     assert.match(html, /th:replace="~\{admin\/layout\/default :: layout\(/);
