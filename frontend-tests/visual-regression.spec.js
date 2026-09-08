@@ -3811,3 +3811,123 @@ test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용
     await expect(page.locator('#program-list-body')).toContainText(matchTitle);
   });
 });
+
+// P13-T35: Header/Footer 반응형 최종 QA. 새 IA/기능을 추가하는 Task가 아니라 기존 구현에서 발견된
+// 실제 결함(A1)과 테스트 공백(B3/B4)만 다룬다. 합성 Menu를 만들지 않고 실제 production Menu(연구소
+// 소개/수강 신청 GROUP, 전체메뉴 mega menu)를 그대로 사용한다.
+test.describe('P13-T35: Header/Footer 반응형 최종 QA', () => {
+  // A1: Docker 8088 실브라우저로 재현 확인된 실제 결함 - 키보드로 GROUP을 연 뒤 Escape 없이 Tab만
+  // 으로 그룹 밖(다음 top-level trigger)까지 포커스가 이동해도 기존에는 submenu가 열린 채 남아
+  // 이후 콘텐츠 위에 겹칠 수 있었다. nav-submenu.js의 focusout 자동 닫힘(P13-T35)으로 수정됐다.
+  test('Desktop 1440: 키보드로 GROUP을 연 뒤 Escape 없이 Tab으로 밖으로 나가면 submenu가 자동으로 닫힌다(A1)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    const trigger = groupItem.locator('.site-nav__trigger');
+    const submenu = groupItem.locator('.site-nav__submenu');
+
+    let reachedTrigger = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await trigger.evaluate((el) => el === document.activeElement)) {
+        reachedTrigger = true;
+        break;
+      }
+    }
+    expect(reachedTrigger, 'Tab 이동만으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
+
+    await page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(submenu).toBeVisible();
+
+    const nextGroupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '수강 신청',
+    }).locator('.site-nav__trigger');
+
+    let reachedNext = false;
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press('Tab');
+      if (await nextGroupTrigger.evaluate((el) => el === document.activeElement)) {
+        reachedNext = true;
+        break;
+      }
+    }
+    expect(reachedNext, '다음 top-level trigger로 Tab 이동이 가능해야 한다').toBeTruthy();
+
+    await expect(submenu, '포커스가 그룹 밖으로 나가면 submenu도 자동으로 닫혀야 한다(A1)').toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // B3: 모바일 hamburger accordion을 실제로 사용한 뒤(goto 없이) 같은 page에서 데스크톱 폭으로
+  // 리사이즈해도, CSS 브레이크포인트만으로 즉시 정상적인 desktop 상태가 되고 stale mobile 상태
+  // (열려 있던 accordion/hamburger aria-expanded 등) 때문에 desktop UI가 깨지지 않는지 확인한다.
+  test('Mobile 375 → Desktop 1440: hamburger accordion 사용 후 리사이즈해도 stale mobile 상태 없이 desktop UI가 정상 동작한다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    const aboutGroup = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    await aboutGroup.locator('.site-nav__trigger').click();
+    await expect(aboutGroup.locator('.site-nav__submenu')).toBeVisible();
+
+    // goto 없이 같은 page에서 데스크톱 폭으로 전환.
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await expect(page.locator('#nav-toggle')).toBeHidden();
+    await expect(page.locator('#site-nav')).toBeVisible();
+    await expect(page.locator('[data-menu-id="all"]')).toBeVisible();
+
+    // desktop 메뉴가 실제로 사용 가능한지(모바일 accordion에서 열어둔 상태가 desktop hover 동작을
+    // 막지 않는지) "수강 신청" GROUP을 hover해 확인한다.
+    const courseGroup = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '수강 신청',
+    });
+    await courseGroup.locator('.site-nav__trigger').hover();
+    await expect(courseGroup.locator('.site-nav__submenu')).toBeVisible();
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '리사이즈 후 1440px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  // B4: 실제 production "전체메뉴"(mega menu) trigger 자체의 키보드 접근성. 기존 P13-T30B 키보드
+  // 테스트는 합성 GROUP만 사용했으므로, "전체메뉴" 요소 자체가 키보드로 동작한다는 공백만 메운다
+  // (hover/Escape/outside-click 등 나머지 상태 머신은 P13-T30C가 이미 검증했으므로 반복하지 않는다).
+  test('Desktop 1440: 전체메뉴(mega menu) trigger가 Tab/Enter/Tab/Escape 키보드로 정상 동작한다(B4)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    const megaMenu = page.locator('.site-nav__megamenu');
+    const firstLink = megaMenu.locator('a').first();
+
+    let reachedTrigger = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await megaTrigger.evaluate((el) => el === document.activeElement)) {
+        reachedTrigger = true;
+        break;
+      }
+    }
+    expect(reachedTrigger, 'Tab 이동만으로 전체메뉴 trigger에 도달할 수 있어야 한다').toBeTruthy();
+
+    await page.keyboard.press('Enter');
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(megaMenu).toBeVisible();
+
+    await page.keyboard.press('Tab');
+    await expect(firstLink).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(megaMenu).toBeHidden();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(megaTrigger).toBeFocused();
+  });
+});
