@@ -1048,6 +1048,23 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T34. Footer 사업자 정보 반영
+- 의존성: P13-T33
+- 산출물: `home/layout/footer.html`, `static/css/home.css`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 발주처가 웹페이지 하단에 필수로 요청한 연구소/사업자 정보를 모든 공개 페이지 공통 Footer(`home/layout/default.html`이 유일하게 include하는 `home/layout/footer.html`)에 반영한다. Footer navigation(연구소 소개/프로그램/강의 후기/게시판 4개 링크의 label/href/순서), `www.monicaenglish.com` self-link 구조(target 없음), 연구소명 브랜드 텍스트는 이번 Task의 대상이 아니므로 전혀 변경하지 않는다. Header/Menu/Board/Program/Banner/Popup, DB migration은 이번 Task와 무관하므로 건드리지 않는다.
+  1. `footer.html`의 기존 nav 뒤, 기존 domain 문단 앞에 `<address class="site-footer__business">`(주소+전화만 포함)와 그 뒤 별도 `<p class="site-footer__reg-no">`(사업자등록번호)를 신규 삽입한다. 주소 문자열은 발주처 확정값 `성남시 분당구 황새울로 200번길 28, 1104-07호`을 정규화/교정 없이 그대로 사용한다. 전화번호는 `tel:070-4655-7905` 링크로 표시한다. 사업자등록번호는 링크 없이 텍스트로만 표시한다.
+  2. 기존 `.site-footer__copyright` 문구를 `&copy; 모니카영어교육연구소`에서 `&copy; 2026 모니카영어교육연구소. All rights reserved.`로 교체한다(JS/Thymeleaf 동적 연도 계산 도입 없이 확정 연도를 그대로 사용).
+  3. `home.css`에 `.site-footer__business`(`font-style: normal`), `.site-footer__business p`(`margin: 0`), `.site-footer__phone`/`.site-footer__reg-no`(`white-space: nowrap`)만 최소 추가한다. 기존 `#site-footer`/`.site-footer__inner`/`.site-footer__nav`/`.site-footer__site` 규칙은 무수정.
+- DoD:
+  - 모든 공개 페이지 공통 Footer(`/`, `/boards`, `/boards/**`, `/programs`, `/programs/**`, `/pages/**`)에서 연구소명 "모니카영어교육연구소", 주소 "주소: 성남시 분당구 황새울로 200번길 28, 1104-07호", 전화 "전화: 070-4655-7905"(`tel:070-4655-7905`), 사업자등록번호 "사업자등록번호: 220-10-28936", `www.monicaenglish.com`, "© 2026 모니카영어교육연구소. All rights reserved."가 정확히 표시된다.
+  - 기존 Footer navigation 4개 링크의 label/href/순서와 `www.monicaenglish.com` self-link 구조(target 없음)가 무변경이다.
+  - Header/Menu/Board/Program/Banner/Popup 무변경, 신규 DB migration 없음.
+  - `visual-regression.spec.js`의 P13-T34 신규 케이스 전부 통과, 기존 Footer 관련 테스트(P13-T17 등) 무회귀.
+  - 375/768/1024/1440에서 사업자 정보 포함 Footer가 horizontal overflow 없이 정상 표시된다.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
