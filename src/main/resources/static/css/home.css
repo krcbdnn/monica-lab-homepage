@@ -7,6 +7,9 @@
     --color-primary: #1d4ed8;
     --color-primary-contrast: #ffffff;
     --color-border: #dee2e6;
+    /* P13-T36: --color-primary(#1d4ed8 = rgb(29,78,216))에서 파생한 옅은 tint. 새 색상 체계를
+       만들지 않고 기존 accent 토큰의 8% 알파만 별도 이름으로 노출한다(Header hover/open 배경 전용). */
+    --color-primary-soft: rgba(29, 78, 216, 0.08);
     --space-1: 0.5rem;
     --space-2: 1rem;
     --space-3: 1.5rem;
@@ -100,9 +103,21 @@
        그대로 재사용하므로, trigger→submenu 이동/다른 GROUP 전환 시에도 열림 상태 전환과 항상 자동으로
        같이 움직인다. */
     .has-submenu:hover .site-nav__trigger,
-    .has-submenu.is-open .site-nav__trigger {
+    .has-submenu.is-open .site-nav__trigger,
+    .site-nav__trigger:focus-visible {
+        background: var(--color-primary-soft);
         color: var(--color-primary);
         font-weight: 700;
+    }
+
+    /* P13-T36: top-level LEAF(GROUP이 아닌 일반 링크)는 GROUP과 다른 요소다 - font-weight를
+       바꾸면 glyph 자체 폭이 달라져 900px 부근 wrap 여유(§A2 주석, 실측 88px)를 글자 수만큼
+       깎아먹을 위험이 있으므로, LEAF는 배경/색상만 바꾸고 굵기는 그대로 둔다(GROUP은 font-weight:700
+       유지 - 위 규칙 그대로). */
+    #quick-menu > li > a:hover,
+    #quick-menu > li > a:focus-visible {
+        background: var(--color-primary-soft);
+        color: var(--color-primary);
     }
 
     /* P13-T30D(A2): 기존 .site-header__inner{justify-content:space-between}은 데스크톱에서 flex
@@ -157,6 +172,15 @@
         /* 900px(16px, 기존과 동일 - 축소 없음)에서 1024px(18px)까지 커지고 그 이상은 18px로 고정.
            font-size: clamp(1rem, 0.0927rem + 1.6129vw, 1.125rem) */
         font-size: clamp(1rem, 0.0927rem + 1.6129vw, 1.125rem);
+        /* P13-T36: hover/focus/open tint 배경이 텍스트에 바짝 붙지 않도록 보수적인 실제 padding만
+           추가한다(음수 margin으로 상쇄하는 방식은 hit area가 인접 항목 쪽으로 확장될 수 있어 사용하지
+           않음 - 승인 조건). 900px 근처 wrap 여유(§A2, 실측 88px)를 깎아먹지 않도록 작은 값에서
+           시작했고, 899/900/1024px 실측(Playwright)으로 overflow/wrap 회귀가 없음을 확인한 값이다.
+           li가 flex+align-items:center라 padding만큼 li 높이도 함께 늘어나 submenu와의 dead-zone은
+           그대로 유지된다(§A1 전제 무회귀, boundingBox 실측으로 별도 확인). */
+        padding: 0.1875rem 0.125rem;
+        border-radius: var(--radius);
+        transition: background-color .15s ease, color .15s ease;
     }
 }
 
@@ -186,6 +210,17 @@
     text-decoration: none;
     color: inherit;
     white-space: nowrap;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+/* P13-T36: submenu item은 이미 display:block + 자체 padding을 갖고 있어 배경을 추가해도 레이아웃에
+   영향이 없다(dropdown/mega menu 공통 - .site-nav__megamenu도 이 클래스를 함께 갖고 있어 mega menu
+   일반 링크에도 별도 규칙 없이 그대로 적용된다). 패널 자체(배경/border/radius/box-shadow)는 변경하지
+   않고 항목 단위에만 tint를 적용한다. */
+.site-nav__submenu a:hover,
+.site-nav__submenu a:focus-visible {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
 }
 
 .has-submenu.is-open .site-nav__submenu {
@@ -224,9 +259,10 @@
     text-decoration: none;
 }
 
-a.site-nav__megamenu-heading:hover {
-    text-decoration: underline;
-}
+/* P13-T36: a.site-nav__megamenu-heading:hover{text-decoration:underline} 규칙 제거 - heading이
+   실제 링크(LEAF)인 경우 .site-nav__submenu.site-nav__megamenu가 이미 갖고 있는 위 tint 규칙이
+   같은 조상 클래스로 인해 자동으로 적용되므로 밑줄이 아닌 배경 tint로 일관되게 표현된다(B안은
+   accent line/underline 같은 장식을 쓰지 않는다). */
 
 .site-nav__megamenu-column a {
     display: block;
@@ -366,6 +402,39 @@ a.site-nav__megamenu-heading:hover {
        모바일에서는 "전체메뉴" 트리거 자체를 노출하지 않는다(동일 정보 중복 방지). */
     [data-menu-id="all"] {
         display: none;
+    }
+
+    /* P13-T36: 모바일은 wrap 제약이 없는 세로 accordion이라(데스크톱과 달리 900px 근처 wrap 여유를
+       고려할 필요가 없음) 터치 타겟을 실제로 키운다 - 음수 margin 상쇄 없이 그대로 padding만 늘린다. */
+    #quick-menu > li > a,
+    .site-nav__trigger {
+        padding: 0.5rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    .site-nav__submenu a {
+        padding: 0.5rem 1rem;
+    }
+
+    /* P13-T36: 데스크톱 hover/open 강조(위 @media(min-width:900px) 블록)는 900px 미만에서는 전혀
+       적용되지 않아, 기존에는 모바일에서 펼친 GROUP의 trigger 자체가 아무 시각적 변화 없이 자식
+       목록이 보이는 것만으로 "열렸다"를 추론해야 했다. desktop GROUP과 동일하게 배경/색상/굵기로
+       trigger 자체를 강조한다(자식 목록 노출 여부에 의존하지 않는 독립적인 신호). */
+    .has-submenu.is-open .site-nav__trigger {
+        background: var(--color-primary-soft);
+        color: var(--color-primary);
+        font-weight: 700;
+    }
+}
+
+/* P13-T36: 신규로 추가한 transition은 색상/배경 전환뿐이지만(위치/크기/transform 없음), 저비용
+   안전장치로 실제 transition을 추가한 selector에만 정확히 한정해 prefers-reduced-motion을 존중한다.
+   #site-header * 같은 광범위 selector나 !important는 쓰지 않는다. */
+@media (prefers-reduced-motion: reduce) {
+    #quick-menu > li > a,
+    #quick-menu > li > .site-nav__trigger,
+    .site-nav__submenu a {
+        transition: none;
     }
 }
 

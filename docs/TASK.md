@@ -1090,6 +1090,31 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T36. Public Header/Menu Visual Polish
+- 의존성: P13-T35
+- 산출물: `static/css/home.css`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 기존 Header/Menu 기능 계약(IA/label/href/depth/900px 경계/keyboard/focusout/dynamic resize)을 전혀 바꾸지 않고, hover/focus-visible/open 상태의 시각적 가시성만 CSS로 개선한다(디자인안 B "Warm Premium Tint" 채택 - 기존 `--color-primary`/`--color-surface`/`--color-border`/`--radius` 토큰만 재사용, 새 색상 체계 없음). active/current-page 표시는 이번 Task에서 제외한다(pathname/query 매칭 정책은 후속 Task로 분리).
+  1. `:root`에 `--color-primary-soft: rgba(29, 78, 216, 0.08)`(`--color-primary`에서 파생) 1개만 추가한다.
+  2. Desktop(`@media (min-width:900px)`): top-level LEAF는 `:hover`/`:focus-visible`에서 `background:var(--color-primary-soft)`+`color:var(--color-primary)`만 적용하고 **font-weight는 바꾸지 않는다**(glyph 폭 변화로 인한 wrap 회귀 방지). GROUP trigger는 기존 `:hover`/`.is-open`에 `:focus-visible`을 추가해 동일한 tint+`font-weight:700`(기존 값 유지)을 적용한다. top-level 항목에는 실제 padding(`0.1875rem 0.125rem`, 음수 margin 사용 안 함 - hit area가 인접 항목으로 확장되는 것을 피하기 위해 승인된 방식)을 추가하고, 899/900/901/1024px 실측(Playwright)으로 wrap/overflow 회귀가 없는 값을 확정했다(0.25rem 시도 시 900/901px에서 실제 2줄 wrap 회귀가 실측되어 더 작은 값으로 축소).
+  3. `.site-nav__submenu a`(dropdown + mega menu 공통, 패널 자체는 무변경)에 `:hover`/`:focus-visible` tint를 추가한다. 기존 `a.site-nav__megamenu-heading:hover{underline}` 규칙은 위 통합 tint로 대체되어 제거한다.
+  4. Mobile(`@media (max-width:899.98px)`): top-level/submenu 항목의 touch target padding을 확대하고(wrap 제약이 없는 세로 accordion이라 실제 padding 사용), `.has-submenu.is-open .site-nav__trigger`에 데스크톱과 동일한 tint+`font-weight:700`을 추가해 펼친 GROUP trigger 자체가 자식 목록 노출 여부와 무관하게 독립적으로 강조되도록 한다.
+  5. 신규 `transition`은 `background-color`/`color`뿐이며(transform/motion 없음), `prefers-reduced-motion: reduce`에서 정확히 이번에 transition을 추가한 3개 selector(`#quick-menu > li > a`, `#quick-menu > li > .site-nav__trigger`, `.site-nav__submenu a`)로만 범위를 제한해 비활성화한다.
+  6. `header.html`/`footer.html`/`default.html`/`nav-toggle.js`/`nav-submenu.js`/Menu Java(`HeaderMenuControllerAdvice` 포함)/DB는 무수정. P13-T30D(A1)/P13-T35가 "GROUP 단순 focus는 강조 없음"/"모바일은 desktop 강조 무적용"을 전제로 작성했던 기존 테스트 3곳(`visual-regression.spec.js`)은 이번 Task가 그 전제를 의도적으로 뒤집는 요구사항이라 새 동작에 맞게 갱신했다(무회귀 예외가 아니라 요구사항 자체의 변경).
+- DoD:
+  - Desktop top-level LEAF `:hover`/`:focus-visible`가 tint 배경+primary 색상을 제공하고 font-weight는 무변경이다.
+  - Desktop GROUP trigger `:hover`/`:focus-visible`/`.is-open`이 전부 동일한 tint+`font-weight:700`을 제공한다(키보드 focus가 hover와 동등한 가시성).
+  - Submenu/mega menu 일반 링크에 `:hover`/`:focus-visible` tint가 적용되고 패널 자체(배경/border/radius/shadow)는 무변경이다.
+  - Mobile에서 펼친 GROUP의 trigger 자체가 닫힘 상태와 배경/색상/굵기로 명확히 구분되고, top-level/submenu 항목의 touch target이 기존보다 실제로 확대된다(WCAG 일반 권장치가 아니라 이번 프로젝트의 회귀 기준값으로 검증).
+  - 899.98/900px 경계, 375/768/899/900/901/1024/1440에서 horizontal overflow 없음, top-level 메뉴가 한 줄(wrap 없음)로 유지된다(padding 값을 실측으로 확정).
+  - submenu dead-zone(trigger-submenu 간격 0), z-index/popup stacking 무회귀.
+  - 신규 transition이 `prefers-reduced-motion: reduce`에서 비활성화되고, native focus outline은 제거되지 않는다.
+  - P13-T30B/C/D, P13-T35 전체(갱신된 3개 assertion 포함) + `public-console-errors.spec.js`/`admin-console-errors.spec.js` + `./gradlew build`(455개) 전부 통과.
+  - `header.html`/`footer.html`/`nav-toggle.js`/`nav-submenu.js`/Menu Java/DB/관리자 UI/Docker 구성 무변경.
+  - active/current-page 상태는 구현하지 않는다(후속 Task로 분리).
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
