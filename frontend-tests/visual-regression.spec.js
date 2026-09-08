@@ -2707,11 +2707,13 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     }
     expect(reachedTrigger, 'Tab 이동만으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
 
-    // P13-T30D(A1): 단순 keyboard focus만으로는(아직 열지 않음) hover/open 활성 강조가 붙지
-    // 않아야 하고(강조는 open 상태 전용), 대신 네이티브 focus outline은 별도로 명확히 유지된다.
-    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
+    // P13-T36: GROUP trigger는 :focus-visible에도 hover/open과 동일한 tint+font-weight:700을
+    // 적용한다(키보드 focus가 hover와 동등한 가시성을 가져야 한다는 요구사항) - P13-T30D(A1) 당시에는
+    // "단순 focus만으로는 강조가 붙지 않아야 한다"였지만, 이번 Task에서 의도적으로 뒤집힌 동작이다.
+    // 네이티브 outline은 이 강조와 별개로 계속 유지된다(제거하지 않음).
+    await expect(trigger).toHaveCSS('font-weight', '700');
     const outlineStyle = await trigger.evaluate((el) => getComputedStyle(el).outlineStyle);
-    expect(outlineStyle, '키보드 focus 시 native outline이 hover/open 강조와 별개로 유지되어야 한다')
+    expect(outlineStyle, '키보드 focus 시 native outline이 계속 유지되어야 한다')
       .not.toBe('none');
 
     // Enter로 열기, submenu 링크도 다음 Tab으로 자연스럽게 접근 가능
@@ -2726,7 +2728,10 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     await expect(submenu).toBeHidden();
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(trigger).toBeFocused();
-    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
+    // P13-T36: Escape 이후에도 trigger가 여전히 focus-visible 상태이므로(포커스만 복귀, 블러되지
+    // 않음) GROUP :focus-visible 강조(font-weight:700)가 계속 유지된다 - is-open은 false여도
+    // focus-visible 자체는 hover/open과 동등하게 강조되어야 한다는 요구사항의 직접적인 결과다.
+    await expect(trigger).toHaveCSS('font-weight', '700');
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -2791,12 +2796,13 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
       await expect(submenu).toBeVisible();
       await expect(childLink).toBeVisible();
 
-      // P13-T30D(A1): 데스크톱 hover/open 활성 강조(font-weight 700)는 900px 미만에서 적용되지
-      // 않으므로, 모바일 accordion이 열려 있어도(.is-open) 기존 텍스트 스타일 그대로여야 한다
-      // (mobile 디자인 무변경 확인).
+      // P13-T36: 모바일에서 펼친 GROUP trigger 자체가 명확히 강조되어야 한다는 요구사항에 따라,
+      // 900px 미만 전용 .has-submenu.is-open .site-nav__trigger 규칙이 추가되어 데스크톱과 동일하게
+      // font-weight:700(+tint 배경/색상)이 적용된다 - P13-T30D(A1) 당시("모바일은 무변경이어야
+      // 한다")와 의도적으로 뒤집힌 동작이다.
       const mobileFontWeight = await trigger.evaluate((el) => getComputedStyle(el).fontWeight);
-      expect(mobileFontWeight, '모바일에서는 데스크톱 hover/open 강조 스타일이 적용되지 않아야 한다')
-        .not.toBe('700');
+      expect(mobileFontWeight, '모바일에서 펼친 GROUP trigger는 강조(font-weight:700)되어야 한다(P13-T36)')
+        .toBe('700');
 
       // hamburger를 닫으면 열려 있던 submenu 상태도 함께 초기화된다
       await navToggle.tap();
@@ -3930,4 +3936,210 @@ test.describe('P13-T35: Header/Footer 반응형 최종 QA', () => {
     await expect(megaTrigger).toHaveAttribute('aria-expanded', 'false');
     await expect(megaTrigger).toBeFocused();
   });
+});
+
+// P13-T36: Header/Menu Visual Polish. 새 IA/기능이 아니라 기존 hover/focus/open 상태의 "가시성"만
+// CSS로 개선한다(디자인안 B - Warm Premium Tint). 실제 production Menu(연구소 소개 GROUP, 공지사항
+// LEAF)를 그대로 쓰고 합성 Menu는 만들지 않는다. 정확한 hex/px 값보다 "상태 전후 비교"로 검증한다
+// (P13-T30B의 baseFontWeight capture-then-compare 패턴 재사용).
+test.describe('P13-T36: Header/Menu Visual Polish', () => {
+  test('Desktop 1440: top-level LEAF hover 시 배경/색상이 기본 상태와 달라진다(font-weight는 무변경)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const leaf = page.locator('#quick-menu > li > a', { hasText: '공지사항' });
+    const base = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+
+    await leaf.hover();
+    // P13-T36 CSS가 background-color/color에 150ms transition을 걸어두므로, 전환이 끝난 뒤(여유
+    // 포함) computed style을 읽어야 중간값(interpolated color)을 캡처하는 flaky 실패를 피한다.
+    await page.waitForTimeout(350);
+    const hovered = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+
+    expect(hovered.background, 'hover 시 배경이 기본 상태와 달라야 한다').not.toBe(base.background);
+    expect(hovered.color, 'hover 시 색상이 기본 상태와 달라야 한다').not.toBe(base.color);
+    // 승인 조건: top-level LEAF는 GROUP과 달리 font-weight를 바꾸지 않는다(glyph 폭 변화로 인한
+    // 900px 부근 wrap 회귀 방지).
+    expect(hovered.fontWeight, 'LEAF는 hover해도 font-weight가 바뀌지 않아야 한다').toBe(base.fontWeight);
+  });
+
+  test('Desktop 1440: GROUP trigger hover/open 시 배경이 기본 상태와 달라지고 font-weight:700은 유지된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    const trigger = groupItem.locator('.site-nav__trigger');
+    const base = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    await trigger.hover();
+    await page.waitForTimeout(350); // transition(150ms) 완료 대기
+    const hoverBg = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(hoverBg, 'GROUP hover 시 배경이 기본 상태와 달라야 한다').not.toBe(base);
+    await expect(trigger).toHaveCSS('font-weight', '700');
+
+    // click-open(.is-open) 상태도 동일하게 배경이 적용된다.
+    await page.locator('.site-header__brand').hover();
+    await trigger.click();
+    await page.waitForTimeout(350);
+    const openBg = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(openBg, '.is-open 상태에서도 배경이 기본 상태와 달라야 한다').not.toBe(base);
+    await expect(trigger).toHaveCSS('font-weight', '700');
+  });
+
+  test('Desktop 1440: submenu/mega menu 일반 링크 hover 시 배경이 기본 상태와 달라진다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    await groupItem.locator('.site-nav__trigger').hover();
+    const submenuLink = groupItem.locator('.site-nav__submenu a').first();
+    await expect(submenuLink).toBeVisible();
+
+    const base = await submenuLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await submenuLink.hover();
+    await page.waitForTimeout(350); // transition(150ms) 완료 대기
+    const hovered = await submenuLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(hovered, 'submenu item hover 시 배경이 기본 상태와 달라야 한다').not.toBe(base);
+
+    // mega menu 일반 링크(같은 .site-nav__submenu 클래스를 공유)도 동일하게 적용된다.
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    await megaTrigger.hover();
+    const megaLink = page.locator('.site-nav__megamenu a').first();
+    const megaBase = await megaLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await megaLink.hover();
+    await page.waitForTimeout(350);
+    const megaHovered = await megaLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(megaHovered, 'mega menu 링크 hover 시 배경이 기본 상태와 달라야 한다').not.toBe(megaBase);
+  });
+
+  test('Desktop 1440: keyboard focus-visible 상태가 hover 상태와 동일한 배경/색상을 제공한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    // top-level LEAF
+    const leaf = page.locator('#quick-menu > li > a', { hasText: '공지사항' });
+    await leaf.hover();
+    await page.waitForTimeout(350); // transition(150ms) 완료 대기
+    const leafHover = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color };
+    });
+    await page.locator('.site-header__brand').hover();
+    await page.waitForTimeout(350);
+
+    let reached = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await leaf.evaluate((el) => el === document.activeElement)) {
+        reached = true;
+        break;
+      }
+    }
+    expect(reached, 'Tab으로 top-level LEAF에 도달할 수 있어야 한다').toBeTruthy();
+    await page.waitForTimeout(350);
+    const leafFocus = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color };
+    });
+    expect(leafFocus, 'top-level LEAF의 focus-visible 상태는 hover 상태와 동일해야 한다').toEqual(leafHover);
+
+    // GROUP trigger
+    await page.goto('/');
+    const groupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+    await groupTrigger.hover();
+    await page.waitForTimeout(350);
+    const groupHover = await groupTrigger.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+    await page.locator('.site-header__brand').hover();
+    await page.waitForTimeout(350);
+
+    reached = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await groupTrigger.evaluate((el) => el === document.activeElement)) {
+        reached = true;
+        break;
+      }
+    }
+    expect(reached, 'Tab으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
+    await page.waitForTimeout(350);
+    const groupFocus = await groupTrigger.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+    expect(groupFocus, 'GROUP trigger의 focus-visible 상태는 hover 상태와 동일해야 한다').toEqual(groupHover);
+
+    // native outline은 제거되지 않는다.
+    const outlineStyle = await groupTrigger.evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(outlineStyle, 'native outline이 유지되어야 한다').not.toBe('none');
+  });
+
+  test('Mobile 375: 펼친 GROUP의 trigger 자체가 닫힘 상태와 시각적으로 구분된다(자식 목록 노출과 무관한 독립 신호)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    const groupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+
+    const closedBg = await groupTrigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await groupTrigger.click();
+    await expect(groupTrigger).toHaveAttribute('aria-expanded', 'true');
+    const openBg = await groupTrigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    expect(openBg, '모바일에서 펼친 GROUP trigger는 닫힘 상태와 배경이 달라야 한다').not.toBe(closedBg);
+    await expect(groupTrigger).toHaveCSS('font-weight', '700');
+  });
+
+  // 32px는 WCAG 등 보편적 권장치가 아니라, "기존 대비 실제로 커졌고 조작에 충분하다"를 판단하기 위한
+  // 이번 프로젝트의 회귀 기준값이다(패딩 추가 전 트리거/링크의 padding:0 상태보다 명백히 커야 함).
+  test('Mobile 375: top-level/submenu 항목의 터치 영역이 기존보다 소폭 확대된다(프로젝트 회귀 기준)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    await page.locator('#nav-toggle').click();
+
+    const leaf = page.locator('#quick-menu > li > a', { hasText: '공지사항' });
+    const leafBox = await leaf.boundingBox();
+    expect(leafBox.height, 'top-level 항목의 터치 영역이 충분히 확보되어야 한다').toBeGreaterThanOrEqual(32);
+
+    const groupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+    await groupTrigger.click();
+    const childLink = page.locator('.site-nav__submenu a').first();
+    const childBox = await childLink.boundingBox();
+    expect(childBox.height, 'submenu child 항목의 터치 영역이 충분히 확보되어야 한다').toBeGreaterThanOrEqual(32);
+  });
+
+  for (const width of [899, 900, 901, 1024]) {
+    test(`${width}px: tint 배경/padding 추가 후에도 horizontal overflow와 top-level wrap 회귀가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+
+      if (width >= 900) {
+        const rowYs = await page.locator('#quick-menu > li').evaluateAll((items) =>
+          [...new Set(items.map((li) => Math.round(li.getBoundingClientRect().y)))]);
+        expect(rowYs.length, `${width}px에서 top-level 메뉴가 한 줄로 유지되어야 한다`).toBe(1);
+      }
+    });
+  }
 });
