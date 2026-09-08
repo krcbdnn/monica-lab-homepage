@@ -95,6 +95,36 @@
                     activateGroup(groupId, groupEl);
                 });
             }
+
+            // P13-T35(A1): 키보드로 연 그룹은 기존에는 Escape/outside-click/mouseleave(hover 기기)로만
+            // 닫혔다 - 키보드 전용 사용자가 Escape 없이 Tab만으로 그룹 밖으로 이동하면 submenu가 열린
+            // 채로 남아 이후 콘텐츠 위에 겹치는 실제 회귀가 있었다(Docker 8088 실브라우저로 재현 확인).
+            // focusout은 버블링하지 않지만 캡처 없이도 groupEl에 바인딩하면 그 하위 트리(trigger +
+            // submenu 링크) 안에서 포커스가 옮겨질 때마다 발생한다 - relatedTarget이 여전히 groupEl
+            // 내부면(trigger→child, child→다음 child 이동) 무시하고, groupEl 밖이면 닫는다.
+            //
+            // closeOpenGroup()은 반드시 setTimeout(0)으로 다음 tick에 실행한다 - 실브라우저(Docker
+            // 8088) 실측 결과, focusout 핸들러 안에서 즉시 DOM을 바꾸면(submenu 접힘 → 레이아웃 변경)
+            // 지금 포커스를 가져간 바로 그 tap/click(예: 모바일 hamburger 토글 버튼)의 자체 click
+            // 이벤트가 브라우저에 의해 취소되는 회귀가 실측으로 재현됐다(포커스 이동은 pointerdown
+            // 단계에서 동기적으로 일어나고, 그 안에서 DOM을 바꾸면 뒤이은 touchend→click 합성이
+            // 대상을 잃는다). 다음 tick으로 미루면 이 문제를 피하면서도 사용자에게는 지연이 체감되지
+            // 않는다. relatedTarget도 항상 보장되지는 않으므로(예: 포커스가 완전히 사라지는 경우)
+            // 우선 힌트로만 쓰고, 실제 판단은 다음 tick의 document.activeElement로 한 번 더 한다.
+            groupEl.addEventListener('focusout', function (event) {
+                if (openGroupId !== groupId) {
+                    return;
+                }
+                var next = event.relatedTarget;
+                if (next && groupEl.contains(next)) {
+                    return;
+                }
+                setTimeout(function () {
+                    if (openGroupId === groupId && !groupEl.contains(doc.activeElement)) {
+                        closeOpenGroup();
+                    }
+                }, 0);
+            });
         });
 
         doc.addEventListener('click', function (event) {

@@ -1065,6 +1065,31 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T35. Header/Footer 반응형 최종 QA
+- 의존성: P13-T34
+- 산출물: `static/js/home/nav-submenu.js`, `frontend-tests/visual-regression.spec.js`, `frontend-tests/public-console-errors.spec.js`(신규)
+- 작업 내용: 새로운 Header/Footer 기능·IA를 설계하지 않고, 현재까지 구현된 공개 Header/Footer(반응형/메뉴 동작/접근성/overflow/keyboard interaction/모바일 사용성/공통 layout 적용/Footer 사업자 정보/기존 기능 회귀/console error)를 최종 QA해 실제로 재현된 결함만 최소 범위로 수정한다.
+  1. **A1(실제 결함, Docker 8088 실브라우저로 재현 확인 후 수정)**: 키보드로 GROUP/전체메뉴를 연 뒤 Escape 없이 Tab만으로 그룹 밖으로 포커스가 이동해도 `nav-submenu.js`에 `focusout` 처리가 없어 submenu가 열린 채로 남아 이후 콘텐츠 위에 겹칠 수 있었다. `nav-submenu.js`에 groupEl 단위 `focusout` 리스너를 추가해 새 포커스 대상이 그룹 밖이면 자동으로 닫는다. `closeOpenGroup()` 실행은 `setTimeout(0)`으로 다음 tick에 미룬다 — 실측 결과 focusout 핸들러 안에서 즉시 DOM을 바꾸면 지금 포커스를 가져간 바로 그 tap/click(예: 모바일 hamburger 토글) 자체의 click 이벤트가 브라우저에 의해 취소되는 회귀가 있었다. `relatedTarget`이 없는 경우(일부 브라우저에서 포커스가 완전히 사라지는 경우) 대비, 다음 tick의 `document.activeElement`로 한 번 더 판단한다. 기존 `openGroup`/`closeOpenGroup`/`setGroupOpen` 함수와 상태 변수를 그대로 재사용한다. DOM/CSS/Menu DB/API/IA는 변경하지 않는다.
+  2. **B1(테스트 공백)**: `frontend-tests/admin-console-errors.spec.js`(관리자 전용)와 별도로 `frontend-tests/public-console-errors.spec.js`를 신규 생성해, 동일한 `page.on('pageerror')` 패턴으로 대표 public route(`/`, `/boards`, `/programs`, `/pages/GREETING`)의 최초 진입과 Header GROUP/mega menu/모바일 hamburger 상호작용(nav-submenu.js/nav-toggle.js 실행 경로) 중 pageerror가 없는지 확인한다. `console.error` 수집까지는 확장하지 않는다(false-positive 위험, 이 프로젝트에 의도적 사용처 없음).
+  3. **B3(테스트 공백)**: `visual-regression.spec.js`에 375px에서 hamburger accordion을 실제로 사용한 뒤 `goto` 없이 같은 page에서 1440px로 `setViewportSize`했을 때 stale mobile 상태 없이 desktop UI(hamburger 숨김, nav 노출, 다른 GROUP hover 가능, overflow 없음)가 정상 동작하는지 확인하는 테스트를 추가한다.
+  4. **B4(테스트 공백)**: `visual-regression.spec.js`에 실제 production "전체메뉴"(mega menu) trigger 자체의 키보드 접근성(Tab 도달 → Enter → Tab으로 첫 링크 접근 → Escape로 닫힘/포커스 복귀)을 검증하는 테스트를 추가한다(기존 키보드 테스트는 합성 GROUP만 사용했음).
+  5. 조사 결과 Footer(P13-T34)와 Header CSS/DOM/Menu 서버 렌더링 로직에는 실제 결함이 없어 무변경으로 확인됐다(`header.html`/`footer.html`/`default.html`/`home.css`/`nav-toggle.js`/Menu 관련 Java/Menu DB 전부 무수정).
+- DoD:
+  - 375/768/1024/1440에서 Header/Footer 모두 horizontal overflow 없이 정상 표시된다.
+  - Mobile hamburger accordion(열기/닫기/GROUP 접근/재오픈 초기화)이 정상 동작한다.
+  - Desktop GROUP dropdown/mega menu가 hover/click/keyboard 전 경로에서 정상 동작하고, `aria-expanded`가 실제 상태와 동기화된다.
+  - **키보드로 연 GROUP/mega menu는 포커스가 그 밖으로 이동하면 자동으로 닫힌다(A1).**
+  - **전체메뉴(mega menu) 자체가 keyboard(Tab/Enter/Tab/Escape)로 정상 접근 가능하다(B4).**
+  - **375px hamburger accordion 사용 후 `goto` 없이 1440px로 리사이즈해도 stale mobile 상태 없이 desktop UI가 정상 동작한다(B3).**
+  - Footer의 P13-T34 확정 정보(연구소명/주소/전화/사업자등록번호/도메인/copyright)가 무회귀로 유지된다.
+  - 모든 공개 공통 layout(6개 템플릿, 4개 Controller)에서 Header/Footer가 공통으로 유지된다.
+  - 대표 public route(`/`, `/boards`, `/programs`, `/pages/GREETING`) 및 Header GROUP/mega menu/모바일 hamburger 상호작용 중 console pageerror가 없다(B1, `public-console-errors.spec.js`).
+  - 기존 Menu/Footer navigation label/href/IA가 전부 무회귀다.
+  - `./gradlew build`, Node/Playwright 전체 테스트가 통과한다.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
