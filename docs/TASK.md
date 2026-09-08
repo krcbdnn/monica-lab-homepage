@@ -1033,6 +1033,21 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T33. 강의 후기 단일 게시판 IA 수정
+- 의존성: P13-T32
+- 산출물: `db/migration/V10__collapse_review_menu_to_single_leaf.sql`(신규), `src/test/java/com/monicalab/support/MenuIaMigrationTest.java`, `frontend-tests/visual-regression.spec.js`
+- 작업 내용: 발주처 요구사항 재확인 결과 "강의 후기"는 하나의 게시판(BoardType.REVIEW)이며 공개 top-level navigation에는 "강의 후기" 하나만 존재해야 한다. V8(Task C)이 "강의 후기"를 GROUP(수강 후기/특강 후기 child 2개)으로 만든 것이 이 요구와 어긋남을 확인해 되돌린다. Board 도메인(Entity/DTO/Service/Controller/관리자 화면)과 공개 게시판 내부 subtype 필터(`home/board/list.html`의 `#board-type-filter`, `/boards?boardType=REVIEW`(`&programType=COURSE|SPECIAL`))는 처음부터 요구사항과 정확히 일치했으므로 전혀 건드리지 않는다.
+  1. V10이 기존 "강의 후기" GROUP 행(id 하드코딩 없이 label+target_type+parent_id 조합으로 식별)의 자식 중 REVIEW+COURSE/REVIEW+SPECIAL 조합으로 정밀 식별되는 2행만 DELETE하고, 그 GROUP 행 자체는 같은 id/label/sort_order/is_visible/open_in_new_tab을 유지한 채 `target_type=BOARD_LIST, target_value=REVIEW, target_subvalue=NULL`로 UPDATE한다(V1~V9 무수정, DELETE는 광범위 조건 금지).
+  2. `MenuService`/`HeaderMenuItem`/`header.html`/`nav-submenu.js`/`admin/menu/list.html`/`admin/menu/form.html`은 무수정 - 기존 top-level LEAF(BOARD_LIST) 렌더링 분기가 이미 이 케이스를 처리한다.
+- DoD:
+  - 공개 Header/Mobile accordion/Mega Menu에 "강의 후기" top-level LEAF 1개만 존재(`/boards?boardType=REVIEW`), 수강 후기/특강 후기 child menu 없음.
+  - `/boards?boardType=REVIEW`(전체)·`&programType=COURSE`·`&programType=SPECIAL` 게시판 내부 필터 전부 무회귀.
+  - Board 코드/Footer 무변경, V1~V9 무수정, V10 forward migration(V9→V10) 정상 적용.
+  - `MenuIaMigrationTest`/`visual-regression.spec.js` 신규·수정 케이스 전부 통과, 기존 Board subtype 필터 테스트 무회귀.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
