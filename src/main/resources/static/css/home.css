@@ -306,6 +306,23 @@ a.site-nav__megamenu-heading:hover {
     color: inherit;
 }
 
+/* P13-T34: 발주처 확정 사업자 정보(주소/전화/사업자등록번호) - font-style 리셋(<address> 기본 italic)과
+   <p> 기본 margin 리셋만으로 기존 .site-footer__inner의 column/gap 레이아웃에 자연스럽게 편입된다.
+   전화/사업자등록번호는 하이픈 포함 짧은 값이라 줄 중간에서 끊기지 않도록 nowrap한다(주소는 공백
+   기준 자연 줄바꿈을 허용해야 하므로 nowrap하지 않는다). */
+.site-footer__business {
+    font-style: normal;
+}
+
+.site-footer__business p {
+    margin: 0;
+}
+
+.site-footer__phone,
+.site-footer__reg-no {
+    white-space: nowrap;
+}
+
 /* 모바일/좁은 태블릿: 햄버거 토글 노출, 내비게이션은 토글 전까지 접힘.
    P13-T30D(A2): 기존 767.98px에서 899.98px로 확장 - 최종 IA 8개가 label 줄바꿈 없이 한 줄로 들어가는
    실측 최소 폭이 900px이라(위 @media (min-width: 900px) 블록 주석 참고), hamburger 구간을 그 경계까지

@@ -847,6 +847,79 @@ test.describe('P13-T17: 공개 화면 명칭/네비게이션/홈 구성 정리',
   }
 });
 
+// P13-T34: 발주처가 웹페이지 하단에 필수로 요청한 연구소/사업자 정보(주소/전화/사업자등록번호)를
+// 모든 공개 페이지 공통 Footer(home/layout/footer.html)에 반영한다. Footer navigation(4개 링크)/
+// domain self-link/브랜드명은 이 Task의 대상이 아니므로 기존 상태 그대로임을 재확인만 한다.
+test.describe('P13-T34: Footer 사업자 정보', () => {
+  test('/ 의 footer에 확정 사업자 정보(주소/전화/사업자등록번호)가 정확히 표시된다', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.locator('.site-footer__address'))
+      .toHaveText('주소: 성남시 분당구 황새울로 200번길 28, 1104-07호');
+
+    const phoneLink = page.locator('.site-footer__phone a');
+    await expect(phoneLink).toHaveText('070-4655-7905');
+    await expect(phoneLink).toHaveAttribute('href', 'tel:070-4655-7905');
+
+    await expect(page.locator('.site-footer__reg-no')).toHaveText('사업자등록번호: 220-10-28936');
+  });
+
+  test('/ 의 footer copyright가 확정 문구(연도 포함, All rights reserved.)로 표시된다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.site-footer__copyright'))
+      .toHaveText('© 2026 모니카영어교육연구소. All rights reserved.');
+  });
+
+  // footer.html은 home/layout/default.html 하나에서만 include되는 공통 fragment이므로, 서로 다른
+  // 템플릿을 쓰는 대표 라우트(/boards) 1개에서 동일 내용이 그대로 노출되는지만 재확인한다 - 모든
+  // route에서 동일 문자열을 반복 검증하지 않는다(공통 fragment 계약은 이 1개로 충분히 증명됨).
+  test('/boards 의 footer에도 동일한 브랜드명/사업자 정보가 공통 fragment로 노출된다', async ({ page }) => {
+    await page.goto('/boards');
+
+    await expect(page.locator('.site-footer__brand')).toHaveText('모니카영어교육연구소');
+    await expect(page.locator('.site-footer__address'))
+      .toHaveText('주소: 성남시 분당구 황새울로 200번길 28, 1104-07호');
+    await expect(page.locator('.site-footer__phone a')).toHaveAttribute('href', 'tel:070-4655-7905');
+    await expect(page.locator('.site-footer__reg-no')).toHaveText('사업자등록번호: 220-10-28936');
+  });
+
+  // 사업자 정보 추가로 인해 기존 Footer navigation(label/href/순서)이 조금이라도 바뀌지 않았는지
+  // 4개 링크를 한 번에 재확인한다(기존 P13-T17 describe의 개별 테스트는 링크 1~2개씩만 다룸).
+  test('기존 Footer navigation 4개 링크의 label/href/순서가 무변경이다', async ({ page }) => {
+    await page.goto('/');
+    const navLinks = page.locator('.site-footer__nav a');
+    await expect(navLinks).toHaveCount(4);
+    expect(await navLinks.allTextContents()).toEqual(['연구소 소개', '프로그램', '강의 후기', '게시판']);
+    expect(await navLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/pages/INTRODUCTION', '/programs', '/boards?boardType=REVIEW', '/boards',
+    ]);
+  });
+
+  // 기존 domain self-link(P13-T17)가 사업자 정보 추가로 영향받지 않았는지 재확인한다.
+  test('기존 www.monicaenglish.com self-link 구조가 무변경이다', async ({ page }) => {
+    await page.goto('/');
+    const domainLink = page.locator('.site-footer__site a');
+    await expect(domainLink).toHaveText('www.monicaenglish.com');
+    await expect(domainLink).toHaveAttribute('href', 'https://www.monicaenglish.com');
+    await expect(domainLink).not.toHaveAttribute('target', /.+/);
+  });
+
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}에서 사업자 정보를 포함한 footer가 horizontal overflow 없이 표시된다`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto('/');
+
+      await expect(page.locator('.site-footer__address')).toBeVisible();
+      await expect(page.locator('.site-footer__phone a')).toBeVisible();
+      await expect(page.locator('.site-footer__reg-no')).toBeVisible();
+
+      const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+    });
+  }
+});
+
 // P13-T18: 관리자 Board/Program 수정 화면에서 기존 thumbnail/attachment가 보이지 않던 문제 검증.
 // 1x1 투명 PNG(순수 데이터 URI, 실제 파일 아님) - 진짜 업로드 검증(magic byte 검사 포함)용.
 const PNG_1PX_BUFFER = Buffer.from(
