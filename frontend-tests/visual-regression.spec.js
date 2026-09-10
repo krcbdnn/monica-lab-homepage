@@ -716,6 +716,61 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
     expect(noticesBox.y).toBeGreaterThan(reviewsBox.y);
   });
 
+  // P13-T38B: "주요 소식"(#home-pinned)은 관리자가 고정한 pin이 하나라도 있을 때만 렌더링되므로,
+  // 로컬/실 DB에 등록된 pin 개수에 의존하지 않기 위해 이 describe 블록도 매 테스트마다 관리자 API로
+  // 공개 Board 1건 + 고정(pin) 1건을 만들고 끝나면 정리한다. #home-pinned가 실제로 존재할 때만
+  // "최신 프로그램"보다 위에 위치하는지 확인할 수 있으므로, 존재 자체도 함께 확인한다.
+  test.describe('P13-T38B: "주요 소식" 위치', () => {
+    test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+    let xsrfToken;
+    let boardId;
+    let pinnedId;
+
+    test.beforeEach(async ({ context, baseURL }) => {
+      await loginAsAdmin(context, baseURL);
+      xsrfToken = await getXsrfToken(context);
+
+      const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: {
+          boardType: 'NOTICE',
+          title: `주요 소식 위치 확인용 게시글 ${Date.now()}`,
+          isPublic: true,
+        },
+      });
+      expect(boardResponse.ok()).toBeTruthy();
+      boardId = (await boardResponse.json()).data.id;
+
+      const pinResponse = await context.request.post(`${baseURL}/api/admin/home-pinned-contents`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: { targetType: 'BOARD', targetId: boardId, sortOrder: 900000 },
+      });
+      expect(pinResponse.ok()).toBeTruthy();
+      pinnedId = (await pinResponse.json()).data.id;
+    });
+
+    test.afterEach(async ({ context, baseURL }) => {
+      await context.request.delete(`${baseURL}/api/admin/home-pinned-contents/${pinnedId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    });
+
+    test('"주요 소식" 섹션이 "최신 프로그램" 섹션보다 위에 위치한다', async ({ page }) => {
+      await page.goto('/');
+
+      const pinnedSection = page.locator('#home-pinned');
+      await expect(pinnedSection).toBeVisible();
+
+      const pinnedBox = await pinnedSection.boundingBox();
+      const programsBox = await page.locator('#latest-programs').boundingBox();
+      expect(pinnedBox.y).toBeLessThan(programsBox.y);
+    });
+  });
+
   test.describe('/programs 목록 썸네일', () => {
     let xsrfToken;
     let programIdWithThumb;

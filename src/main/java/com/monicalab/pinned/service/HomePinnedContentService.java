@@ -5,6 +5,7 @@ import com.monicalab.board.repository.BoardRepository;
 import com.monicalab.common.exception.CustomException;
 import com.monicalab.common.exception.ErrorCode;
 import com.monicalab.pinned.dto.HomePinnedContentOrderRequest;
+import com.monicalab.pinned.dto.HomePinnedContentPublicResponse;
 import com.monicalab.pinned.dto.HomePinnedContentRequest;
 import com.monicalab.pinned.dto.HomePinnedContentResponse;
 import com.monicalab.pinned.dto.HomePinnedContentVisibilityRequest;
@@ -16,6 +17,7 @@ import com.monicalab.program.entity.Program;
 import com.monicalab.program.repository.ProgramRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -108,6 +110,42 @@ public class HomePinnedContentService {
                 .toList();
     }
 
+    // 공개 화면은 isVisible=true인 pin만 후보로 삼고, 그 중 원본이 실제로 존재하며 isPublic=true인
+    // 것만 최종 노출한다. getAdminList()와 동일하게 pin 조회 1회 + BOARD/PROGRAM 배치 조회 각 0~1회로
+    // 처리해 핀 개수와 무관하게 최대 3 query로 끝난다(N+1 없음). 존재하지 않거나 비공개인 원본은
+    // 예외를 던지지 않고 해당 pin만 조용히 제외한다 - 잘못된 참조 하나 때문에 홈 화면 전체가 깨지면
+    // 안 되기 때문이다.
+    @Transactional(readOnly = true)
+    public List<HomePinnedContentPublicResponse> getPublicList() {
+        List<HomePinnedContent> pins = repository.findByIsVisibleTrue(SORT);
+        if (pins.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> boardIds = pins.stream()
+                .filter(pin -> pin.getTargetType() == HomeTargetType.BOARD)
+                .map(HomePinnedContent::getTargetId)
+                .collect(Collectors.toSet());
+        Set<Long> programIds = pins.stream()
+                .filter(pin -> pin.getTargetType() == HomeTargetType.PROGRAM)
+                .map(HomePinnedContent::getTargetId)
+                .collect(Collectors.toSet());
+
+        Map<Long, Board> publicBoardsById = boardIds.isEmpty() ? Map.of()
+                : boardRepository.findAllByIdInAndIsPublicTrue(boardIds).stream()
+                        .collect(Collectors.toMap(Board::getId, Function.identity()));
+        Map<Long, Program> publicProgramsById = programIds.isEmpty() ? Map.of()
+                : programRepository.findAllByIdInAndIsPublicTrue(programIds).stream()
+                        .collect(Collectors.toMap(Program::getId, Function.identity()));
+
+        return pins.stream()
+                .map(pin -> pin.getTargetType() == HomeTargetType.BOARD
+                        ? buildPublicResponse(pin, publicBoardsById.get(pin.getTargetId()))
+                        : buildPublicResponse(pin, publicProgramsById.get(pin.getTargetId())))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
     @Transactional
     public HomePinnedContentResponse updateOrder(Long id, HomePinnedContentOrderRequest request) {
         HomePinnedContent pin = getEntity(id);
@@ -152,5 +190,19 @@ public class HomePinnedContentService {
                 ? HomePinnedContentResponse.of(pin, SourceStatus.DELETED, null, null)
                 : HomePinnedContentResponse.of(pin, program.isPublic() ? SourceStatus.PUBLIC : SourceStatus.PRIVATE,
                         program.getTitle(), "/admin/programs/" + pin.getTargetId() + "/edit");
+    }
+
+    // board/program이 null이면(비공개 또는 삭제됨, findAllByIdInAndIsPublicTrue 결과 Map에 없음)
+    // null을 반환해 getPublicList()가 해당 pin만 조용히 걸러내도록 한다.
+    private HomePinnedContentPublicResponse buildPublicResponse(HomePinnedContent pin, Board board) {
+        return board == null ? null
+                : new HomePinnedContentPublicResponse(pin.getId(), pin.getTargetType(), pin.getTargetId(),
+                        board.getTitle(), board.getThumbnail(), "/boards/" + pin.getTargetId());
+    }
+
+    private HomePinnedContentPublicResponse buildPublicResponse(HomePinnedContent pin, Program program) {
+        return program == null ? null
+                : new HomePinnedContentPublicResponse(pin.getId(), pin.getTargetType(), pin.getTargetId(),
+                        program.getTitle(), program.getThumbnail(), "/programs/" + pin.getTargetId());
     }
 }
