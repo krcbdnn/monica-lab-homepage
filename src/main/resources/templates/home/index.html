@@ -58,6 +58,24 @@
         </div>
     </section>
 
+    <section id="home-pinned" class="section" th:if="${pinnedContents != null and !pinnedContents.isEmpty()}">
+        <h2 class="section-title">주요 소식</h2>
+
+        <ul class="gallery-grid">
+            <li th:each="pinned : ${pinnedContents}" class="gallery-card">
+                <a th:href="${pinned.href()}" class="gallery-card__link">
+                    <div class="gallery-card__thumb">
+                        <img th:if="${pinned.thumbnail() != null}" th:src="${pinned.thumbnail()}"
+                             th:alt="${pinned.title()}" loading="lazy">
+                        <div th:unless="${pinned.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                             aria-hidden="true"></div>
+                    </div>
+                    <p class="gallery-card__title" th:text="${pinned.title()}"></p>
+                </a>
+            </li>
+        </ul>
+    </section>
+
     <section id="latest-programs" class="section">
         <h2 class="section-title"><a th:href="@{/programs}" class="section-title__link">최신 프로그램</a></h2>
 

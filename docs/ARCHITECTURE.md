@@ -298,11 +298,10 @@ HomeController
 - 최신 프로그램 카드 조회: `ProgramService.getPublicList(null, null, createdAt desc pageable)` 결과 중 최신 3건을 모델에 제공한다. `recruitStatus` 기준 서버 측 필터링은 하지 않으며, 응답에 포함된 `recruitStatus` 값으로 화면에서 상태 배지만 표시한다. 0건이어도 화면은 완성된 레이아웃의 empty state로 렌더링한다.
 - 최신 강의 후기 카드 조회(P13-T16): `#latest-programs` 바로 다음에 위치한다. `BoardService.getPublicList(BoardType.REVIEW, null, createdAt desc pageable)` 결과 중 최신 `LATEST_REVIEW_LIMIT`(3)건을 `latestReviews` 모델 속성으로 제공한다. `LATEST_BOARD_LIMIT`(공지/갤러리, 5)과는 별도 상수를 쓴다. 별도 Entity/API를 만들지 않고 기존 `Board`(`boardType=REVIEW`)를 재사용하며, 마크업은 `#latest-gallery`의 `.gallery-grid`/`.gallery-card__*`를 그대로 재사용한다.
 - 최신 공지/갤러리 조회
+- 메인 고정 콘텐츠 조회(P13-T38B): `HomePinnedContentService.getPublicList()`가 반환하는 목록을 `pinnedContents` 모델 속성으로 그대로 전달한다. Hero(`#banners`)/Popup(`#popups`) 바로 다음, `#latest-programs` 이전 위치에 `#home-pinned`(제목 "주요 소식")로 렌더링하며, 목록이 비어 있으면(`pinnedContents == null` 방어 포함) 섹션 자체를 렌더링하지 않는다(다른 섹션과 달리 empty state 문구 없음). 상세 계약은 `## HomePinnedContent` 섹션을 참고.
 - 바로가기 메뉴(P13-T17, P13-T30B에서 동적화): 기존 공개 화면으로 이동하는 링크(`연구소 소개` → `/pages/INTRODUCTION`, `프로그램` → `/programs`, `강의 후기` → `/boards?boardType=REVIEW`, `게시판` → `/boards`)로 구성되며, P13-T17 시점에는 4개 고정 하드코딩이었으나 P13-T30B부터 `Menu` 도메인(P13-T30A) 기반 동적 렌더링으로 전환됐다. 실제 렌더링 경로는 `## Menu` 섹션의 "공개 헤더 렌더링"을 참고. 홈 상단 인사말(GREETING) 요약 섹션과 하단 "프로그램 바로가기" CTA 섹션은 P13-T17에서 제거됐다. `/pages/GREETING` 상세 페이지 자체(`PageController`/`PageViewController`)는 유지된다.
 
-자체 Entity/Repository 없이 Banner, Popup, Board, Program, Page Service를 조합하여 사용한다.
-
-비고(P13-T38B 예정): 관리자가 `HomePinnedContent`(`## HomePinnedContent` 섹션 참고)로 고정한 콘텐츠를 Hero(`#banners`)/Popup 바로 다음, `#latest-programs` 이전 위치(`#home-pinned`, 제목 "주요 소식")에 렌더링하는 기능이 예정되어 있으나, P13-T38A(본 문서 현재 반영 범위) 시점에는 아직 구현되지 않았다. `HomeController`는 이 시점까지 `HomePinnedContentService`를 참조하지 않는다.
+자체 Entity/Repository 없이 Banner, Popup, Board, Program, Page, `HomePinnedContent`(P13-T38B부터, `com.monicalab.pinned.service.HomePinnedContentService`) Service를 조합하여 사용한다.
 
 ---
 
@@ -435,7 +434,9 @@ Page/Popup/Banner는 대상에 포함하지 않는다(구조상 썸네일/공개
 
 원본 상태 처리: 고정 이후 원본(Board/Program)이 비공개로 전환되거나 삭제되어도 `HomePinnedContent` 행은 자동 삭제하지 않는다. 관리자 목록 조회 시점에 `BoardRepository.findAllById`/`ProgramRepository.findAllById`로 대상을 배치 재조회(핀 개수와 무관하게 타입당 쿼리 1회, N+1 없음)해 `PUBLIC`(원본 존재+공개)/`PRIVATE`(원본 존재+비공개)/`DELETED`(원본 없음) 상태를 애플리케이션 레벨에서 계산한다 - 이 상태는 DB persisted 컬럼이 아니라 `HomePinnedContentResponse` 조립 시점의 계산값이다.
 
-비고: P13-T38A는 이 도메인과 관리자 CRUD까지만 구축한다. 공개 메인 화면(`HomeController`/`home/index.html`)에서의 실제 렌더링은 P13-T38B에서 별도로 다루며, 이 Task 시점에는 존재하지 않는다.
+공개 노출(P13-T38B): `HomePinnedContentService.getPublicList()`가 `isVisible=true`인 pin만 후보로 삼아 `HomePinnedContentRepository.findByIsVisibleTrue(Sort)`로 1회 조회하고, `getAdminList()`와 동일하게 `targetType`별로 그룹핑해 `BoardRepository.findAllByIdInAndIsPublicTrue`/`ProgramRepository.findAllByIdInAndIsPublicTrue`(관리자용 `findAllById`와 달리 `isPublic=true` 조건을 predicate에 포함하는 신규 배치 메서드)로 각각 최대 1회 배치 조회한다(핀 개수와 무관하게 최대 3 query, N+1 없음). 배치 조회 결과에 없는(원본이 비공개이거나 물리 삭제된) pin은 예외를 던지지 않고 조용히 제외한다. 응답은 관리자용 `HomePinnedContentResponse`가 아니라 공개 전용 `HomePinnedContentPublicResponse`(`pinnedId`/`targetType`/`targetId`/`title`/`thumbnail`/`href`)를 사용하며, `href`는 서비스가 `/boards/{id}` 또는 `/programs/{id}`로 미리 조립한다. `HomeController`는 이 결과를 `pinnedContents` model attribute로 전달하기만 하는 얇은 책임을 유지하고, 공개 JSON API는 두지 않는다.
+
+비고: P13-T38A는 이 도메인과 관리자 CRUD까지 구축했고, 공개 메인 화면(`HomeController`/`home/index.html`)에서의 실제 렌더링은 P13-T38B에서 구현했다.
 
 ---
 

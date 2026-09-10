@@ -1166,11 +1166,31 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
-### P13-T38B. 메인 고정 콘텐츠 공개 Home 렌더링(예정)
+### P13-T38B. 메인 고정 콘텐츠 공개 Home 렌더링
 
 - 의존성: P13-T38A
-- 작업 내용(예정, 본 Task는 아직 착수하지 않음): P13-T38A가 구축한 `HomePinnedContent`/`HomePinnedContentService`를 이용해 공개 메인 화면 상단에 고정 콘텐츠를 노출한다. `HomeController`가 공개용 조회 메서드(`PUBLIC`인 `BOARD`/`PROGRAM`만, 배치 조회로 N+1 방지)를 호출해 `home/index.html`의 `#banners`(Hero)/`#popups` 바로 다음, `#latest-programs` 이전에 신규 섹션(`id="home-pinned"`, 제목 "주요 소식")을 렌더링한다. 고정 콘텐츠가 0건이면 섹션 자체를 렌더링하지 않는다. 카드 UI는 기존 `.gallery-grid`/`.gallery-card__*` 마크업을 재사용한다. 개수 하드 리밋을 두지 않는다.
-- DoD(예정): 위치/0건 처리/타입별 클릭 URL/반응형/console error 0/기존 P13-T30~T38A 전체 무회귀를 확인하는 Playwright 케이스 포함. 착수 시점에 별도 승인을 받아 상세 계획을 재수립한다.
+- 산출물: `pinned/repository/HomePinnedContentRepository.java`, `pinned/dto/HomePinnedContentPublicResponse.java`(신규), `pinned/service/HomePinnedContentService.java`, `board/repository/BoardRepository.java`, `program/repository/ProgramRepository.java`, `home/controller/HomeController.java`, `templates/home/index.html`, `src/test/java/com/monicalab/home/controller/HomeControllerTest.java`, `frontend-tests/visual-regression.spec.js`, `docs/PRD.md`, `docs/FEATURES.md`, `docs/ARCHITECTURE.md`, `docs/TASK.md`
+- 작업 내용: P13-T38A가 구축한 `HomePinnedContent`/`HomePinnedContentService`를 이용해 공개 메인 화면 상단에 고정 콘텐츠("주요 소식")를 노출한다. 신규 공개 JSON API는 만들지 않는다(Menu의 `getPublicMenuTree()`와 동일하게 `HomeController`가 model attribute로만 노출).
+  1. `HomePinnedContentRepository.findByIsVisibleTrue(Sort)`(신규, `BannerRepository.findByIsVisibleTrue(Sort)`와 동일 패턴), `BoardRepository.findAllByIdInAndIsPublicTrue(Collection<Long>)`/`ProgramRepository.findAllByIdInAndIsPublicTrue(Collection<Long>)`(신규, 기존 `findByIdAndIsPublicTrue(Long)` 단건 패턴의 배치 버전). 전부 QueryDSL 없이 단순 Spring Data 파생 쿼리다 - `CODING_RULES.md`의 "검색은 QueryDSL 사용" 규칙은 `*RepositoryCustom.search()`(키워드/조건 검색)에 해당하며, 이 배치 조회는 단순 predicate 조회라 대상이 아니다.
+  2. `HomePinnedContentService.getPublicList()`(신규): `getAdminList()`와 동일한 구조로 pin 조회 1회 + `targetType`별 그룹핑 + BOARD/PROGRAM 배치 조회 각 0~1회로 처리한다(핀 개수와 무관하게 최대 3 query, N+1 없음, 루프 내부 repository 호출 없음). `isVisible=true`인 pin만 후보로 삼고, 배치 조회 결과 Map에 없는(원본이 비공개이거나 물리 삭제된) pin은 예외 없이 조용히 제외한다. `@Transactional(readOnly = true)`이며 DB를 변경하지 않는다. `getAdminList()`는 이 Task에서 리팩토링하지 않는다.
+  3. `HomePinnedContentPublicResponse`(신규 record): `pinnedId`, `targetType`, `targetId`, `title`, `thumbnail`, `href`. `content` 전체는 포함하지 않는다. `href`는 서비스가 `targetType`에 따라 `/boards/{id}` 또는 `/programs/{id}`로 미리 조립해 담고, 템플릿은 분기 없이 그대로 출력한다.
+  4. `HomeController`: `HomePinnedContentService.getPublicList()` 결과를 `pinnedContents` model attribute로 추가한다.
+  5. `home/index.html`: `#popups` 바로 다음, `#latest-programs` 이전에 `<section id="home-pinned" class="section" th:if="${pinnedContents != null and !pinnedContents.isEmpty()}">`를 추가한다(제목 "주요 소식"). `pinnedContents`가 빈 리스트면 섹션 자체가 DOM에 존재하지 않는다(다른 섹션과 달리 `.empty-state` 문구를 두지 않음). 마크업은 신규 CSS 없이 기존 `ul.gallery-grid`/`li.gallery-card`/`a.gallery-card__link`/`.gallery-card__thumb(-placeholder)`/`.gallery-card__title`을 그대로 재사용한다. BOARD/PROGRAM 타입 뱃지는 두지 않는다(공개 화면에서는 "주요 소식"이라는 단일 개념으로만 표시).
+  6. `HomeControllerTest`: 다른 테스트 클래스가 남긴 pin 데이터로부터 격리되도록 `@BeforeEach`에 `homePinnedContentRepository.deleteAll()`을 추가하고, visible/hidden, public/private/deleted BOARD·PROGRAM 혼합, sortOrder ASC + id ASC 동률 처리, 0건/전부 invalid 시 미렌더링, thumbnail/placeholder, DOM 순서(`#popups` → `#home-pinned` → `#latest-programs`) 케이스를 추가한다. 별도 `HomePinnedContentServiceTest`는 만들지 않는다(다른 도메인의 공개 조회 로직도 전부 `HomeControllerTest`에서 검증되는 기존 관례를 따름).
+  7. `visual-regression.spec.js`: 기존 "강의 후기" 위치 검증과 동일한 패턴으로, "주요 소식" 섹션이 "최신 프로그램" 섹션보다 위에 위치하는지 확인하는 케이스 1건을 추가한다. 신규 JS를 추가하지 않으므로 `public-console-errors.spec.js`는 수정하지 않는다(기존 `/` 검증이 그대로 커버).
+- DoD:
+  - `isVisible=true`이고 원본(BOARD/PROGRAM)이 실제로 존재하며 `isPublic=true`인 pin만 공개 화면에 노출된다.
+  - `isVisible=false`인 pin, 원본이 비공개이거나 물리 삭제된 pin은 공개 화면에서 조용히 제외되며, 하나의 잘못된 pin 때문에 나머지 정상 pin이나 홈 화면 전체가 깨지지 않는다.
+  - 정렬은 항상 `sortOrder ASC, id ASC`이며 BOARD/PROGRAM이 섞여도 순서가 유지된다.
+  - 노출 개수 제한이 어디에도 없다.
+  - pin이 0건이거나 유효한 pin이 0건이면 `#home-pinned` 섹션 자체가 렌더링되지 않는다(빈 상태 문구 없음).
+  - `#home-pinned`는 `#popups` 바로 다음, `#latest-programs` 이전에 위치한다.
+  - BOARD 카드는 `/boards/{id}`, PROGRAM 카드는 `/programs/{id}`로 이동한다.
+  - thumbnail이 없으면 기존 `.gallery-card__thumb-placeholder`가 표시된다.
+  - 신규 DB migration, 신규 공개 JSON API, 새로운 `HomeTargetType` 값, drag-and-drop, 관리자 UI 대규모 변경이 없다.
+  - `home/controller/HomeController.java` 외 Menu/Banner/Popup/Header/Footer/nav JS, T38A 관리자 기능(`AdminHomePinnedContentController`/`AdminHomePinnedContentViewController`/관리자 template) 무변경.
+  - Java 신규/수정 테스트 + 기존 전체 테스트 무회귀, `./gradlew build` 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
 
 ---
 

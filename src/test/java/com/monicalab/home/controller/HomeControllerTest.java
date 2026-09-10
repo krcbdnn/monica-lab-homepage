@@ -12,6 +12,9 @@ import com.monicalab.board.repository.BoardRepository;
 import com.monicalab.menu.entity.Menu;
 import com.monicalab.menu.entity.MenuTargetType;
 import com.monicalab.menu.repository.MenuRepository;
+import com.monicalab.pinned.entity.HomePinnedContent;
+import com.monicalab.pinned.entity.HomeTargetType;
+import com.monicalab.pinned.repository.HomePinnedContentRepository;
 import com.monicalab.popup.entity.Popup;
 import com.monicalab.popup.repository.PopupRepository;
 import com.monicalab.program.entity.Program;
@@ -51,6 +54,9 @@ class HomeControllerTest extends AbstractIntegrationTest {
     @Autowired
     private MenuRepository menuRepository;
 
+    @Autowired
+    private HomePinnedContentRepository homePinnedContentRepository;
+
     // P13-T30C: #quick-menu가 최종 IA(HOME 정적 링크 + GROUP 3개 + 전체메뉴 mega menu)로
     // 렌더링되므로, 다른 테스트 클래스(예: AdminMenuControllerTest)가 같은 Testcontainers
     // 인스턴스에서 Menu 테이블을 자유롭게 변경해도 이 클래스의 검증이 실행 순서에 영향받지 않도록
@@ -59,6 +65,9 @@ class HomeControllerTest extends AbstractIntegrationTest {
     private Long programGroupId;
     private Long boardGroupId;
 
+    // P13-T38B: AbstractIntegrationTest가 @Transactional 롤백을 쓰지 않아, 다른 테스트 클래스
+    // (HomePinnedContentRepositoryTest 등)가 남긴 pin 데이터가 이 클래스의 "0건이면 섹션 없음" 검증을
+    // 오염시킬 수 있다 - 매 테스트마다 명시적으로 비운다.
     @BeforeEach
     void setUp() {
         bannerRepository.deleteAll();
@@ -66,6 +75,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
         boardRepository.deleteAll();
         programRepository.deleteAll();
         menuRepository.deleteAll();
+        homePinnedContentRepository.deleteAll();
         seedFinalMenuIa();
     }
 
@@ -660,6 +670,181 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         assertThat(document.select("#latest-reviews .section-title__link").attr("href"))
                 .isEqualTo("/boards?boardType=REVIEW");
+    }
+
+    // P13-T38B: 공개 "주요 소식" 섹션(#home-pinned). HomePinnedContentService.getPublicList()가
+    // isVisible=true인 pin만 후보로 삼고, 그중 원본이 실제로 존재하며 isPublic=true인 것만 최종
+    // 노출하는 계약을 이 컨트롤러 레벨 통합 테스트로 검증한다(별도 HomePinnedContentServiceTest는
+    // 만들지 않음 - Board/Program/Banner 등 다른 도메인의 공개 조회 로직도 전부 이 클래스에서
+    // 검증되는 기존 관례를 따름).
+    @Test
+    void homePinnedSectionShowsVisiblePublicBoardAndProgramInSortOrderThenId() throws Exception {
+        Program program = programRepository.saveAndFlush(publicProgram("고정 프로그램"));
+        Board board1 = boardRepository.saveAndFlush(publicReview("고정 게시글 A"));
+        Board board2 = boardRepository.saveAndFlush(publicReview("고정 게시글 B"));
+
+        // program, board2는 sortOrder가 0으로 동률이다 - id ASC로 program이 먼저(더 낮은 id) 와야 한다.
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.PROGRAM, program.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board2.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board1.getId(), 5));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements links = document.select("#home-pinned .gallery-card__link");
+
+        assertThat(links.eachAttr("href")).containsExactly(
+                "/programs/" + program.getId(), "/boards/" + board2.getId(), "/boards/" + board1.getId());
+        assertThat(document.select("#home-pinned .gallery-card__title").eachText())
+                .containsExactly("고정 프로그램", "고정 게시글 B", "고정 게시글 A");
+    }
+
+    @Test
+    void homePinnedSectionExcludesHiddenPinButShowsVisibleOnes() throws Exception {
+        Board visibleBoard = boardRepository.saveAndFlush(publicReview("노출 고정 게시글"));
+        Board hiddenBoard = boardRepository.saveAndFlush(publicReview("숨김 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, visibleBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(HomePinnedContent.builder()
+                .targetType(HomeTargetType.BOARD).targetId(hiddenBoard.getId()).sortOrder(1)
+                .isVisible(false).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String sectionText = document.select("#home-pinned").text();
+
+        assertThat(sectionText).contains("노출 고정 게시글");
+        assertThat(sectionText).doesNotContain("숨김 고정 게시글");
+    }
+
+    // private/deleted 원본이 각각 skip되는지, "isPublic=true" batch predicate가 실제로 걸러내는지를
+    // deleted 케이스와 분리해 명시적으로 검증한다(하나가 통과한다고 다른 하나도 통과한다고 가정하지 않음).
+    @Test
+    void homePinnedSectionExcludesPrivateBoardAndProgramSourcesButShowsValidOnes() throws Exception {
+        Board privateBoard = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("비공개 고정 게시글").isPublic(false).build());
+        Program privateProgram = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("비공개 고정 프로그램").content("내용")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(false).build());
+        Board validBoard = boardRepository.saveAndFlush(publicReview("공개 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, privateBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.PROGRAM, privateProgram.getId(), 1));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, validBoard.getId(), 2));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements links = document.select("#home-pinned .gallery-card__link");
+
+        assertThat(links).hasSize(1);
+        assertThat(links.attr("href")).isEqualTo("/boards/" + validBoard.getId());
+    }
+
+    @Test
+    void homePinnedSectionExcludesDeletedBoardAndProgramSourcesButShowsValidOnes() throws Exception {
+        Board deletedBoard = boardRepository.saveAndFlush(publicReview("삭제될 고정 게시글"));
+        Program deletedProgram = programRepository.saveAndFlush(publicProgram("삭제될 고정 프로그램"));
+        Board validBoard = boardRepository.saveAndFlush(publicReview("공개 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, deletedBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.PROGRAM, deletedProgram.getId(), 1));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, validBoard.getId(), 2));
+
+        boardRepository.delete(deletedBoard);
+        boardRepository.flush();
+        programRepository.delete(deletedProgram);
+        programRepository.flush();
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements links = document.select("#home-pinned .gallery-card__link");
+
+        assertThat(links).hasSize(1);
+        assertThat(links.attr("href")).isEqualTo("/boards/" + validBoard.getId());
+    }
+
+    @Test
+    void homePinnedSectionNotRenderedWhenNoPinsExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#home-pinned")).isEmpty();
+    }
+
+    @Test
+    void homePinnedSectionNotRenderedWhenAllPinsAreInvalid() throws Exception {
+        Board privateBoard = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("비공개 게시글").isPublic(false).build());
+        Board deletedBoard = boardRepository.saveAndFlush(publicReview("삭제될 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, privateBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, deletedBoard.getId(), 1));
+        boardRepository.delete(deletedBoard);
+        boardRepository.flush();
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#home-pinned")).isEmpty();
+    }
+
+    @Test
+    void homePinnedSectionShowsThumbnailWhenPresentAndPlaceholderWhenMissing() throws Exception {
+        Board withThumb = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("썸네일 있는 고정 게시글")
+                .thumbnail("/api/files/9").isPublic(true).build());
+        Board withoutThumb = boardRepository.saveAndFlush(publicReview("썸네일 없는 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, withThumb.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, withoutThumb.getId(), 1));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements cards = document.select("#home-pinned .gallery-card");
+
+        assertThat(cards.get(0).select(".gallery-card__thumb img").attr("src")).isEqualTo("/api/files/9");
+        assertThat(cards.get(1).select(".gallery-card__thumb-placeholder")).isNotEmpty();
+        assertThat(cards.get(1).select(".gallery-card__thumb img")).isEmpty();
+    }
+
+    // #home-pinned가 #popups 바로 다음 형제이자 #latest-programs보다 앞에 오는지를 DOM 순서로 확인한다
+    // (Playwright visual-regression.spec.js에서 실제 y좌표 기준 시각적 위치도 별도로 검증한다).
+    @Test
+    void homePinnedSectionIsRenderedImmediatelyAfterPopupsAndBeforeLatestPrograms() throws Exception {
+        Board board = boardRepository.saveAndFlush(publicReview("위치 확인용 고정 게시글"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board.getId(), 0));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements topLevelSections = document.select("#index-content > section");
+
+        assertThat(topLevelSections.eachAttr("id")).containsExactly(
+                "banners", "popups", "home-pinned", "latest-programs", "latest-reviews",
+                "latest-notices", "latest-gallery");
+    }
+
+    private HomePinnedContent pin(HomeTargetType targetType, Long targetId, int sortOrder) {
+        return HomePinnedContent.builder()
+                .targetType(targetType).targetId(targetId).sortOrder(sortOrder).isVisible(true).build();
     }
 
     private Board publicReview(String title) {

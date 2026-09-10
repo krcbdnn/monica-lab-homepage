@@ -4,6 +4,7 @@ import com.monicalab.banner.service.BannerService;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.service.BoardService;
 import com.monicalab.common.util.ContentLinkRenderer;
+import com.monicalab.pinned.service.HomePinnedContentService;
 import com.monicalab.popup.dto.PopupResponse;
 import com.monicalab.popup.service.PopupService;
 import com.monicalab.program.service.ProgramService;
@@ -29,6 +30,7 @@ public class HomeController {
     private final PopupService popupService;
     private final BoardService boardService;
     private final ProgramService programService;
+    private final HomePinnedContentService homePinnedContentService;
 
     @GetMapping("/")
     public String index(Model model) {
@@ -36,6 +38,7 @@ public class HomeController {
         model.addAttribute("banners", bannerService.getPublicList());
         model.addAttribute("popups", popups);
         model.addAttribute("popupRenderedContents", popupRenderedContents(popups));
+        model.addAttribute("pinnedContents", homePinnedContentService.getPublicList());
         model.addAttribute("latestPrograms",
                 programService.getPublicList(null, null, latestProgramPageable()).getContent());
         model.addAttribute("latestReviews",
