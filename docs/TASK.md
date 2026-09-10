@@ -1194,6 +1194,33 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T38C. 메인 고정 콘텐츠 후보 선택 UX 개선
+
+- 의존성: P13-T38B
+- 산출물: `templates/admin/homepinned/list.html`, `src/test/js/admin/homepinned-admin-view.test.js`(신규), `docs/TASK.md`, `docs/FEATURES.md`
+- 작업 내용: T38A의 "새 고정 추가" 후보 검색 UX만 개선한다. 조사 결과 `GET /api/admin/boards`(`boardType`), `GET /api/admin/programs`(`programType`)는 이미 소분류 필터를 지원하고(QueryDSL `BoardRepositoryImpl`/`ProgramRepositoryImpl` 기존 구현), `admin/board/list.html`/`admin/program/list.html`에는 이미 select 변경 즉시 재조회 패턴(P13-T31)이 구현돼 있으므로, 이번 Task는 그 패턴을 `admin/homepinned/list.html`에 재사용하는 순수 프론트엔드 작업이다. Backend(Controller/Service/DTO/Repository/QueryDSL/Entity/migration)는 전혀 변경하지 않는다.
+  1. `#searchTargetType` select 옆에 `#searchSubtype` select를 추가한다. `SUBTYPE_OPTIONS` 객체로 targetType별 옵션을 정의하고 `populateSubtypeOptions()`가 `searchState.targetType`에 맞춰 `#searchSubtype`의 `<option>`을 매번 재구성한다.
+     - BOARD: 전체/`NOTICE`(공지사항)/`GALLERY`(갤러리)/`ARCHIVE`(자료실)/`REVIEW`(강의 후기)
+     - PROGRAM: 전체/`COURSE`(정규 강좌)/`SPECIAL`(특강) — COURSE 라벨은 공개 Menu/문서의 "수강 프로그램"이 아니라 같은 관리자 CMS 화면인 `admin/program/list.html`/`admin/program/form.html`과 동일하게 "정규 강좌"를 쓴다(관리자 화면 간 용어 일관성 우선, 사용자 결정).
+  2. `runSearch()`가 DOM의 `#searchKeyword` 값을 매번 직접 읽던 기존 방식을 제거하고, `searchState = {targetType, subtype, keyword}` committed-state 객체 기준으로 요청을 만들도록 리팩토링한다(`admin/board/list.html`/`admin/program/list.html`의 `state` 패턴과 동일한 설계).
+  3. `#searchTargetType`의 `change` 리스너: `searchState.targetType` 갱신 + `searchState.subtype = ''`(초기화) + `populateSubtypeOptions()` + `runSearch()`. `searchState.keyword`는 다시 읽지 않는다.
+  4. `#searchSubtype`의 `change` 리스너: `searchState.subtype` 갱신 + `runSearch()`. `searchState.keyword`/`searchState.targetType`은 건드리지 않는다.
+  5. 기존 `searchForm`의 `submit`(검색 버튼/Enter) 핸들러만 `searchState.keyword`를 커밋한다(기존 계약 유지, `targetType`/`subtype`도 이 시점에 함께 재확인해 커밋).
+  6. `buildSearchParams()`: `searchState.subtype`이 있을 때만 `searchState.targetType === 'BOARD'`면 `boardType=`, 아니면 `programType=`으로 정확히 하나의 파라미터만 실어 보낸다(신규 `subtype` 파라미터 없음, BOARD/PROGRAM 파라미터가 서로 섞이지 않음을 코드 구조로 보장). `size=20`은 기존과 동일하게 유지, pagination은 추가하지 않는다(현재 이 검색 패널에 page state 자체가 없음).
+  7. `src/test/js/admin/homepinned-admin-view.test.js`(신규): `board-admin-view.test.js`/`program-admin-view.test.js`와 동일한 `node --test` 문자열 검증 스타일로 `searchState` 기본값, `SUBTYPE_OPTIONS` 매핑, `populateSubtypeOptions()`/`buildSearchParams()`/`runSearch()` 구조, 3개 이벤트 핸들러(targetType change/subtype change/submit)의 keyword 비접근·재구성·재조회 계약을 검증한다.
+- DoD:
+  - targetType 변경 시 검색 버튼 없이 즉시 해당 유형의 후보 목록이 갱신되고, subtype이 "전체"로 초기화된다.
+  - subtype 변경 시 검색 버튼 없이 즉시 후보 목록이 갱신된다.
+  - 검색 버튼/Enter로 확정하지 않은 keyword 입력은 targetType/subtype 변경으로 검색 조건에 반영되지 않는다. 마지막으로 확정된 keyword는 targetType/subtype 변경 후에도 유지된다.
+  - BOARD 요청에는 `programType`이, PROGRAM 요청에는 `boardType`이 절대 포함되지 않는다.
+  - subtype이 "전체"면 `boardType`/`programType` 파라미터 자체를 보내지 않는다.
+  - 신규 backend API/파라미터, DB migration, ERD 변경이 없다. `AdminBoardController`/`AdminProgramController`/`BoardService`/`ProgramService`/Repository/QueryDSL/Entity/`HomePinnedContentService`/DTO 전부 무변경.
+  - 고정 콘텐츠 생성/수정/삭제 계약, 중복 방지, `sortOrder`/`visible`, P13-T38B 공개 조회·UI는 무변경.
+  - `homepinned-admin-view.test.js` 전체 통과, 기존 `board-admin-view.test.js`/`program-admin-view.test.js` 무회귀, Java 전체 테스트/`./gradlew build` 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

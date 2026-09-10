@@ -26,6 +26,9 @@
                     </select>
                 </div>
                 <div class="col-auto">
+                    <select id="searchSubtype" class="form-select"></select>
+                </div>
+                <div class="col-auto">
                     <input type="text" id="searchKeyword" class="form-control" placeholder="검색어">
                 </div>
                 <div class="col-auto">
@@ -318,18 +321,61 @@
             return tr;
         }
 
-        function runSearch() {
-            var targetType = document.getElementById('searchTargetType').value;
-            var keyword = document.getElementById('searchKeyword').value;
+        // P13-T38C: 대상 유형(targetType)/소분류(subtype)는 검색 버튼 없이 select 변경 즉시
+        // 재조회한다(admin/board/list.html, admin/program/list.html의 P13-T31 패턴과 동일). keyword는
+        // 오직 searchForm의 submit(검색 버튼/Enter)을 통해서만 searchState.keyword로 커밋되며, change
+        // 리스너는 searchState.keyword를 절대 다시 읽지 않는다 - 입력 중이지만 아직 확정하지 않은
+        // keyword가 select 변경만으로 의도치 않게 검색 조건에 섞여 들어가는 것을 막기 위함이다.
+        var searchState = {targetType: 'BOARD', subtype: '', keyword: ''};
+
+        var SUBTYPE_OPTIONS = {
+            BOARD: [
+                {value: '', label: '전체'},
+                {value: 'NOTICE', label: '공지사항'},
+                {value: 'GALLERY', label: '갤러리'},
+                {value: 'ARCHIVE', label: '자료실'},
+                {value: 'REVIEW', label: '강의 후기'}
+            ],
+            PROGRAM: [
+                {value: '', label: '전체'},
+                {value: 'COURSE', label: '정규 강좌'},
+                {value: 'SPECIAL', label: '특강'}
+            ]
+        };
+
+        function populateSubtypeOptions() {
+            var select = document.getElementById('searchSubtype');
+            select.innerHTML = '';
+            SUBTYPE_OPTIONS[searchState.targetType].forEach(function (opt) {
+                var option = document.createElement('option');
+                option.value = opt.value;
+                option.textContent = opt.label;
+                select.appendChild(option);
+            });
+        }
+
+        // BOARD 요청에는 programType을, PROGRAM 요청에는 boardType을 절대 포함하지 않는다 - targetType에
+        // 따라 둘 중 정확히 하나의 파라미터 이름으로만 subtype 값을 실어 보낸다(서로 다른 도메인 enum을
+        // 하나의 신규 subtype 파라미터로 합치지 않고, 기존 boardType/programType 계약을 그대로 재사용).
+        function buildSearchParams() {
             var params = new URLSearchParams();
             params.set('size', 20);
-            if (keyword) {
-                params.set('keyword', keyword);
+            if (searchState.keyword) {
+                params.set('keyword', searchState.keyword);
             }
+            if (searchState.subtype) {
+                if (searchState.targetType === 'BOARD') {
+                    params.set('boardType', searchState.subtype);
+                } else {
+                    params.set('programType', searchState.subtype);
+                }
+            }
+            return params.toString();
+        }
 
-            var url = targetType === 'BOARD'
-                ? '/api/admin/boards?' + params.toString()
-                : '/api/admin/programs?' + params.toString();
+        function runSearch() {
+            var url = (searchState.targetType === 'BOARD' ? '/api/admin/boards?' : '/api/admin/programs?')
+                + buildSearchParams();
 
             AdminFetch.adminFetch(url)
                 .then(function (response) {
@@ -339,7 +385,7 @@
                     var tbody = document.getElementById('search-result-body');
                     tbody.innerHTML = '';
                     body.data.content.forEach(function (item) {
-                        tbody.appendChild(renderSearchResultRow(item, targetType));
+                        tbody.appendChild(renderSearchResultRow(item, searchState.targetType));
                     });
                 });
         }
@@ -354,9 +400,25 @@
 
         document.getElementById('searchForm').addEventListener('submit', function (event) {
             event.preventDefault();
+            searchState.targetType = document.getElementById('searchTargetType').value;
+            searchState.subtype = document.getElementById('searchSubtype').value;
+            searchState.keyword = document.getElementById('searchKeyword').value;
             runSearch();
         });
 
+        document.getElementById('searchTargetType').addEventListener('change', function () {
+            searchState.targetType = this.value;
+            searchState.subtype = '';
+            populateSubtypeOptions();
+            runSearch();
+        });
+
+        document.getElementById('searchSubtype').addEventListener('change', function () {
+            searchState.subtype = this.value;
+            runSearch();
+        });
+
+        populateSubtypeOptions();
         loadPinned();
     </script>
 </div>
