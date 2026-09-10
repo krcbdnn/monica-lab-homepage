@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.monicalab.menu.entity.Menu;
 import com.monicalab.menu.entity.MenuTargetType;
 import com.monicalab.menu.repository.MenuRepository;
+import com.monicalab.menu.support.CurrentLocation;
 import com.monicalab.support.AbstractIntegrationTest;
 import java.nio.charset.StandardCharsets;
 import org.jsoup.Jsoup;
@@ -224,10 +225,29 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
                     .andReturn();
             assertThat(result.getModelAndView()).isNotNull();
             assertThat(result.getModelAndView().getModel()).containsKey("headerMenuItems");
+            // P13-T37: 같은 4개 public View Controller에 currentLocation도 함께 공급되는지 확인한다.
+            assertThat(result.getModelAndView().getModel()).containsKey("currentLocation");
 
             Document document = Jsoup.parse(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
             assertThat(document.select(MENU_DRIVEN_ITEMS_SELECTOR + " > a").text()).isEqualTo("연구소 소개");
         }
+    }
+
+    // P13-T37: currentLocation이 실제 request의 경로+raw query string을 있는 그대로 담는지 확인한다
+    // (파싱/판정은 이 클래스가 아니라 HeaderActiveResolver의 책임이므로, 여기서는 "advice가 원시 값을
+    // 정확히 옮겨 담았는가"만 검증한다).
+    @Test
+    void currentLocationCarriesRawPathAndQueryString() throws Exception {
+        // MockHttpServletRequestBuilder.param()은 request parameter map만 채우고 getQueryString()을
+        // 채우지 않으므로(MockMvc 실측 확인), raw query string이 필요한 이 테스트는 URL에 직접 쿼리를
+        // 붙인다.
+        MvcResult result = mockMvc.perform(get("/boards?boardType=NOTICE&page=2"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        CurrentLocation location = (CurrentLocation) result.getModelAndView().getModel().get("currentLocation");
+        assertThat(location.path()).isEqualTo("/boards");
+        assertThat(location.queryString()).isEqualTo("boardType=NOTICE&page=2");
     }
 
     // ControllerAdvice의 assignableTypes 스코핑이 실제로 관리자 View에는 적용되지 않는지(불필요한 Menu
@@ -241,6 +261,7 @@ class HeaderMenuControllerAdviceTest extends AbstractIntegrationTest {
 
         assertThat(result.getModelAndView()).isNotNull();
         assertThat(result.getModelAndView().getModel()).doesNotContainKey("headerMenuItems");
+        assertThat(result.getModelAndView().getModel()).doesNotContainKey("currentLocation");
     }
 
     private Document renderHome() throws Exception {

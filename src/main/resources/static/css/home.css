@@ -120,6 +120,30 @@
         color: var(--color-primary);
     }
 
+    /* P13-T37: active(현재 페이지) leaf - hover/focus/.is-open(P13-T36, 일시적 interaction state)와
+       달리 상시 유지되는 current-location state다. 같은 tint 배경을 쓰되 하단 accent line을 더해
+       형태로도 구분한다(색상만으로 표현하지 않음). box-shadow는 박스 모델에 영향을 주지 않아
+       900px 부근 wrap 여유에 전혀 개입하지 않는다(위 padding 실측 회귀를 피하기 위해 P13-T36에서
+       얻은 교훈을 그대로 재사용). LEAF는 font-weight를 바꾸지 않는다(P13-T36 원칙 유지). */
+    #quick-menu > li > a.is-active {
+        background: var(--color-primary-soft);
+        color: var(--color-primary);
+        box-shadow: inset 0 -2px 0 var(--color-primary);
+    }
+
+    /* GROUP 자신은 목적지가 없어 .is-active를 주지 않는다(승인된 정책) - 자식 중 하나가 active일 때만
+       얇은 line으로 "이 아래에 현재 페이지가 있다"를 표시한다. .is-open(강한 tint+bold)과 형태적으로
+       분명히 구분되도록 배경/font-weight는 추가하지 않는다. */
+    .has-submenu.has-active-child > .site-nav__trigger {
+        box-shadow: inset 0 -2px 0 var(--color-primary);
+    }
+
+    /* mega menu 컬럼의 GROUP 헤딩(<p>)에도 개별 dropdown trigger와 동일한 신호를 준다 - 두 사본이
+       시각적으로 항상 일관되게 표현되어야 한다는 원칙(§aria-current 정책과 동일한 근거). */
+    p.site-nav__megamenu-heading.has-active-child {
+        box-shadow: inset 0 -2px 0 var(--color-primary);
+    }
+
     /* P13-T30D(A2): 기존 .site-header__inner{justify-content:space-between}은 데스크톱에서 flex
        자식이 brand/nav 단 2개뿐이라 남는 폭 전부를 그 사이 간격 하나에 몰아줘 nav가 항상 오른쪽
        padding에 붙어 보였다(1440px에서 로고-nav 간격이 실측 612px까지 벌어짐). nav가 잔여 폭을
@@ -221,6 +245,15 @@
 .site-nav__submenu a:focus-visible {
     background: var(--color-primary-soft);
     color: var(--color-primary);
+}
+
+/* P13-T37: submenu/mega menu의 active(현재 페이지) item - 위 hover와 같은 tint에 좌측 accent line을
+   더해 형태로도 구분한다. dropdown/mega menu/모바일 accordion 전부 이 selector 하나를 공유한다
+   (P13-T36 hover 규칙과 동일한 재사용 패턴). */
+.site-nav__submenu a.is-active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
 .has-submenu.is-open .site-nav__submenu {
@@ -424,6 +457,22 @@
         background: var(--color-primary-soft);
         color: var(--color-primary);
         font-weight: 700;
+    }
+
+    /* P13-T37: 모바일 active(현재 페이지) leaf - 세로 accordion이라 좌측 accent line을 쓴다(데스크톱은
+       하단 line). .is-open의 강한 배경(위 규칙)과 .has-active-child의 얇은 line은 서로 다른 CSS
+       속성(background vs box-shadow)이라 동시에 적용돼도 함께 정상 렌더링된다. */
+    #quick-menu > li > a.is-active {
+        background: var(--color-primary-soft);
+        color: var(--color-primary);
+        box-shadow: inset 2px 0 0 var(--color-primary);
+    }
+
+    /* GROUP 자신은 .is-active를 갖지 않는다 - 자식이 active면 트리거에 얇은 line만 추가한다.
+       .is-open(위, 강한 배경+굵기)과 동시에 걸려도(예: 열어서 자식을 탐색 중) box-shadow가 배경
+       위에 그대로 함께 보여 두 상태가 시각적으로 공존한다. */
+    .has-submenu.has-active-child > .site-nav__trigger {
+        box-shadow: inset 2px 0 0 var(--color-primary);
     }
 }
 

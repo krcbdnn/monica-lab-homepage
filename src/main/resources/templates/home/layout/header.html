@@ -11,22 +11,41 @@
             메뉴
         </button>
 
-        <nav id="site-nav" class="site-nav" aria-label="주요 메뉴">
+        <!-- P13-T37: detailBoardType/detailProgramType은 Board/Program 상세 페이지에서 Controller가
+             이미 조회해 둔 board/program 모델의 실제 타입을 그대로 꺼내는 값 전달일 뿐이다(matching
+             판정 아님) - board.programType()은 REVIEW 게시글에서만 값을 가지므로 그 다음으로 대체
+             확인한다. 실제 active 여부 판정은 전부 HeaderActiveResolver(view-support)가 전담하고,
+             여기서는 그 메서드를 호출하기 위한 인자만 한 번 계산해 둔다(URL/query 파싱 없음). -->
+        <nav id="site-nav" class="site-nav" aria-label="주요 메뉴"
+             th:with="detailBoardType=${board != null ? board.boardType().name() : null},
+                      detailProgramType=${program != null ? program.programType().name() : (board != null and board.programType() != null ? board.programType().name() : null)}">
             <ul id="quick-menu" class="site-nav__list">
-                <li class="site-nav__item"><a href="/">HOME</a></li>
+                <li class="site-nav__item">
+                    <a href="/" th:with="homeActive=${@headerActiveResolver.isHomeActive(currentLocation)}"
+                       th:classappend="${homeActive} ? ' is-active'"
+                       th:attr="aria-current=${homeActive} ? 'page' : null">HOME</a>
+                </li>
                 <li th:each="item : ${headerMenuItems}" class="site-nav__item" th:data-menu-id="${item.id}"
-                    th:classappend="${item.href == null} ? ' has-submenu' : ''">
-                    <a th:if="${item.href != null}" th:href="${item.href}" th:text="${item.label}"
+                    th:with="childActive=${@headerActiveResolver.hasActiveChild(item, currentLocation, detailBoardType, detailProgramType)}"
+                    th:classappend="${item.href == null} ? (${childActive} ? ' has-submenu has-active-child' : ' has-submenu') : ''">
+                    <a th:if="${item.href != null}"
+                       th:with="leafActive=${@headerActiveResolver.isActive(item, currentLocation, detailBoardType, detailProgramType)}"
+                       th:href="${item.href}" th:text="${item.label}"
                        th:target="${item.openInNewTab} ? '_blank' : null"
-                       th:rel="${item.openInNewTab} ? 'noopener noreferrer' : null">메뉴</a>
+                       th:rel="${item.openInNewTab} ? 'noopener noreferrer' : null"
+                       th:classappend="${leafActive} ? ' is-active'"
+                       th:attr="aria-current=${leafActive} ? 'page' : null">메뉴</a>
                     <th:block th:if="${item.href == null}">
                         <button type="button" class="site-nav__trigger" aria-expanded="false"
                                 th:aria-controls="${'submenu-' + item.id}" th:text="${item.label}">GROUP</button>
                         <ul class="site-nav__submenu" th:id="${'submenu-' + item.id}">
-                            <li th:each="child : ${item.children}">
+                            <li th:each="child : ${item.children}"
+                                th:with="childLeafActive=${@headerActiveResolver.isActive(child, currentLocation, detailBoardType, detailProgramType)}">
                                 <a th:href="${child.href}" th:text="${child.label}"
                                    th:target="${child.openInNewTab} ? '_blank' : null"
-                                   th:rel="${child.openInNewTab} ? 'noopener noreferrer' : null">하위 메뉴</a>
+                                   th:rel="${child.openInNewTab} ? 'noopener noreferrer' : null"
+                                   th:classappend="${childLeafActive} ? ' is-active'"
+                                   th:attr="aria-current=${childLeafActive} ? 'page' : null">하위 메뉴</a>
                             </li>
                         </ul>
                     </th:block>
@@ -35,24 +54,37 @@
                      한 번 더 순회한다 - GROUP/노출여부/openInNewTab 정책이 자동으로 개별 dropdown과
                      동일하게 유지된다. headerMenuItems가 비어 있으면(메뉴 0건) 트리거 자체를 렌더링하지
                      않는다(빈 GROUP을 숨기는 기존 정책과 같은 맥락). 모바일에서는 hamburger 안에 이미
-                     동일한 정보가 accordion으로 전부 노출되므로 home.css가 이 li를 숨긴다. -->
+                     동일한 정보가 accordion으로 전부 노출되므로 home.css가 이 li를 숨긴다.
+                     P13-T37: 동일 목적지 링크가 이 컬럼에도 다시 나타나므로 위 개별 dropdown과 완전히
+                     동일한 is-active/aria-current 처리를 반복한다(주 사본과 mega menu 사본 모두
+                     aria-current="page" 부여 - 조사/승인된 최종 정책, header.html:1 상단 주석과 동일한
+                     이유). -->
                 <li class="site-nav__item has-submenu" data-menu-id="all"
                     th:if="${not #lists.isEmpty(headerMenuItems)}">
                     <button type="button" class="site-nav__trigger" aria-expanded="false"
                             aria-controls="megamenu">전체메뉴</button>
                     <div class="site-nav__submenu site-nav__megamenu" id="megamenu">
-                        <div class="site-nav__megamenu-column" th:each="item : ${headerMenuItems}">
-                            <a th:if="${item.href != null}" class="site-nav__megamenu-heading"
+                        <div class="site-nav__megamenu-column" th:each="item : ${headerMenuItems}"
+                             th:with="megaChildActive=${@headerActiveResolver.hasActiveChild(item, currentLocation, detailBoardType, detailProgramType)}">
+                            <a th:if="${item.href != null}"
+                               th:with="megaLeafActive=${@headerActiveResolver.isActive(item, currentLocation, detailBoardType, detailProgramType)}"
+                               class="site-nav__megamenu-heading"
                                th:href="${item.href}" th:text="${item.label}"
                                th:target="${item.openInNewTab} ? '_blank' : null"
-                               th:rel="${item.openInNewTab} ? 'noopener noreferrer' : null">직접 링크</a>
+                               th:rel="${item.openInNewTab} ? 'noopener noreferrer' : null"
+                               th:classappend="${megaLeafActive} ? ' is-active'"
+                               th:attr="aria-current=${megaLeafActive} ? 'page' : null">직접 링크</a>
                             <th:block th:if="${item.href == null}">
-                                <p class="site-nav__megamenu-heading" th:text="${item.label}">그룹명</p>
+                                <p class="site-nav__megamenu-heading" th:text="${item.label}"
+                                   th:classappend="${megaChildActive} ? ' has-active-child'">그룹명</p>
                                 <ul>
-                                    <li th:each="child : ${item.children}">
+                                    <li th:each="child : ${item.children}"
+                                        th:with="megaChildLeafActive=${@headerActiveResolver.isActive(child, currentLocation, detailBoardType, detailProgramType)}">
                                         <a th:href="${child.href}" th:text="${child.label}"
                                            th:target="${child.openInNewTab} ? '_blank' : null"
-                                           th:rel="${child.openInNewTab} ? 'noopener noreferrer' : null">하위 메뉴</a>
+                                           th:rel="${child.openInNewTab} ? 'noopener noreferrer' : null"
+                                           th:classappend="${megaChildLeafActive} ? ' is-active'"
+                                           th:attr="aria-current=${megaChildLeafActive} ? 'page' : null">하위 메뉴</a>
                                     </li>
                                 </ul>
                             </th:block>

@@ -4143,3 +4143,254 @@ test.describe('P13-T36: Header/Menu Visual Polish', () => {
     });
   }
 });
+
+// P13-T37: Header/Menu Active(Current Page) 표시. 실제 production Menu(연구소 소개/수강 신청 GROUP,
+// 강의 후기/공지사항 LEAF)를 그대로 쓰고, Board/Program 상세 검증에만 격리된 테스트 데이터를 만든다.
+// 전체 query string equality가 아니라 semantic parameter(boardType/programType)만 비교하고 noise
+// query(page/size/keyword/pageJump)는 무시한다는 것이 핵심 계약이다.
+test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let noticeBoardId;
+  let reviewBoardId;
+  let courseProgramId;
+  let specialProgramId;
+
+  test.beforeAll(async ({ browser, baseURL }) => {
+    const context = await browser.newContext();
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    const runId = Date.now();
+
+    const notice = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title: `P13-T37 공지 ${runId}`, isPublic: true },
+    });
+    noticeBoardId = (await notice.json()).data.id;
+
+    const review = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'REVIEW', title: `P13-T37 후기 ${runId}`, isPublic: true },
+    });
+    reviewBoardId = (await review.json()).data.id;
+
+    const course = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'COURSE', title: `P13-T37 정규 ${runId}`, content: '내용', isPublic: true },
+    });
+    courseProgramId = (await course.json()).data.id;
+
+    const special = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'SPECIAL', title: `P13-T37 특강 ${runId}`, content: '내용', isPublic: true },
+    });
+    specialProgramId = (await special.json()).data.id;
+
+    await context.close();
+  });
+
+  test.afterAll(async ({ browser, baseURL }) => {
+    const context = await browser.newContext();
+    for (const id of [noticeBoardId, reviewBoardId]) {
+      await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+    for (const id of [courseProgramId, specialProgramId]) {
+      await context.request.delete(`${baseURL}/api/admin/programs/${id}`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+      });
+    }
+    await context.close();
+  });
+
+  const homeLeaf = (page) => page.locator('#quick-menu > li.site-nav__item:first-child > a');
+  const topLeaf = (page, label) => page.locator('#quick-menu > li.site-nav__item:not(.has-submenu) > a', { hasText: label });
+  const groupItem = (page, label) => page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', { hasText: label });
+
+  test('/ 에서 HOME만 active이고 다른 항목은 active가 아니다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    await expect(homeLeaf(page)).toHaveClass(/is-active/);
+    await expect(homeLeaf(page)).toHaveAttribute('aria-current', 'page');
+    await expect(topLeaf(page, '공지사항')).not.toHaveClass(/is-active/);
+    await expect(topLeaf(page, '강의 후기')).not.toHaveClass(/is-active/);
+  });
+
+  test('PAGE: /pages/INTRODUCTION, /pages/HISTORY 각각 해당 child만 active + 부모 GROUP has-active-child', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.goto('/pages/INTRODUCTION');
+    const aboutGroup = groupItem(page, '연구소 소개');
+    await aboutGroup.locator('.site-nav__trigger').hover();
+    await expect(aboutGroup).toHaveClass(/has-active-child/);
+    await expect(aboutGroup).not.toHaveClass(/(^|\s)is-active(\s|$)/);
+    const introLink = aboutGroup.locator('.site-nav__submenu a', { hasText: '연구소 소개' });
+    await expect(introLink).toHaveClass(/is-active/);
+    await expect(introLink).toHaveAttribute('aria-current', 'page');
+    const historyLink = aboutGroup.locator('.site-nav__submenu a', { hasText: '연혁' });
+    await expect(historyLink).not.toHaveClass(/is-active/);
+
+    await page.goto('/pages/HISTORY');
+    await groupItem(page, '연구소 소개').locator('.site-nav__trigger').hover();
+    await expect(groupItem(page, '연구소 소개').locator('.site-nav__submenu a', { hasText: '연혁' }))
+      .toHaveClass(/is-active/);
+  });
+
+  test('BOARD_LIST: NOTICE/GALLERY/ARCHIVE/REVIEW 각각 active, noise query 무시, boardType 없으면 active 없음', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    for (const label of ['공지사항', '갤러리', '자료실']) {
+      const typeMap = { 공지사항: 'NOTICE', 갤러리: 'GALLERY', 자료실: 'ARCHIVE' };
+      await page.goto(`/boards?boardType=${typeMap[label]}`);
+      await expect(topLeaf(page, label)).toHaveClass(/is-active/);
+      await expect(topLeaf(page, label)).toHaveAttribute('aria-current', 'page');
+    }
+
+    // noise query(page/keyword/size/pageJump) 무시 확인
+    await page.goto('/boards?boardType=REVIEW&page=2&keyword=test&size=10');
+    await expect(topLeaf(page, '강의 후기')).toHaveClass(/is-active/);
+
+    // boardType 없는 /boards → 어떤 header leaf도 active 아님(대응 항목 없음, P13-T33)
+    await page.goto('/boards');
+    for (const label of ['공지사항', '갤러리', '자료실', '강의 후기']) {
+      await expect(topLeaf(page, label)).not.toHaveClass(/is-active/);
+    }
+  });
+
+  test('Board 상세: 목록 경유(query 있음)와 직접 URL(query 없음) 둘 다 엔티티 기준으로 올바르게 active', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // 목록에서 클릭한 것과 동일한 형태(query 포함)
+    await page.goto(`/boards/${noticeBoardId}?boardType=NOTICE&keyword=&page=0`);
+    await expect(topLeaf(page, '공지사항')).toHaveClass(/is-active/);
+    await expect(topLeaf(page, '강의 후기')).not.toHaveClass(/is-active/);
+
+    // 직접 URL 진입(query 전혀 없음) - board.boardType() ground truth로만 판정되어야 한다(핵심 회귀 지점)
+    await page.goto(`/boards/${noticeBoardId}`);
+    await expect(topLeaf(page, '공지사항')).toHaveClass(/is-active/);
+
+    await page.goto(`/boards/${reviewBoardId}`);
+    await expect(topLeaf(page, '강의 후기')).toHaveClass(/is-active/);
+    await expect(topLeaf(page, '공지사항')).not.toHaveClass(/is-active/);
+  });
+
+  test('PROGRAM_LIST: COURSE/SPECIAL 각각 active, programType 없으면 active 없음', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.goto('/programs?programType=COURSE');
+    const programGroup = groupItem(page, '수강 신청');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).toHaveClass(/is-active/);
+    await expect(programGroup).toHaveClass(/has-active-child/);
+
+    await page.goto('/programs?programType=SPECIAL');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).toHaveClass(/is-active/);
+
+    await page.goto('/programs');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).not.toHaveClass(/is-active/);
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).not.toHaveClass(/is-active/);
+    await expect(programGroup).not.toHaveClass(/has-active-child/);
+  });
+
+  test('Program 상세: query가 전혀 없어도 엔티티 기준으로 COURSE/SPECIAL이 정확히 active된다(핵심 회귀 지점)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.goto(`/programs/${courseProgramId}`);
+    const programGroup = groupItem(page, '수강 신청');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).toHaveClass(/is-active/);
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).not.toHaveClass(/is-active/);
+
+    await page.goto(`/programs/${specialProgramId}`);
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).toHaveClass(/is-active/);
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).not.toHaveClass(/is-active/);
+  });
+
+  test('Desktop mega menu: 개별 dropdown과 동일하게 active leaf에 is-active + aria-current가 부여된다(양쪽 사본 모두)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/boards?boardType=REVIEW');
+
+    const primaryLeaf = topLeaf(page, '강의 후기');
+    await expect(primaryLeaf).toHaveClass(/is-active/);
+    await expect(primaryLeaf).toHaveAttribute('aria-current', 'page');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    await megaTrigger.hover();
+    const megaHeading = page.locator('.site-nav__megamenu-heading', { hasText: '강의 후기' });
+    await expect(megaHeading).toHaveClass(/is-active/);
+    await expect(megaHeading).toHaveAttribute('aria-current', 'page');
+
+    // GROUP has-active-child도 mega menu 컬럼 heading(<p>)에 동일하게 표시된다.
+    await page.goto('/pages/HISTORY');
+    await megaTrigger.hover();
+    const megaGroupHeading = page.locator('p.site-nav__megamenu-heading', { hasText: '연구소 소개' });
+    await expect(megaGroupHeading).toHaveClass(/has-active-child/);
+  });
+
+  test('Mobile 375: active leaf와 has-active-child GROUP이 표시되고 .is-open과 동시에도 구분 가능하다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/boards/${noticeBoardId}`);
+
+    await page.locator('#nav-toggle').click();
+    await expect(topLeaf(page, '공지사항')).toHaveClass(/is-active/);
+    await expect(topLeaf(page, '공지사항')).toHaveAttribute('aria-current', 'page');
+
+    // active child를 가진 GROUP(닫힘 상태)도 표시된다.
+    await page.goto('/pages/HISTORY');
+    await page.locator('#nav-toggle').click();
+    const aboutGroup = groupItem(page, '연구소 소개');
+    await expect(aboutGroup).toHaveClass(/has-active-child/);
+
+    // .is-open(연 상태)과 has-active-child가 동시에 걸려도 둘 다 유지된다(서로 다른 CSS 속성이라 공존).
+    await aboutGroup.locator('.site-nav__trigger').click();
+    await expect(aboutGroup).toHaveClass(/is-open/);
+    await expect(aboutGroup).toHaveClass(/has-active-child/);
+    await expect(aboutGroup.locator('.site-nav__submenu a', { hasText: '연혁' })).toHaveClass(/is-active/);
+  });
+
+  test('키보드: aria-current 존재 확인 및 기존 Tab/Escape/focusout(P13-T35) 동작 무회귀', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/boards?boardType=NOTICE');
+
+    await expect(topLeaf(page, '공지사항')).toHaveAttribute('aria-current', 'page');
+
+    // 기존 GROUP 키보드 계약(Tab 도달 → Enter로 열기 → Escape로 닫힘)이 active 도입 후에도 그대로 동작.
+    const groupTrigger = groupItem(page, '연구소 소개').locator('.site-nav__trigger');
+    let reached = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await groupTrigger.evaluate((el) => el === document.activeElement)) {
+        reached = true;
+        break;
+      }
+    }
+    expect(reached).toBeTruthy();
+    await page.keyboard.press('Enter');
+    await expect(groupTrigger).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(groupTrigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  for (const width of [375, 768, 899, 900, 901, 1024, 1440]) {
+    test(`${width}px: active 표시(box-shadow accent line) 추가 후에도 horizontal overflow와 wrap 회귀가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/boards/${reviewBoardId}`);
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+
+      if (width >= 900) {
+        const rowYs = await page.locator('#quick-menu > li').evaluateAll((items) =>
+          [...new Set(items.map((li) => Math.round(li.getBoundingClientRect().y)))]);
+        expect(rowYs.length, `${width}px에서 top-level 메뉴가 한 줄로 유지되어야 한다`).toBe(1);
+      }
+    });
+  }
+});

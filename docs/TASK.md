@@ -1115,6 +1115,31 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T37. Header/Menu Active(Current Page) 표시
+- 의존성: P13-T36
+- 산출물: `menu/dto/HeaderMenuItem.java`, `menu/service/MenuService.java`, `menu/controller/HeaderMenuControllerAdvice.java`, `menu/support/CurrentLocation.java`(신규), `menu/support/HeaderActiveResolver.java`(신규), `home/layout/header.html`, `static/css/home.css`, `frontend-tests/visual-regression.spec.js`, `src/test/java/com/monicalab/menu/support/HeaderActiveResolverTest.java`(신규), `src/test/java/com/monicalab/menu/controller/HeaderMenuControllerAdviceTest.java`
+- 작업 내용: P13-T36이 의도적으로 후속 Task로 분리했던 "현재 페이지에 해당하는 Header 메뉴 표시"를 구현한다. 전체 query string equality가 아니라 각 targetType의 semantic parameter(BOARD_LIST의 boardType/programType, PROGRAM_LIST의 programType)만 비교하고 `page`/`size`/`keyword`/`pageJump` 같은 목록 상태 noise는 무시한다. Menu Entity/Repository/DB/Flyway, `MenuService.toHref` 등 기존 URL 생성 규칙, 관리자 Menu CRUD, `BoardViewController`/`ProgramViewController`, `footer.html`, `nav-toggle.js`/`nav-submenu.js`는 전혀 건드리지 않는다.
+  1. `HeaderMenuItem`에 `targetType`(`MenuTargetType`) 필드를 추가한다(href 문자열의 생김새만으로 BOARD_LIST/PROGRAM_LIST/PAGE를 추론하면, 관리자가 이미 만들 수 있는 INTERNAL_URL이 `/boards`나 `/pages/INTRODUCTION` 같은 값을 그대로 가리킬 때 오판정될 수 있기 때문). `MenuService`의 `HeaderMenuItem` 생성 두 곳(GROUP/leaf)에 기존 `menu.getTargetType()` 값을 그대로 전달한다.
+  2. `com.monicalab.menu.support` 패키지에 view-support 전용 클래스 2개를 신규 추가한다: `CurrentLocation`(request의 path/raw queryString만 담는 값 객체, 파싱 로직 없음), `HeaderActiveResolver`(`@Component`, targetType 기준 switch로 active/hasActiveChild/isHomeActive를 판정하는 유일한 장소 — Menu Repository/Service 미의존, 추가 DB 조회 없음).
+  3. `HeaderMenuControllerAdvice`에 `currentLocation` `@ModelAttribute`를 추가해 request path/queryString만 model에 공급한다(URL 파싱·판정 로직 없음 — advice 실행 시점에는 Board/Program 상세 Controller가 아직 `board`/`program` model을 채우기 전이라는 Spring MVC 제약 때문에 판정 자체는 시도하지 않는다).
+  4. `header.html`은 resolver 호출 결과(boolean)만 소비한다 — Board/Program 상세 페이지에서는 이미 조회된 `board.boardType()`/`board.programType()`/`program.programType()`을 resolver에 값으로 전달해(추가 DB 조회 없음) query 유무와 무관하게 정확한 active를 얻는다(Program 상세는 목록 링크 자체에 query가 전혀 없어 이 override가 필수).
+  5. 정책: 실제 목적지 leaf만 `.is-active`+`aria-current="page"`, GROUP은 `.has-active-child`만(`.is-active`/`aria-current` 없음). 동일 목적지가 primary dropdown과 mega menu 양쪽에 있으면 두 사본 모두 `.is-active`+`aria-current="page"`를 일관되게 부여한다(닫힌 mega menu는 접근성 트리에서 제외되므로 중복 announcement 위험이 없고, mega menu는 애초에 동일 메뉴 트리의 대안적 완전한 뷰라는 설계 의도와 일치).
+  6. CSS는 P13-T36 토큰(`--color-primary`/`--color-primary-soft`/`--radius`)만 재사용하고, active 표시는 `box-shadow: inset`(박스 모델 비영향)으로 accent line을 추가해 hover/focus/open(P13-T36, 배경만·일시적)과 형태로도 구분한다. top-level LEAF는 active 상태에서도 font-weight를 바꾸지 않는다(P13-T36 원칙 유지).
+- DoD:
+  - HOME/PAGE/BOARD_LIST(목록)/PROGRAM_LIST(목록) 전부 semantic parameter 기준으로 정확히 active 판정되고 noise query에 영향받지 않는다.
+  - Board/Program 상세 페이지에서 query 유무와 무관하게(직접 URL 방문 포함) 엔티티 실제 타입 기준으로 올바른 메뉴가 active된다.
+  - `boardType`/`programType` 없는 `/boards`/`/programs`에서는 어떤 Header leaf도 active가 아니다(대응 항목 없음, 정상).
+  - GROUP은 `.has-active-child`로만 표시되고 `.is-active`/`aria-current`를 갖지 않는다.
+  - primary nav·mega menu 양쪽에 `.is-active`+`aria-current="page"`가 일관되게 적용된다.
+  - top-level LEAF는 active 상태에서도 font-weight가 바뀌지 않는다.
+  - 899.98/900px 경계, 375/768/899/900/901/1024/1440 overflow 무회귀, top-level 한 줄 유지, dead-zone 무회귀.
+  - Menu Entity/Repository/DB/Flyway, `MenuService.toHref`, 관리자 Menu CRUD, `BoardViewController`/`ProgramViewController`, `footer.html`, `nav-toggle.js`/`nav-submenu.js` 무변경.
+  - `HeaderActiveResolverTest`(pure JUnit) + `HeaderMenuControllerAdviceTest` 갱신 + P13-T37 Playwright 신규 케이스 + 기존 P13-T30~T36 전체 무회귀.
+  - `./gradlew build`, Playwright 전체(Node) 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
