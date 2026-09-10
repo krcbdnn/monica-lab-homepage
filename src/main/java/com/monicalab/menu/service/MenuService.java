@@ -130,7 +130,8 @@ public class MenuService {
                 if (children.isEmpty()) {
                     continue;
                 }
-                items.add(new HeaderMenuItem(menu.getId(), menu.getLabel(), null, false, children));
+                items.add(new HeaderMenuItem(menu.getId(), menu.getLabel(), null, false,
+                        MenuTargetType.GROUP, children));
             } else {
                 items.add(toHeaderMenuLeaf(menu));
             }
@@ -141,7 +142,7 @@ public class MenuService {
     private HeaderMenuItem toHeaderMenuLeaf(Menu menu) {
         return new HeaderMenuItem(menu.getId(), menu.getLabel(),
                 toHref(menu.getTargetType(), menu.getTargetValue(), menu.getTargetSubvalue()),
-                menu.isOpenInNewTab(), List.of());
+                menu.isOpenInNewTab(), menu.getTargetType(), List.of());
     }
 
     // targetType별 실제 공개 href 계약. Thymeleaf에는 이 결과만 전달하고, View에서는 targetType 분기를
