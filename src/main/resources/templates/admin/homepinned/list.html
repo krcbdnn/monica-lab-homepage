@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#home-pinned-content-list})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>메인 고정 콘텐츠 관리</title>
+</head>
+<body>
+<div id="home-pinned-content-list">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>메인 고정 콘텐츠 관리</h2>
+        <button type="button" id="toggleAddPanel" class="btn btn-primary">새 고정 추가</button>
+    </div>
+
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+
+    <!-- admin/layout/default.html에는 Bootstrap JS 번들이 로드되어 있지 않아 data-bs-toggle 기반
+         modal을 쓸 수 없다. 대신 순수 JS로 hidden 속성만 토글하는 inline 패널로 구현한다. -->
+    <div id="addPanel" class="card mb-4" hidden>
+        <div class="card-body">
+            <h5 class="card-title">새 고정 추가</h5>
+            <form id="searchForm" class="row g-2 mb-3">
+                <div class="col-auto">
+                    <select id="searchTargetType" class="form-select">
+                        <option value="BOARD">게시글(Board)</option>
+                        <option value="PROGRAM">프로그램(Program)</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <input type="text" id="searchKeyword" class="form-control" placeholder="검색어">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-outline-primary">검색</button>
+                </div>
+            </form>
+            <table class="table">
+                <thead>
+                <tr>
+                    <th>제목</th>
+                    <th>공개 여부</th>
+                    <th>정렬 순서</th>
+                    <th>관리</th>
+                </tr>
+                </thead>
+                <tbody id="search-result-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>타입</th>
+            <th>제목</th>
+            <th>정렬 순서</th>
+            <th>노출 여부</th>
+            <th>원본 상태</th>
+            <th>관리</th>
+        </tr>
+        </thead>
+        <tbody id="pinned-list-body"></tbody>
+    </table>
+
+    <script>
+        var errorMessage = document.querySelector('#errorMessage');
+        var pinnedKeys = {};
+        var nextSortOrder = 0;
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        function clearError() {
+            errorMessage.style.display = 'none';
+        }
+
+        function pinKey(targetType, targetId) {
+            return targetType + ':' + targetId;
+        }
+
+        var TARGET_TYPE_LABELS = {BOARD: '게시글', PROGRAM: '프로그램'};
+
+        function targetTypeBadge(targetType) {
+            var span = document.createElement('span');
+            span.className = 'badge text-bg-info';
+            span.textContent = TARGET_TYPE_LABELS[targetType] || targetType;
+            return span;
+        }
+
+        function visibilityBadge(visible) {
+            var span = document.createElement('span');
+            span.className = 'badge ' + (visible ? 'text-bg-success' : 'text-bg-secondary');
+            span.textContent = visible ? '노출' : '숨김';
+            return span;
+        }
+
+        var SOURCE_STATUS_LABELS = {
+            PUBLIC: {text: '공개', cls: 'text-bg-success'},
+            PRIVATE: {text: '비공개', cls: 'text-bg-warning text-dark'},
+            DELETED: {text: '원본 없음', cls: 'text-bg-danger'}
+        };
+
+        function sourceStatusBadge(sourceStatus) {
+            var info = SOURCE_STATUS_LABELS[sourceStatus] || {text: sourceStatus, cls: 'text-bg-light text-dark border'};
+            var span = document.createElement('span');
+            span.className = 'badge ' + info.cls;
+            span.textContent = info.text;
+            return span;
+        }
+
+        function renderPinnedRow(pin) {
+            var tr = document.createElement('tr');
+
+            var typeTd = document.createElement('td');
+            typeTd.appendChild(targetTypeBadge(pin.targetType));
+            tr.appendChild(typeTd);
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = pin.sourceTitle || '(원본 없음)';
+            tr.appendChild(titleTd);
+
+            var sortOrderTd = document.createElement('td');
+            var sortOrderInput = document.createElement('input');
+            sortOrderInput.type = 'number';
+            sortOrderInput.min = '0';
+            sortOrderInput.value = pin.sortOrder;
+            sortOrderInput.className = 'form-control form-control-sm d-inline-block me-1';
+            sortOrderInput.style.width = '80px';
+            sortOrderTd.appendChild(sortOrderInput);
+
+            var orderButton = document.createElement('button');
+            orderButton.type = 'button';
+            orderButton.className = 'btn btn-sm btn-outline-secondary';
+            orderButton.textContent = '순서 변경';
+            orderButton.addEventListener('click', function () {
+                clearError();
+                AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id + '/order', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({sortOrder: Number(sortOrderInput.value)})
+                })
+                    .then(function (response) {
+                        return response.json().then(function (body) {
+                            return {ok: response.ok, body: body};
+                        });
+                    })
+                    .then(function (result) {
+                        if (result.ok && result.body.success) {
+                            loadPinned();
+                        } else {
+                            showError((result.body.error && result.body.error.message)
+                                || '순서 변경 중 오류가 발생했습니다.');
+                        }
+                    })
+                    .catch(function () {
+                        showError('순서 변경 중 오류가 발생했습니다.');
+                    });
+            });
+            sortOrderTd.appendChild(orderButton);
+            tr.appendChild(sortOrderTd);
+
+            var visibleTd = document.createElement('td');
+            visibleTd.appendChild(visibilityBadge(pin.visible));
+            tr.appendChild(visibleTd);
+
+            var sourceStatusTd = document.createElement('td');
+            sourceStatusTd.appendChild(sourceStatusBadge(pin.sourceStatus));
+            tr.appendChild(sourceStatusTd);
+
+            var actionTd = document.createElement('td');
+
+            if (pin.sourceUrl) {
+                var sourceLink = document.createElement('a');
+                sourceLink.href = pin.sourceUrl;
+                sourceLink.className = 'btn btn-sm btn-outline-secondary me-1';
+                sourceLink.textContent = '원본으로 이동';
+                actionTd.appendChild(sourceLink);
+            }
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = pin.visible ? '숨김으로 전환' : '노출로 전환';
+            visibilityButton.addEventListener('click', function () {
+                clearError();
+                AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({visible: !pin.visible})
+                }).then(loadPinned);
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '고정 해제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('고정을 해제하시겠습니까?')) {
+                    return;
+                }
+                clearError();
+                AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id, {method: 'DELETE'})
+                    .then(function (response) {
+                        if (response.ok) {
+                            loadPinned();
+                            return;
+                        }
+                        response.json().then(function (body) {
+                            showError((body.error && body.error.message) || '고정 해제 중 오류가 발생했습니다.');
+                        });
+                    })
+                    .catch(function () {
+                        showError('고정 해제 중 오류가 발생했습니다.');
+                    });
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        function loadPinned() {
+            AdminFetch.adminFetch('/api/admin/home-pinned-contents')
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var pins = body.data;
+                    pinnedKeys = {};
+                    var maxSortOrder = -1;
+                    pins.forEach(function (pin) {
+                        pinnedKeys[pinKey(pin.targetType, pin.targetId)] = true;
+                        if (pin.sortOrder > maxSortOrder) {
+                            maxSortOrder = pin.sortOrder;
+                        }
+                    });
+                    nextSortOrder = maxSortOrder + 1;
+
+                    var tbody = document.getElementById('pinned-list-body');
+                    tbody.innerHTML = '';
+                    pins.forEach(function (pin) {
+                        tbody.appendChild(renderPinnedRow(pin));
+                    });
+                });
+        }
+
+        // 검색 결과의 "이미 고정됨" 판정은 클라이언트 측 방어일 뿐이다 - 서버는 create() 요청마다
+        // existsByTargetTypeAndTargetId + DB UNIQUE 제약으로 항상 별도로 다시 검증한다.
+        function renderSearchResultRow(item, targetType) {
+            var tr = document.createElement('tr');
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = item.title;
+            tr.appendChild(titleTd);
+
+            var publicTd = document.createElement('td');
+            publicTd.textContent = item.isPublic ? '공개' : '비공개';
+            tr.appendChild(publicTd);
+
+            var sortOrderTd = document.createElement('td');
+            var sortOrderInput = document.createElement('input');
+            sortOrderInput.type = 'number';
+            sortOrderInput.min = '0';
+            sortOrderInput.value = nextSortOrder;
+            sortOrderInput.className = 'form-control form-control-sm';
+            sortOrderInput.style.width = '80px';
+            sortOrderTd.appendChild(sortOrderInput);
+            tr.appendChild(sortOrderTd);
+
+            var actionTd = document.createElement('td');
+            var alreadyPinned = !!pinnedKeys[pinKey(targetType, item.id)];
+
+            var addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'btn btn-sm btn-primary';
+            if (alreadyPinned) {
+                addButton.textContent = '이미 고정됨';
+                addButton.disabled = true;
+            } else if (!item.isPublic) {
+                addButton.textContent = '비공개(고정 불가)';
+                addButton.disabled = true;
+            } else {
+                addButton.textContent = '고정';
+                addButton.addEventListener('click', function () {
+                    clearError();
+                    AdminFetch.adminFetch('/api/admin/home-pinned-contents', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            targetType: targetType,
+                            targetId: item.id,
+                            sortOrder: Number(sortOrderInput.value)
+                        })
+                    })
+                        .then(function (response) {
+                            return response.json().then(function (body) {
+                                return {ok: response.ok, body: body};
+                            });
+                        })
+                        .then(function (result) {
+                            if (result.ok && result.body.success) {
+                                loadPinned();
+                                runSearch();
+                            } else {
+                                showError((result.body.error && result.body.error.message)
+                                    || '고정 추가 중 오류가 발생했습니다.');
+                            }
+                        })
+                        .catch(function () {
+                            showError('고정 추가 중 오류가 발생했습니다.');
+                        });
+                });
+            }
+            actionTd.appendChild(addButton);
+            tr.appendChild(actionTd);
+
+            return tr;
+        }
+
+        function runSearch() {
+            var targetType = document.getElementById('searchTargetType').value;
+            var keyword = document.getElementById('searchKeyword').value;
+            var params = new URLSearchParams();
+            params.set('size', 20);
+            if (keyword) {
+                params.set('keyword', keyword);
+            }
+
+            var url = targetType === 'BOARD'
+                ? '/api/admin/boards?' + params.toString()
+                : '/api/admin/programs?' + params.toString();
+
+            AdminFetch.adminFetch(url)
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (body) {
+                    var tbody = document.getElementById('search-result-body');
+                    tbody.innerHTML = '';
+                    body.data.content.forEach(function (item) {
+                        tbody.appendChild(renderSearchResultRow(item, targetType));
+                    });
+                });
+        }
+
+        document.getElementById('toggleAddPanel').addEventListener('click', function () {
+            var panel = document.getElementById('addPanel');
+            panel.hidden = !panel.hidden;
+            if (!panel.hidden) {
+                runSearch();
+            }
+        });
+
+        document.getElementById('searchForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            runSearch();
+        });
+
+        loadPinned();
+    </script>
+</div>
+</body>
+</html>

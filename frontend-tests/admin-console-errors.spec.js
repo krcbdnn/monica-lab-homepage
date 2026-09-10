@@ -19,6 +19,8 @@ const ADMIN_PAGES = [
   // P13-T30E(Task B): admin menu 화면(list/form)이 이 회귀 목록에 없었던 기존 갭을 메운다.
   '/admin/menus',
   '/admin/menus/new',
+  // P13-T38A: 신규 admin 화면(등록/수정 폼이 따로 없어 목록 1개만 추가).
+  '/admin/home-pinned-contents',
 ];
 
 async function loginAsAdmin(context, baseURL) {

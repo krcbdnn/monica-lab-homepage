@@ -547,6 +547,51 @@ Request: 동일 `MenuRequest` PUT 규칙. 자식이 있는 메뉴를 GROUP이 �
 
 ---
 
+# HomePinnedContent(P13-T38A)
+
+관리자가 기존 Board/Program 중에서 선택해 메인 화면 상단에 고정하기 위한 API다. 공개 API는 없다(공개 메인 렌더링은 P13-T38B에서 서버사이드 렌더링으로 처리하며 별도 공개 JSON API를 두지 않는다). 콘텐츠 검색은 신규 API를 추가하지 않고 기존 `GET /api/admin/boards`, `GET /api/admin/programs`를 그대로 사용한다.
+
+`HomePinnedContentRequest`
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| targetType | String(`BOARD`/`PROGRAM`) | Y | |
+| targetId | Long | Y | 대상 Board/Program의 id. 존재하지 않거나 비공개(`isPublic=false`)면 거부 |
+| sortOrder | Integer | Y | `>=0` |
+| visible | Boolean | N | 생략 시 `true`(Menu/Banner의 기본값 `false`와 다름 — 고정 추가는 곧 노출 의도이므로) |
+
+`HomePinnedContentResponse`: `id`, `targetType`, `targetId`, `sortOrder`, `visible`, `sourceStatus`(`PUBLIC`/`PRIVATE`/`DELETED`, DB 컬럼이 아니라 조회 시점에 원본을 다시 확인해 계산하는 값), `sourceTitle`(DELETED면 `null`), `sourceUrl`(관리자 수정 화면 경로 `/admin/boards/{id}/edit` 또는 `/admin/programs/{id}/edit`, DELETED면 `null`), `createdAt`, `updatedAt`.
+
+## GET /api/admin/home-pinned-contents
+
+인증: ROLE_ADMIN. 노출 여부와 관계없이 전체 반환. 비페이징 배열 응답, `sortOrder ASC, id ASC` 고정 정렬.
+
+## POST /api/admin/home-pinned-contents
+
+Request: `HomePinnedContentRequest`. `targetId`가 존재하지 않거나 비공개면 `INVALID_INPUT_VALUE`(400). 이미 고정된 `(targetType, targetId)`면 `HOME_PINNED_CONTENT_DUPLICATE`(409). Response 201: `HomePinnedContentResponse`.
+
+## PATCH /api/admin/home-pinned-contents/{id}/visibility
+
+```json
+{"visible": true}
+```
+
+`visible`: Boolean, required. Response 200: `HomePinnedContentResponse`.
+
+## PATCH /api/admin/home-pinned-contents/{id}/order
+
+```json
+{"sortOrder": 1}
+```
+
+`sortOrder`: Integer, required, `>=0`. Response 200: `HomePinnedContentResponse`.
+
+## DELETE /api/admin/home-pinned-contents/{id}
+
+고정 레코드만 삭제한다(원본 Board/Program에는 영향 없음). Response 204. 존재하지 않으면 `HOME_PINNED_CONTENT_NOT_FOUND`(404).
+
+---
+
 # Public / Admin 조회 차이 요약
 
 | Domain | Public GET | Admin GET |

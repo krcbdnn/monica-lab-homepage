@@ -1140,6 +1140,40 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T38A. 메인 고정 콘텐츠 Domain/Admin
+
+- 의존성: P13-T37
+- 산출물: `db/migration/V11__create_home_pinned_content_table.sql`(신규), `pinned/entity/HomePinnedContent.java`(신규), `pinned/entity/HomeTargetType.java`(신규), `pinned/repository/HomePinnedContentRepository.java`(신규), `pinned/service/HomePinnedContentService.java`(신규), `pinned/dto/*.java`(신규), `pinned/controller/AdminHomePinnedContentController.java`(신규), `pinned/controller/AdminHomePinnedContentViewController.java`(신규), `templates/admin/homepinned/list.html`(신규), `admin/layout/sidebar.html`, `common/exception/ErrorCode.java`, `docs/PRD.md`, `docs/FEATURES.md`, `docs/ERD.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, `frontend-tests/admin-console-errors.spec.js`
+- 작업 내용: 관리자가 기존 Board/Program 콘텐츠 중에서 선택해 메인 화면 상단에 고정하는 기능("인스타그램 고정 게시물"과 유사한 개념, 신규 콘텐츠 작성 기능이 아님)의 도메인/관리자 기능만 구축한다. 공개 메인 화면(`home/index.html`, `HomeController`) 렌더링은 이 Task에 포함하지 않고 P13-T38B로 이연한다. `home` 패키지는 자체 Entity를 가질 수 없다는 기존 원칙(ARCHITECTURE.md)에 따라 `com.monicalab.pinned`를 Menu와 동일한 완전히 독립된 최상위 도메인 패키지로 신설한다.
+  1. `HomePinnedContent` Entity: `targetType`(`HomeTargetType`: `BOARD`/`PROGRAM`), `targetId`, `sortOrder`, `isVisible`, `BaseEntity` 상속(`createdAt`/`updatedAt`). ERD.md no-FK 원칙에 따라 `targetId`는 `@ManyToOne`이 아닌 plain 컬럼이며, Board/Program Entity에는 이 기능을 위한 필드를 추가하지 않는다.
+  2. `V11__create_home_pinned_content_table.sql`: `home_pinned_content` 테이블 신규 생성. `UNIQUE(target_type, target_id)` 제약으로 중복 고정을 DB 레벨에서 방지(서비스 계층 사전 검증과 2단계 방어). 기존 `board`/`program` 테이블은 ALTER하지 않는다.
+  3. `HomePinnedContentService.create()`: 생성 시 `boardRepository.findByIdAndIsPublicTrue`/`programRepository.findByIdAndIsPublicTrue`(기존 메서드 재사용)로 대상이 존재하고 공개 상태인지 검증하고, `existsByTargetTypeAndTargetId`로 중복을 사전 검증한다. `visible` 미지정 시 기본값 `true`로 애플리케이션 레벨에서 결정한다(Menu/Banner의 기본값 `false`와 다름 - 고정 추가는 곧 노출을 의도하는 관리자 행위이므로). 동시 요청으로 DB `UNIQUE` 제약이 실제로 위반되는 race condition은 `create()` 범위에 한정해 `DataIntegrityViolationException`을 잡아 신규 `ErrorCode.HOME_PINNED_CONTENT_DUPLICATE`(409)로 변환한다(`GlobalExceptionHandler`에 범용 매핑을 추가하지 않음 - 다른 도메인의 무결성 오류까지 중복으로 오판정되는 것을 방지).
+  4. `HomePinnedContentService.getAdminList()`: `HomePinnedContent` 전체를 `sortOrder ASC, id ASC`로 조회한 뒤 `targetType`별로 그룹핑해 `BoardRepository.findAllById`/`ProgramRepository.findAllById`(기존 `CrudRepository` 표준 메서드, 신규 Repository 메서드 추가 없음)로 배치 조회한다 - 핀 개수와 무관하게 pin 조회 1회 + 타입당 배치 조회 최대 1회(현재 최대 2)로 N+1을 방지한다. 원본 존재 여부와 `isPublic` 값으로 `PUBLIC`/`PRIVATE`/`DELETED`(원본 없음) 상태를 계산해 응답에 포함한다(DB persisted 컬럼 아님, 응답 조립 시점의 계산값).
+  5. Admin API(`/api/admin/home-pinned-contents`): `GET`(목록), `POST`(생성, 대상 무효 시 `INVALID_INPUT_VALUE` 400, 중복 시 `HOME_PINNED_CONTENT_DUPLICATE` 409), `PATCH .../order`, `PATCH .../visibility`, `DELETE`. Menu의 `AdminMenuController`와 동일한 패턴(`ApiResponse`, `@Valid`). 전체 수정 `PUT`은 두지 않는다(대상 자체를 바꾸는 개념이 아니므로 해제 후 재고정이 자연스러움).
+  6. Admin View(`GET /admin/home-pinned-contents`, `AdminHomePinnedContentViewController`): 별도 등록/수정 폼(`/new`, `/{id}/edit`) 없이 목록 화면(`admin/homepinned/list.html`) 하나에서 현재 고정 목록(타입/제목/순서/노출여부/원본상태/원본 이동 링크/관리) 조회와 신규 고정 추가(타입 선택 → keyword로 기존 `GET /api/admin/boards`/`GET /api/admin/programs` 검색 → 공개 콘텐츠만 선택 가능 → sortOrder 지정 → 추가)를 모두 처리한다. 신규 검색 API는 만들지 않는다. `admin/layout/default.html`에 Bootstrap JS 번들이 로드되어 있지 않으므로 Bootstrap modal 대신 순수 JS로 토글하는 inline 패널로 구현한다. `admin/layout/sidebar.html`에 "메인 고정 콘텐츠 관리" 링크를 추가한다.
+  7. 원본 상태 표시: `sourceUrl`은 공개 상세 URL(`/boards/{id}`, `/programs/{id}`)이 아니라 관리자 수정 화면(`/admin/boards/{id}/edit`, `/admin/programs/{id}/edit`)을 가리킨다 - 공개 상세는 `findByIdAndIsPublicTrue` 기반이라 `PRIVATE` 상태에서는 404가 나서 관리자가 확인할 수 없기 때문(실제 코드 확인 결과에 따른 결정, `DELETED`면 `null`).
+- DoD:
+  - `BOARD`/`PROGRAM` 대상 고정 생성·조회·순서변경·노출변경·해제가 정상 동작한다.
+  - 존재하지 않거나 비공개인 대상으로는 생성할 수 없다(`INVALID_INPUT_VALUE` 400).
+  - 동일 `(targetType, targetId)` 중복 생성은 서비스 사전검증과 DB `UNIQUE` 제약 양쪽에서 방어되며 `HOME_PINNED_CONTENT_DUPLICATE`(409)를 반환한다(DB 제약 자체의 존재도 별도 테스트로 검증).
+  - `visible` 미지정 시 `true`로 저장된다.
+  - 고정 이후 원본이 비공개로 전환되거나 삭제되어도 고정 레코드는 유지되고, 관리자 목록에서 `PRIVATE`/`DELETED`로 정확히 표시되며 500/404가 발생하지 않는다.
+  - 정렬은 항상 `sortOrder ASC, id ASC`.
+  - 개수 하드 리밋이 어디에도 없다.
+  - `home/controller/HomeController.java`, `home/index.html`, 공개 CSS, Board/Program Entity/Service/Controller/관리자 form, Menu/Banner/Popup 기능, Header/Footer/nav JS 무변경.
+  - Java 신규 테스트(Repository UNIQUE 제약, Admin Controller, Admin ViewController) + 기존 전체 테스트 무회귀, `./gradlew build` 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
+
+---
+
+### P13-T38B. 메인 고정 콘텐츠 공개 Home 렌더링(예정)
+
+- 의존성: P13-T38A
+- 작업 내용(예정, 본 Task는 아직 착수하지 않음): P13-T38A가 구축한 `HomePinnedContent`/`HomePinnedContentService`를 이용해 공개 메인 화면 상단에 고정 콘텐츠를 노출한다. `HomeController`가 공개용 조회 메서드(`PUBLIC`인 `BOARD`/`PROGRAM`만, 배치 조회로 N+1 방지)를 호출해 `home/index.html`의 `#banners`(Hero)/`#popups` 바로 다음, `#latest-programs` 이전에 신규 섹션(`id="home-pinned"`, 제목 "주요 소식")을 렌더링한다. 고정 콘텐츠가 0건이면 섹션 자체를 렌더링하지 않는다. 카드 UI는 기존 `.gallery-grid`/`.gallery-card__*` 마크업을 재사용한다. 개수 하드 리밋을 두지 않는다.
+- DoD(예정): 위치/0건 처리/타입별 클릭 URL/반응형/console error 0/기존 P13-T30~T38A 전체 무회귀를 확인하는 Playwright 케이스 포함. 착수 시점에 별도 승인을 받아 상세 계획을 재수립한다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
