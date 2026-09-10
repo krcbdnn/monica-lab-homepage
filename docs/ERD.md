@@ -192,6 +192,34 @@ Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드
 
 ---
 
+# 9. HomePinnedContent
+
+관리자가 기존 Board/Program 콘텐츠 중에서 선택해 공개 메인 화면 상단에 고정 노출하기 위한 참조 전용 도메인이다(P13-T38A, "인스타그램 고정 게시물"과 유사한 개념). 신규 콘텐츠를 작성하는 기능이 아니라 기존 Board/Program 레코드를 가리키기만 하므로, `target_type`/`target_id`는 Menu의 `target_type`/`target_value`와 동일하게 FK가 아닌 plain 컬럼이다. 공개 화면에서 실제로 렌더링하는 기능은 P13-T38B에서 구현하며, 이 테이블 자체는 P13-T38A에서 생성한다.
+
+| 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
+|-------|------|------|------------|-------------|
+| id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
+| target_type | VARCHAR(20) | NOT NULL | 없음 | `BOARD`/`PROGRAM` (P13-T38A 기준 2종만 허용. Page/Popup/Banner는 범위 밖) |
+| target_id | BIGINT | NOT NULL | 없음 | `target_type`에 따라 `board.id` 또는 `program.id`를 가리키는 값. FK 아님(본 문서 no-FK 원칙) — 원본이 삭제되어도 이 값은 그대로 남는다 |
+| sort_order | INT | NOT NULL | 없음 | 정렬 순서. 값이 작을수록 먼저 노출됨(Menu/Banner와 동일 정책) |
+| is_visible | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `true`(고정 추가는 곧 노출을 의도하는 관리자 행위이므로, 기본값 `false`인 Menu/Banner와 다르게 결정) |
+| created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+| updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+
+제약
+
+- `UNIQUE(target_type, target_id)` — 동일 콘텐츠 중복 고정을 DB 레벨에서 방지한다.
+
+비고
+
+- 원본(Board/Program)이 이후 비공개로 전환되거나 물리 삭제되어도 이 테이블의 행은 **자동으로 삭제하지 않는다**. 관리자 목록 조회 시점에 원본을 다시 조회해 `PUBLIC`/`PRIVATE`/`DELETED`(원본 없음) 상태를 애플리케이션 레벨에서 계산해 보여준다 — 이 상태는 DB persisted 컬럼이 아니다.
+- 신규 고정 생성 시점에는 `target_id`가 실제 존재하고 공개(`is_public=true`) 상태인 Board/Program만 허용한다(생성 이후의 비공개 전환/삭제는 막지 않음).
+- 개수 제한(하드 리밋)을 두지 않는다.
+- Board/Program Entity에는 이 기능을 위한 필드(`isPinned` 등)를 추가하지 않는다.
+- P13-T38A는 이 도메인과 관리자 CRUD까지만 구축한다. 공개 메인 화면 렌더링(`HomeController`/`home/index.html` 연동)은 P13-T38B에서 다룬다.
+
+---
+
 # PK 생성 전략
 
 모든 Entity의 `id` 기본키는 동일한 전략을 사용한다.

@@ -62,6 +62,8 @@ src/main/java
     │
     ├── menu
     │
+    ├── pinned
+    │
     └── home
 ```
 
@@ -76,8 +78,8 @@ src/main/java
   - `exception` : CustomException, ErrorCode 등 예외 관련 클래스
   - `response` : ApiResponse 등 공통 응답 포맷
   - `util` : FileUtil, DateUtil 등 공통 유틸리티
-- `admin`, `page`, `program`, `board`, `banner`, `popup`, `file`, `menu` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
-- `home` : 공개 메인 화면(`GET /`) 전용 패키지. 자체 Entity/Repository 없이 Page, Program, Board, Banner, Popup Service를 조합하여 메인 화면 데이터를 구성하는 Controller만 포함한다.
+- `admin`, `page`, `program`, `board`, `banner`, `popup`, `file`, `menu`, `pinned` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
+- `home` : 공개 메인 화면(`GET /`) 전용 패키지. 자체 Entity/Repository 없이 Page, Program, Board, Banner, Popup Service를 조합하여 메인 화면 데이터를 구성하는 Controller만 포함한다. `pinned`가 별도 최상위 패키지인 이유가 바로 이 제약이다 - HomePinnedContent는 Entity/Repository를 가지므로 `home` 아래에 둘 수 없다.
 
 ---
 
@@ -300,6 +302,8 @@ HomeController
 
 자체 Entity/Repository 없이 Banner, Popup, Board, Program, Page Service를 조합하여 사용한다.
 
+비고(P13-T38B 예정): 관리자가 `HomePinnedContent`(`## HomePinnedContent` 섹션 참고)로 고정한 콘텐츠를 Hero(`#banners`)/Popup 바로 다음, `#latest-programs` 이전 위치(`#home-pinned`, 제목 "주요 소식")에 렌더링하는 기능이 예정되어 있으나, P13-T38A(본 문서 현재 반영 범위) 시점에는 아직 구현되지 않았다. `HomeController`는 이 시점까지 `HomePinnedContentService`를 참조하지 않는다.
+
 ---
 
 ## File
@@ -393,6 +397,45 @@ Menu 테이블은 `HOME`/`ABOUT`/`OUR PROGRAMS`/`Blog` 같은 미확정 가안 �
 - `static/js/home/nav-submenu.js`는 무수정이다. `.site-nav__item.has-submenu`를 문서 전체에서 범위 제한 없이 스캔하므로 전체메뉴 트리거도 기존 GROUP dropdown과 완전히 동일한 단일 상태 머신(하나만 열림, 다른 것을 열면 자동으로 닫힘, Escape/outside-click 공통 처리)에 자동으로 편입된다.
 - `home.css`의 `.site-nav__megamenu`는 헤더의 가장 오른쪽 항목이라는 특성상 기존 `.site-nav__submenu`의 `left:0`(오른쪽으로 확장) 대신 `right:0; left:auto`(왼쪽으로 확장)를 사용해 1024/1440px에서 뷰포트 밖으로 나가지 않도록 한다. 모바일에서는 hamburger accordion이 이미 동일한 정보를 전부 보여주므로 `[data-menu-id="all"]`을 `display:none`으로 숨겨 중복 노출을 피한다.
 - **향후 원칙**: V5는 Menu 도메인이 아직 어떤 프로덕션 추적 브랜치에도 배포되지 않아 관리자 커스터마이징이 존재할 수 없었던 시점의 1회성 IA 교체다. 이 시점 이후로는 관리자가 CRUD로 수정한 메뉴 데이터를 향후 migration이 DELETE 후 재생성(destructive reset)하는 방식으로 다루지 않는다.
+
+---
+
+## HomePinnedContent
+
+관리자가 기존 Board/Program 콘텐츠 중에서 선택해 공개 메인 화면 상단에 고정 노출하기 위한 참조 전용 도메인이다(P13-T38A, "인스타그램 고정 게시물"과 유사한 개념). `home` 패키지는 자체 Entity를 가질 수 없으므로(위 패키지 설명 참고) Menu와 동일하게 완전히 독립된 최상위 패키지 `com.monicalab.pinned`로 둔다.
+
+```
+AdminHomePinnedContentController
+AdminHomePinnedContentViewController  (GET /admin/home-pinned-contents 목록 화면 렌더링, Thymeleaf. 별도 등록/수정 폼 View는 없음 - 추가/순서변경/노출변경/해제 전부 목록 화면에서 처리)
+
+HomePinnedContentService
+
+HomePinnedContentRepository
+
+HomePinnedContent
+
+HomeTargetType
+```
+
+targetType
+
+```
+BOARD
+PROGRAM
+```
+
+Page/Popup/Banner는 대상에 포함하지 않는다(구조상 썸네일/공개여부/상세URL이 없거나, 이미 메인 자체를 구성하는 콘텐츠라 "고정 대상 게시글"이라는 개념과 맞지 않음). 신규 목적지가 필요해지면 `HomeTargetType`에 값만 추가하는 형태로 확장한다(FK 없는 polymorphic reference라 Board/Program Entity 변경 없이 확장 가능).
+
+기능
+
+- 기존 Board/Program 검색 후 고정 추가(신규 검색 API 없음 - 기존 `GET /api/admin/boards`, `GET /api/admin/programs` 재사용). 존재하지 않거나 비공개인 대상은 거부한다.
+- 고정 목록 조회, 정렬 순서 변경(Menu/Banner와 동일한 숫자 입력 + "순서 변경" 버튼 방식, 드래그앤드롭 없음), 노출 여부 변경, 고정 해제
+- 개수 제한 없음
+- 중복 방지: `(targetType, targetId)` 서비스 사전 검증 + DB `UNIQUE` 제약 2단계
+
+원본 상태 처리: 고정 이후 원본(Board/Program)이 비공개로 전환되거나 삭제되어도 `HomePinnedContent` 행은 자동 삭제하지 않는다. 관리자 목록 조회 시점에 `BoardRepository.findAllById`/`ProgramRepository.findAllById`로 대상을 배치 재조회(핀 개수와 무관하게 타입당 쿼리 1회, N+1 없음)해 `PUBLIC`(원본 존재+공개)/`PRIVATE`(원본 존재+비공개)/`DELETED`(원본 없음) 상태를 애플리케이션 레벨에서 계산한다 - 이 상태는 DB persisted 컬럼이 아니라 `HomePinnedContentResponse` 조립 시점의 계산값이다.
+
+비고: P13-T38A는 이 도메인과 관리자 CRUD까지만 구축한다. 공개 메인 화면(`HomeController`/`home/index.html`)에서의 실제 렌더링은 P13-T38B에서 별도로 다루며, 이 Task 시점에는 존재하지 않는다.
 
 ---
 
