@@ -33,14 +33,20 @@ public final class HtmlSanitizer {
             "image", "image-style-side",
             "image-style-align-left", "image-style-align-right", "image-style-align-center");
 
+    // P13-T39: CKEditor의 ImageTextAlternative("대체 텍스트")/ImageCaption("캡션 넣기/빼기") 툴바
+    // 버튼이 실제로 만드는 output(헤드리스로 직접 확인, P13-T23와 동일한 방식)을 그대로 보존한다.
+    // alt는 <img>의 평범한 문자열 attribute이고, figcaption은 <figure> 안의 형제 tag일 뿐이라 이
+    // 둘을 허용해도 새로운 실행 경로가 생기지 않는다(jsoup은 attribute 값을 항상 이스케이프해
+    // 직렬화하므로 alt 안의 "<script>" 같은 문자열이 실제 태그로 되살아나지 않고, figcaption에는
+    // 아래에서 어떤 attribute도 허용하지 않으므로 style/class/id/on* 이벤트 핸들러가 전부 제거된다).
     private static final Safelist SAFELIST = Safelist.none()
             .addTags(
                     "p", "br", "strong", "em", "u",
                     "h1", "h2", "h3", "h4", "h5", "h6",
                     "table", "tr", "td", "th",
-                    "a", "img", "figure")
+                    "a", "img", "figure", "figcaption")
             .addAttributes("a", "href")
-            .addAttributes("img", "src")
+            .addAttributes("img", "src", "alt")
             .addAttributes("figure", "class")
             .addProtocols("a", "href", "http", "https", "mailto")
             .addProtocols("img", "src", "http", "https")
@@ -49,17 +55,24 @@ public final class HtmlSanitizer {
     private HtmlSanitizer() {
     }
 
+    // P13-T39: figcaption을 새로 허용하면서 jsoup의 기본 HTML 출력 설정이 그것을 block 태그로 취급해
+    // 줄바꿈/들여쓰기를 끼워 넣는 것을 발견했다(다른 허용 태그에는 없던 동작). CKEditor가 실제로 만드는
+    // compact 출력을 그대로 보존하기 위해 pretty-print를 끈다 - 3개 직렬화 지점(최초 clean + 아래 두
+    // 커스텀 후처리 pass) 전부에 동일하게 적용해야 파이프라인 전체에서 포맷이 다시 흐트러지지 않는다.
+    private static final Document.OutputSettings COMPACT_OUTPUT = new Document.OutputSettings().prettyPrint(false);
+
     public static String sanitize(String html) {
         if (html == null) {
             return null;
         }
-        String cleaned = Jsoup.clean(html, DUMMY_BASE_URI, SAFELIST);
+        String cleaned = Jsoup.clean(html, DUMMY_BASE_URI, SAFELIST, COMPACT_OUTPUT);
         String restrictedSources = restrictRelativeImageSources(cleaned);
         return restrictFigureClasses(restrictedSources);
     }
 
     private static String restrictRelativeImageSources(String cleanedHtml) {
         Document doc = Jsoup.parseBodyFragment(cleanedHtml);
+        doc.outputSettings(COMPACT_OUTPUT);
         for (Element img : doc.select("img[src]")) {
             String src = img.attr("src");
             boolean isAbsoluteHttp = src.startsWith("http://") || src.startsWith("https://");
@@ -72,6 +85,7 @@ public final class HtmlSanitizer {
 
     private static String restrictFigureClasses(String cleanedHtml) {
         Document doc = Jsoup.parseBodyFragment(cleanedHtml);
+        doc.outputSettings(COMPACT_OUTPUT);
         for (Element figure : doc.select("figure[class]")) {
             List<String> safeTokens = Arrays.stream(figure.attr("class").trim().split("\\s+"))
                     .filter(ALLOWED_FIGURE_CLASS_TOKENS::contains)

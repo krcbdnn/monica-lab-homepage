@@ -1221,6 +1221,28 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T39. CKEditor 이미지 alt/figcaption sanitizer 보완
+
+- 의존성: P13-T38C
+- 산출물: `common/util/HtmlSanitizer.java`, `src/test/java/com/monicalab/common/util/HtmlSanitizerTest.java`, `docs/TASK.md`, `docs/FEATURES.md`
+- 작업 내용: P13 전체 미완료 작업 전수조사에서 확인된 CKEditor sanitizer 후속 항목 2건을 마무리한다. P13-T23 DoD(`docs/TASK.md`)에 "이미지 caption(`figcaption` 텍스트 leak)과 `img[alt]` 미보존은 발견사항으로만 기록하고 이번 DoD에 포함하지 않는다"로 남아 있던 항목이 대상이다. 실제 로컬 develop 서버에 관리자로 로그인해 프로젝트가 로딩하는 바로 그 CDN 빌드(CKEditor 5 41.4.2 classic)로 `ClassicEditor.create(...)` 후 `editor.getData()`를 헤드리스로 직접 확인한 결과, `ImageTextAlternative`(대체 텍스트) 버튼은 `<img alt="...">`를, `ImageCaption`(캡션 넣기/빼기) 버튼은 `<figure><img>...<figcaption>텍스트</figcaption></figure>`를 실제로 생성하지만, 기존 `HtmlSanitizer`의 `Safelist`가 `img`에 `alt`를 허용하지 않고 `figcaption` 태그 자체를 허용 목록에 두지 않아 각각 속성이 소실되거나(alt) 태그만 사라지고 내부 텍스트가 `<figure>` 바로 아래 벌거벗은 텍스트로 leak되는(figcaption) 문제를 재현 확인했다.
+  1. `SAFELIST`에 `img`의 허용 속성으로 `alt`를 추가하고, 허용 태그에 `figcaption`을 추가한다(속성은 추가하지 않음 — style/class/id/이벤트 핸들러 전부 기본 차단 유지). `figure`/`img`/`a`의 기존 허용 속성·프로토콜·상대경로 제한(`INTERNAL_IMAGE_SRC`)·`figure` class 토큰 화이트리스트(`ALLOWED_FIGURE_CLASS_TOKENS`)는 전혀 변경하지 않는다. `style` 속성은 어떤 태그에도 추가하지 않는다(Resize 관련 `width`/`style`/`image_resized`는 별도 P13-T40 범위).
+  2. `figcaption`을 새로 허용하자 jsoup 기본 출력 설정이 이를 block 태그로 취급해 줄바꿈/들여쓰기를 끼워 넣는 부작용을 헤드리스 테스트로 발견했다. `Jsoup.clean()` 최초 호출과 두 커스텀 후처리 pass(`restrictRelativeImageSources`/`restrictFigureClasses`)의 직렬화 지점 3곳 전부에 `Document.OutputSettings().prettyPrint(false)`를 적용해, CKEditor가 실제로 만드는 compact 출력을 그대로 보존한다(다른 허용 태그의 기존 byte 단위 출력에는 영향 없음).
+  3. `alt` 값은 jsoup의 attribute 직렬화(항상 `&`/`"` 이스케이프, HTML5 스펙상 `<`/`>` 이스케이프는 불필요)에 그대로 맡긴다 — 별도 이스케이프 로직을 추가하지 않는다. 빈 `alt=""`는 장식용 이미지를 나타내는 유효한 접근성 값이므로 속성 자체를 제거하거나 임의 텍스트로 채우지 않고 그대로 보존한다. alt를 자동 생성하는 로직은 추가하지 않는다.
+  4. 이미지 Resize(`ImageResize`/`ImageResizeEditing`/`ImageResizeHandles`/`ImageResizeButtons`, `resizeOptions`/`resizeUnit`, 25/50/75/100 preset)는 이번 Task에 포함하지 않는다. CKEditor CDN URL/버전 변경, 자체 호스팅 전환, npm 설치도 하지 않는다 — 이는 별도 **P13-T40(CKEditor 이미지 Resize 및 자체 호스팅 전환)**에서 처리한다.
+  5. 기존에 이미 저장되어 sanitizer를 통과하면서 alt/figcaption이 소실된 Page/Board/Program/Popup 콘텐츠는 이 Task가 자동으로 복구하지 않는다(DB migration/일괄 rewrite 없음) — 이후 관리자가 해당 콘텐츠를 다시 저장할 때부터 새 정책이 적용된다.
+  6. 공개 화면 CSS는 변경하지 않는다 — `figcaption`은 별도 스타일 없이도 브라우저 기본 렌더링(plain block)으로 이미지 아래에 정상적으로 표시되며, 기존 `.ckeditor-content`/`.popup-modal__body`의 `.image`/float 규칙과 충돌하지 않음을 확인했다.
+- DoD:
+  - `HtmlSanitizerTest`: `img[alt]`(영문/한글/빈 문자열) 보존, `alt` 값의 특수문자(`&`,`<`,`>`)가 attribute 경계를 벗어나지 않고 하나의 값으로 유지됨(재파싱한 DOM 기준 검증), `alt` 값 자체가 `<script>...</script>` 형태여도 실제 `<script>` 요소가 되지 않고 `img` 하나로만 남음, attribute 탈출을 시도하는 `alt` 입력도 새 attribute(`onerror` 등)가 생성되지 않음, `figcaption` 태그+텍스트(영문/한글) 보존, `figcaption`의 `style`/`class`/`id`/이벤트 핸들러 전부 제거, `figcaption` 내부 `<script>`가 실행 가능한 형태로 보존되지 않음 — 전부 통과.
+  - 기존 `img src` 허용/차단 정책(http/https/`/api/files/{id}`/프로토콜 상대/기타 상대경로/데이터 스킴), `figure` class 화이트리스트, `a href` 정책, `<script>`/이벤트 핸들러/`javascript:` 제거 등 기존 `HtmlSanitizerTest` 전체가 무회귀 통과한다.
+  - Resize 관련 plugin/설정/CDN/버전/vendor 파일이 어디에도 추가되지 않는다(코드 리뷰로 확인).
+  - DB migration, 기존 콘텐츠 일괄 수정, CKEditor JS config(`ckeditor-config.js`)/업로드 어댑터/`admin/{page,board,program,popup}/form.html`/공개 CSS(`home.css`) 무변경.
+  - `./gradlew test`/`./gradlew build` 전체 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
+- 후속: **P13-T40(CKEditor 이미지 Resize 및 자체 호스팅 전환)**, **P2-2(Resize 미적용 이미지의 데스크톱 기본 최대 폭 결정)**로 이어진다(둘 다 이번 Task 범위 밖).
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
