@@ -141,12 +141,16 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#apply-link")).isEmpty();
     }
 
+    // P13-T41: 대표 이미지(thumbnail)는 목록/홈/HomePinnedContent 카드 전용 메타데이터로 역할이
+    // 분리됐다 - 상세 본문에는 더 이상 자동으로 <img>가 삽입되지 않는다(CKEditor content가 상세
+    // 이미지의 실제 표현 영역). thumbnail 필드/데이터 자체는 계속 저장되며(목록/홈에서 계속 사용),
+    // 이 테스트는 상세 화면에서만 자동 렌더링이 사라졌음을 검증한다.
     @Test
-    void detailAppliesLazyLoadingToThumbnailImage() throws Exception {
+    void detailDoesNotAutoRenderThumbnailImageOutsideContent() throws Exception {
         Long id = programRepository.saveAndFlush(Program.builder()
                 .programType(ProgramType.COURSE)
-                .title("썸네일 있는 프로그램")
-                .content("내용")
+                .title("대표 이미지 있는 프로그램")
+                .content("<p>본문 내용</p>")
                 .thumbnail("/api/files/1")
                 .recruitStatus(RecruitStatus.OPEN)
                 .isPublic(true)
@@ -157,8 +161,33 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
-        assertThat(document.select("img").attr("src")).isEqualTo("/api/files/1");
-        assertThat(document.select("img").attr("loading")).isEqualTo("lazy");
+
+        assertThat(document.select("#program-detail-content > img")).isEmpty();
+        assertThat(document.select(".ckeditor-content").text()).contains("본문 내용");
+    }
+
+    // 대표 이미지와 별개로, 본문(CKEditor content)에 삽입된 이미지는 정상적으로 그대로 렌더링돼야
+    // 한다 - 상세 화면에는 본문 이미지 1개만 존재하고 thumbnail에 대한 별도 <img>가 추가되지 않는다.
+    @Test
+    void detailRendersOnlyContentImageWhenBothThumbnailAndContentImageExist() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("본문 이미지 프로그램")
+                .content("<figure class=\"image\"><img src=\"/api/files/2\"></figure>")
+                .thumbnail("/api/files/1")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        String body = mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements images = document.select("#program-detail-content img");
+
+        assertThat(images).hasSize(1);
+        assertThat(images.attr("src")).isEqualTo("/api/files/2");
     }
 
     @Test

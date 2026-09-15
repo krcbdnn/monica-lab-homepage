@@ -149,6 +149,14 @@ test('templates/admin/board/form.html preview containers are hidden by default (
     assert.match(html, /<div id="attachmentPreview" class="mb-2" hidden>/);
 });
 
+// P13-T41: 대표 이미지는 목록/홈/HomePinnedContent 카드 전용 메타데이터이며 상세 본문에는 더 이상
+// 자동으로 표시되지 않는다 - 관리자가 이 역할 차이를 오해하지 않도록 라벨 아래에 짧은 안내를 둔다.
+test('templates/admin/board/form.html labels the thumbnail field "대표 이미지" and explains it is not auto-inserted into the detail body', () => {
+    const html = readTemplate('admin/board/form.html');
+    assert.match(html, /<label for="thumbnailInput" class="form-label">대표 이미지<\/label>/);
+    assert.match(html, /<div class="form-text">목록·메인 카드 등에 표시되는 이미지입니다\. 상세 본문에는 자동으로 표시되지 않습니다\.<\/div>/);
+});
+
 test('templates/admin/board/form.html renders the existing thumbnail/attachment preview when prefilling an edited board', () => {
     const html = readTemplate('admin/board/form.html');
     assert.match(html, /AdminFilePreview\.renderImagePreview\(\s*document\.querySelector\('#thumbnailPreview'\),\s*document\.querySelector\('#thumbnailPreviewImage'\),\s*document\.querySelector\('#thumbnailPreviewLink'\),\s*board\.thumbnail\);/);

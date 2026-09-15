@@ -1243,6 +1243,33 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 
 ---
 
+### P13-T41. Board/Program 대표이미지 역할 분리 및 상세 자동 출력 제거
+
+- 의존성: P13-T39
+- 산출물: `templates/home/board/detail.html`, `templates/home/program/detail.html`, `templates/admin/board/form.html`, `templates/admin/program/form.html`, `src/test/java/com/monicalab/board/controller/BoardViewControllerTest.java`, `src/test/java/com/monicalab/program/controller/ProgramViewControllerTest.java`, `src/test/js/admin/board-admin-view.test.js`, `src/test/js/admin/program-admin-view.test.js`, `docs/TASK.md`, `docs/FEATURES.md`
+- 작업 내용: "대표이미지(썸네일)와 CKEditor 본문 이미지의 역할이 겹쳐 보인다"는 전수조사 결과에 따라 두 역할을 명확히 분리한다. **대표 이미지 = 목록/홈/메인 카드/HomePinnedContent에서 콘텐츠를 대표하는 카드용 메타데이터**, **CKEditor 이미지 = 상세 본문의 실제 콘텐츠 이미지**로 정의하고, 공개 상세 화면에서는 대표 이미지를 CKEditor content와 별도로 자동 출력하지 않는다. 조사 결과 이 자동 출력은 P8 단계 초기 템플릿 스캐폴딩 당시의 부수적 UI 결정이었을 뿐(P5-T4/P6-T4A/P8-T3/P8-T4 어디에도 "상세에 썸네일을 표시하라"는 DoD가 없음), 명시적 요구사항이 아니었다. 실제 develop 데이터 조사(read-only)에서도 Board 4건이 대표이미지+본문이미지가 함께 표시되는 구조적 중복을 이미 겪고 있음을 확인했다.
+  1. `home/board/detail.html`/`home/program/detail.html`에서 `<img th:if="${...thumbnail() != null}" ...>` 블록을 제거한다. `Board`/`Program` Entity/DTO/Repository/Service/API/DB/Flyway는 변경하지 않는다 — `thumbnail`은 계속 optional이며 값 자체는 그대로 저장·조회된다.
+  2. BoardType(NOTICE/GALLERY/ARCHIVE/REVIEW), ProgramType(COURSE/SPECIAL) 어느 쪽도 예외를 두지 않는다. GALLERY/REVIEW/PROGRAM은 이미 목록·홈 카드에서 대표이미지가 항상 노출되므로 상세 자동 출력을 제거해도 필드가 무의미해지지 않고, NOTICE/ARCHIVE도 HomePinnedContent로 고정하면 언제든 대표이미지가 노출될 수 있어(`HomePinnedContentService`가 BoardType을 제한하지 않음) 완전히 죽은 필드가 되지 않는다.
+  3. 다음 기존 사용처는 전혀 건드리지 않고 그대로 유지한다: `home/board/list.html`(GALLERY/REVIEW `#board-grid` 카드), `home/program/list.html`(`#program-list` 썸네일), `home/index.html`(`#latest-programs`/`#latest-reviews`/`#latest-gallery`), `HomePinnedContentService`/`HomePinnedContentPublicResponse`(P13-T38A/B/C 계약).
+  4. `admin/board/form.html`: 라벨 "대표 이미지"는 그대로 두고, thumbnail 입력 아래에 `<div class="form-text">목록·메인 카드 등에 표시되는 이미지입니다. 상세 본문에는 자동으로 표시되지 않습니다.</div>`를 추가한다(기존 `admin/menu/form.html`의 `.form-text` 패턴 재사용, 신규 CSS 없음).
+  5. `admin/program/form.html`: 기존 라벨 "썸네일 이미지"를 Board와 동일한 "대표 이미지"로 통일하고(미리보기 `alt` 텍스트도 "현재 등록된 대표 이미지"로 동일하게 통일), 동일한 `.form-text` 안내를 추가한다. `id="thumbnailInput"`/`name="thumbnail"` 등 기존 DOM id/JS 연동은 변경하지 않는다.
+  6. CKEditor 설정(`ckeditor-config.js`)/업로드 어댑터/CDN URL·버전/P13-T39가 완료한 `alt`·`figcaption` sanitizer 계약은 전혀 건드리지 않는다.
+  7. `BoardViewControllerTest`/`ProgramViewControllerTest`의 `detailAppliesLazyLoadingToThumbnailImage()`(상세에 thumbnail이 자동 렌더링됨을 전제로 하던 테스트)를 삭제하고, 다음 두 계약을 각각 검증하는 테스트로 교체한다: (a) 대표이미지가 있어도 상세 컨테이너 직계 자식으로 `<img>`가 렌더링되지 않고 CKEditor content는 정상 렌더링됨, (b) 대표이미지와 본문 이미지가 모두 있을 때 상세 화면에는 본문 이미지 1개만 존재함(대표이미지에 대한 별도 `<img>`가 추가되지 않음). 목록/홈 관련 기존 thumbnail 테스트(GALLERY/REVIEW 그리드, Program 목록, `HomeControllerTest`의 latest-* 등)는 전혀 수정하지 않는다.
+  8. `board-admin-view.test.js`/`program-admin-view.test.js`에 라벨 "대표 이미지"와 안내 문구 존재를 검증하는 케이스를 추가한다(Program 쪽은 기존 "썸네일 이미지" 문자열이 더 이상 없음도 함께 확인).
+- DoD:
+  - Board(NOTICE/GALLERY/ARCHIVE/REVIEW 전 타입)·Program(COURSE/SPECIAL 전 타입) 공개 상세 화면에서 대표이미지가 더 이상 자동으로 렌더링되지 않는다. CKEditor content는 정상 렌더링된다.
+  - 대표이미지+본문이미지가 모두 있는 콘텐츠도 상세 화면에는 본문 이미지만 표시된다(중복 노출 해소).
+  - `Board`/`Program`의 Entity/DTO/API/DB/Flyway 무변경, `thumbnail` optional 정책 무변경, 목록/홈/HomePinnedContent의 대표이미지 노출(placeholder 포함)과 GALLERY/REVIEW/Program 카드 UI 전부 무회귀.
+  - `AdminHomePinnedContentController`/`HomePinnedContentService`/`HomePinnedContentPublicResponse` 무변경, P13-T38A/B/C 계약 무회귀.
+  - Board/Program 관리자 폼 모두 라벨이 "대표 이미지"로 통일되고 동일한 역할 안내 문구를 갖는다.
+  - CKEditor CDN/버전/설정, P13-T39의 alt/figcaption sanitizer 계약 무변경.
+  - 기존 개발 데이터(Board 12건 + Program 2건, thumbnail만 있고 본문 이미지가 없던 콘텐츠)는 자동으로 수정되지 않으며, 이후 상세 화면에서 이미지 없이 표시되는 것을 정상 동작으로 받아들인다(DB migration 없음).
+  - `BoardViewControllerTest`/`ProgramViewControllerTest`/`board-admin-view.test.js`/`program-admin-view.test.js` 신규 케이스 통과, 기존 전체 Java/Node 테스트 무회귀, `./gradlew build` 통과.
+  - `docker-compose.local-test.yml`(untracked 유지).
+- 후속: **P13-T40(CKEditor 이미지 Resize 및 자체 호스팅 전환)**, **P2-2(Resize 미적용 이미지의 데스크톱 기본 최대 폭 결정)**, 공개 홈페이지 디자인 고급화 Phase — 전부 이번 Task 범위 밖.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |

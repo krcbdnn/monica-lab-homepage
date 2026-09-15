@@ -12,9 +12,9 @@
 
     <h2 th:text="${board.title()}"></h2>
 
-    <img th:if="${board.thumbnail() != null}" th:src="${board.thumbnail()}" th:alt="${board.title()}"
-         class="img-fluid mb-3" loading="lazy">
-
+    <!-- P13-T41: 대표 이미지(thumbnail)는 목록/홈/HomePinnedContent 카드 전용 메타데이터다.
+         상세 본문의 실제 이미지는 CKEditor content가 표현하므로 여기서 별도로 자동 출력하지 않는다
+         (thumbnail 필드/데이터는 그대로 유지 - 목록/홈/HomePinnedContent에서 계속 사용됨). -->
     <div class="ckeditor-content" th:if="${board.content() != null}" th:utext="${renderedContent}"></div>
     <p th:unless="${board.content() != null}" class="text-muted">등록된 내용이 없습니다.</p>
 
