@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class HtmlSanitizerTest {
 
@@ -332,5 +335,175 @@ class HtmlSanitizerTest {
         assertThat(result).doesNotContainIgnoringCase("<script")
                 .doesNotContain("alert(1)")
                 .contains("<figcaption>caption</figcaption>");
+    }
+
+    // ===== P13-T40: 이미지 크기 조절(25%/50%/75%/원본 preset) sanitizer 화이트리스트 =====
+
+    @Test
+    void preservesValid25PercentResizeWidthWithImageResizedClass() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image image_resized\" style=\"width:25%;\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("class=\"image image_resized\"")
+                .contains("style=\"width:25%;\"");
+    }
+
+    @Test
+    void preservesValid50And75PercentResizeWidth() {
+        assertThat(HtmlSanitizer.sanitize(
+                "<figure class=\"image image_resized\" style=\"width: 50%;\"><img src=\"/api/files/1\"></figure>"))
+                .contains("style=\"width:50%;\"");
+        assertThat(HtmlSanitizer.sanitize(
+                "<figure class=\"image image_resized\" style=\"width:75%\"><img src=\"/api/files/1\"></figure>"))
+                .contains("style=\"width:75%;\"");
+    }
+
+    // CKEditor가 실제로 생성 가능한 흔한 공백/세미콜론 변형만 허용한다는 것을 명시적으로 확인한다.
+    @Test
+    void acceptsCommonWhitespaceAndSemicolonVariants() {
+        String[] validInputs = {
+                "width:25%", "width: 25%;", "width:50%", "width: 50%;", "width:75%", "width: 75%;"
+        };
+        for (String style : validInputs) {
+            String result = HtmlSanitizer.sanitize(
+                    "<figure class=\"image\" style=\"" + style + "\"><img src=\"/api/files/1\"></figure>");
+            assertThat(result).as("input style=%s", style).contains("style=\"width:");
+        }
+    }
+
+    @Test
+    void figureWithoutStyleHasNoWidthOrResizedClassAdded() {
+        String result = HtmlSanitizer.sanitize("<figure class=\"image\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("class=\"image\"")
+                .doesNotContain("style=")
+                .doesNotContain("image_resized");
+    }
+
+    // 원본(리사이즈 취소) 상태: 재편집 후 원본으로 되돌리면 style/class 둘 다 남지 않아야 한다.
+    @Test
+    void resizeCancelledToOriginalLeavesNoStyleAndNoResizedClass() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).isEqualTo("<figure class=\"image\"><img src=\"/api/files/1\"></figure>");
+    }
+
+    // 공격자가 style 없이 image_resized class만 주입해도(가짜 "리사이즈됨" 표시) 여기서 제거된다 -
+    // style과 class는 항상 함께 있거나 함께 없어야 한다는 불변조건.
+    @Test
+    void removesOrphanImageResizedClassWhenNoValidWidthStylePresent() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image image_resized\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("class=\"image\"")
+                .doesNotContain("image_resized")
+                .doesNotContain("style=");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "width:100%", "width:0%", "width:1%", "width:24%", "width:26%", "width:49%",
+            "width:51%", "width:74%", "width:76%", "width:101%", "width:-1%", "width:50.5%",
+            "width:calc(100% - 10px)", "width:var(--w)", "width:expression(alert(1))",
+            "background:url(x)", "width:50%;background:red", "background:red;width:50%",
+            "width:50%;width:75%", "not-a-css-declaration", "width", "width:", "width:50"
+    })
+    void discardsEntireStyleWhenNotExactlyAnAllowedWidthOnlyDeclaration(String maliciousStyle) {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image\" style=\"" + maliciousStyle + "\"><img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).as("style=%s must be fully discarded", maliciousStyle)
+                .doesNotContain("style=")
+                .doesNotContain("image_resized");
+    }
+
+    // 다른 element(img/p)의 style, figure 이외 element의 width style은 애초에 Safelist 단계에서
+    // style 자체가 허용되지 않는 태그이므로 그대로 사라져야 한다(회귀 확인).
+    @Test
+    void doesNotPreserveStyleOnNonFigureElements() {
+        String result = HtmlSanitizer.sanitize(
+                "<p style=\"width:50%\">text</p>"
+                        + "<img src=\"/api/files/1\" style=\"width:50%\">");
+
+        assertThat(result).doesNotContain("style=");
+    }
+
+    // figure에 style attribute가 중복 선언된 비정상 HTML - jsoup 파서가 결정하는 단일 값만 남으므로
+    // 그 값 기준으로 정상적으로 검증/처리된다(크래시 없음, 부분 조합으로 우회되지 않음).
+    @Test
+    void handlesDuplicateStyleAttributeOnFigureWithoutCrashing() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image\" style=\"width:25%\" style=\"width:999%\">"
+                        + "<img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).doesNotContain("width:999%");
+    }
+
+    // image-style-side(정렬) + resize(50%)가 동시에 걸린 경우 둘 다 유지되어야 한다(공존, 회귀 없음).
+    @Test
+    void preservesImageStyleSideAlongsideResizeWidth() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image image_resized image-style-side\" style=\"width:50%;\">"
+                        + "<img src=\"/api/files/1\"></figure>");
+
+        assertThat(result).contains("class=\"image image_resized image-style-side\"")
+                .contains("style=\"width:50%;\"");
+    }
+
+    // caption + alt + resize가 동시에 걸린 경우 전부 유지되어야 한다.
+    @Test
+    void preservesCaptionAndAltAlongsideResizeWidth() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"image image_resized\" style=\"width:75%;\">"
+                        + "<img src=\"/api/files/1\" alt=\"설명\"><figcaption>캡션</figcaption></figure>");
+
+        assertThat(result).contains("style=\"width:75%;\"")
+                .contains("alt=\"설명\"")
+                .contains("<figcaption>캡션</figcaption>");
+    }
+
+    // 핵심 불변조건 회귀 테스트: 여러 <figure>가 존재하고 그 사이에 Safelist가 제거/벗겨낼 요소(허용
+    // 안 된 <div>, <script>)가 섞여 있어도, extract 단계와 reinject 단계의 <figure> 인덱스 대응이
+    // 절대 어긋나지 않는다는 것을 직접 증명한다(§2 "복잡한 index matching에 취약해지는 방식 회피" 요구
+    // 사항에 대한 근거: <figure>는 항상 허용된 태그라 제거/재정렬/중복이 절대 발생하지 않기 때문에
+    // 이 index 대응은 안전하다).
+    @Test
+    void figureIndexCorrelationSurvivesDisallowedSiblingsAndWrappers() {
+        String raw = "<div class=\"not-allowed-wrapper\">"
+                + "<figure class=\"image\" style=\"width:25%\"><img src=\"/api/files/1\"></figure>"
+                + "</div>"
+                + "<script>alert('x')</script>"
+                + "<figure class=\"image\"><img src=\"/api/files/2\"></figure>"
+                + "<p>중간 텍스트</p>"
+                + "<figure class=\"image image_resized\" style=\"width:75%;\"><img src=\"/api/files/3\"></figure>";
+
+        String result = HtmlSanitizer.sanitize(raw);
+
+        Document doc = Jsoup.parseBodyFragment(result);
+        Elements figures = doc.select("figure");
+        assertThat(figures).hasSize(3);
+
+        assertThat(figures.get(0).attr("style")).isEqualTo("width:25%;");
+        assertThat(figures.get(0).selectFirst("img").attr("src")).isEqualTo("/api/files/1");
+
+        assertThat(figures.get(1).hasAttr("style")).isFalse();
+        assertThat(figures.get(1).selectFirst("img").attr("src")).isEqualTo("/api/files/2");
+
+        assertThat(figures.get(2).attr("style")).isEqualTo("width:75%;");
+        assertThat(figures.get(2).selectFirst("img").attr("src")).isEqualTo("/api/files/3");
+
+        assertThat(result).doesNotContainIgnoringCase("<script").doesNotContain("not-allowed-wrapper");
+    }
+
+    // round-trip: 25%로 저장된 콘텐츠를 다시 sanitize에 통과시켜도(재편집 후 재저장을 흉내) 동일한
+    // 결과를 유지해야 한다(idempotent).
+    @Test
+    void sanitizeIsIdempotentForAlreadyResizedContent() {
+        String first = HtmlSanitizer.sanitize(
+                "<figure class=\"image image_resized\" style=\"width:25%;\"><img src=\"/api/files/1\"></figure>");
+        String second = HtmlSanitizer.sanitize(first);
+
+        assertThat(second).isEqualTo(first);
     }
 }

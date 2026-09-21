@@ -1,13 +1,16 @@
 package com.monicalab.common.util;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.safety.Safelist;
+import org.jsoup.select.Elements;
 
 public final class HtmlSanitizer {
 
@@ -31,7 +34,18 @@ public final class HtmlSanitizer {
     // 검증하지 않고 whitespace로 분리한 토큰 단위로 화이트리스트 대조 후 안전한 토큰만 남긴다.
     private static final Set<String> ALLOWED_FIGURE_CLASS_TOKENS = Set.of(
             "image", "image-style-side",
-            "image-style-align-left", "image-style-align-right", "image-style-align-center");
+            "image-style-align-left", "image-style-align-right", "image-style-align-center",
+            "image_resized");
+
+    // P13-T40: 관리자가 25%/50%/75%/원본(속성 없음) preset으로만 이미지 크기를 조절하는 자체 기능의
+    // 서버측 화이트리스트다. CKEditor의 공식 ImageResize plugin(우리 build엔 없음)이 만드는 형식과
+    // 동일하게 맞췄지만(헤드리스로 직접 확인: <figure class="image image_resized" style="width:50%;">),
+    // 값 자체는 이 3개 preset으로만 엄격히 제한한다(자유 드래그 리사이즈는 P13-T40 범위 밖).
+    // "width" 하나만 있는 단일 선언만 허용하고, 공백/세미콜론의 흔한 변형(있음/없음)만 유연하게
+    // 받아들인다 - 다른 프로퍼티가 하나라도 섞이면(예: "width:50%;background:red") 정규식 전체 일치가
+    // 실패해 style 전체를 폐기한다(일부만 골라 살리는 permissive 파서를 의도적으로 피함).
+    private static final Pattern FIGURE_WIDTH_STYLE_PATTERN =
+            Pattern.compile("^\\s*width\\s*:\\s*(25|50|75)%\\s*;?\\s*$");
 
     // P13-T39: CKEditor의 ImageTextAlternative("대체 텍스트")/ImageCaption("캡션 넣기/빼기") 툴바
     // 버튼이 실제로 만드는 output(헤드리스로 직접 확인, P13-T23와 동일한 방식)을 그대로 보존한다.
@@ -65,9 +79,16 @@ public final class HtmlSanitizer {
         if (html == null) {
             return null;
         }
+        // P13-T40: Safelist는 figure의 style attribute를 전혀 허용하지 않는다(변경 없음, 의도적).
+        // 그래서 width 값은 Safelist clean이 원본 style을 완전히 벗겨내기 *전에* 원본 raw HTML에서
+        // 직접 검증/추출해 두고, clean이 끝난 뒤 검증된 값만 다시 그려 넣는다("extract → clean →
+        // reinject"). 이 방식은 "허용되지 않은 attribute를 임시로 허용했다가 사후에 걸러내는" 방식과
+        // 달리, style이 Safelist를 통과하는 경로 자체가 코드 어디에도 존재하지 않는다.
+        List<String> validatedFigureWidths = extractValidatedFigureWidths(html);
         String cleaned = Jsoup.clean(html, DUMMY_BASE_URI, SAFELIST, COMPACT_OUTPUT);
         String restrictedSources = restrictRelativeImageSources(cleaned);
-        return restrictFigureClasses(restrictedSources);
+        String restrictedClasses = restrictFigureClasses(restrictedSources);
+        return reinjectValidatedFigureWidths(restrictedClasses, validatedFigureWidths);
     }
 
     private static String restrictRelativeImageSources(String cleanedHtml) {
@@ -94,6 +115,57 @@ public final class HtmlSanitizer {
                 figure.removeAttr("class");
             } else {
                 figure.attr("class", String.join(" ", safeTokens));
+            }
+        }
+        return doc.body().html();
+    }
+
+    // P13-T40: 원본 raw HTML을 (Safelist clean 이전에) 그대로 파싱해 <figure>를 문서 순서대로 순회하며,
+    // 각 figure의 style이 FIGURE_WIDTH_STYLE_PATTERN과 완전히 일치할 때만 그 preset 값("25"/"50"/"75")을
+    // 기록한다. 일치하지 않으면(다른 프로퍼티 혼입, 범위 밖 값, 소수/음수, calc()/var()/expression() 등)
+    // 그 figure 자리에는 null을 남긴다 - 리스트의 인덱스가 그대로 figure의 문서 순서와 대응한다.
+    //
+    // 이 인덱스 대응이 안전한 이유(순서가 뒤섞이는 "취약한 index matching"이 아님): <figure>는
+    // SAFELIST에 항상 허용된 태그라서, 이후 Jsoup.clean()이나 restrictRelativeImageSources/
+    // restrictFigureClasses 어느 단계도 <figure> 요소 자체를 제거하거나 순서를 바꾸거나 중복시키지
+    // 않는다(허용되지 않은 조상/형제 태그는 "벗겨내기(unwrap)"만 될 뿐 <figure>를 삼키지 않는다).
+    // 즉 원본과 clean 후 결과의 <figure> 개수·순서는 항상 1:1로 동일하다 - reinjectFigureWidthsTest의
+    // 회귀 테스트가 이 불변조건을 직접 증명한다(제거되는 형제/조상 태그가 섞여 있어도 순서가 안 깨짐).
+    private static List<String> extractValidatedFigureWidths(String rawHtml) {
+        Document rawDoc = Jsoup.parseBodyFragment(rawHtml);
+        Elements figures = rawDoc.select("figure");
+        List<String> widths = new ArrayList<>(figures.size());
+        for (Element figure : figures) {
+            widths.add(extractValidWidthOrNull(figure));
+        }
+        return widths;
+    }
+
+    private static String extractValidWidthOrNull(Element figure) {
+        if (!figure.hasAttr("style")) {
+            return null;
+        }
+        Matcher matcher = FIGURE_WIDTH_STYLE_PATTERN.matcher(figure.attr("style"));
+        return matcher.matches() ? matcher.group(1) : null;
+    }
+
+    // clean이 끝난 최종 HTML을 다시 파싱해 <figure>를 같은 순서로 순회하며, extractValidatedFigureWidths가
+    // 미리 검증해 둔 값만 그려 넣는다(값이 있으면 style+image_resized class를 함께 설정, 없으면 둘 다
+    // 확실히 제거해 "resize 안 된 상태"와 "resize 취소(원본) 상태"가 항상 style/class 없는 동일한 모습이
+    // 되도록 정규화한다 - 공격자가 style 없이 image_resized class만 주입해도 여기서 제거된다).
+    private static String reinjectValidatedFigureWidths(String html, List<String> validatedWidths) {
+        Document doc = Jsoup.parseBodyFragment(html);
+        doc.outputSettings(COMPACT_OUTPUT);
+        Elements figures = doc.select("figure");
+        for (int i = 0; i < figures.size() && i < validatedWidths.size(); i++) {
+            Element figure = figures.get(i);
+            String width = validatedWidths.get(i);
+            if (width != null) {
+                figure.attr("style", "width:" + width + "%;");
+                figure.addClass("image_resized");
+            } else {
+                figure.removeAttr("style");
+                figure.removeClass("image_resized");
             }
         }
         return doc.body().html();

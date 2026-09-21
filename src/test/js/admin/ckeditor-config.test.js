@@ -65,11 +65,21 @@ test('EDITOR_CONFIG.image.styles.options declares Korean titles for all 6 existi
     assert.deepEqual(Object.keys(expectedTitles).sort(), options.map((o) => o.name).sort());
 });
 
-test('EDITOR_CONFIG does not declare any Font/Alignment(paragraph)/ImageResize plugin config', () => {
+test('EDITOR_CONFIG does not declare any Font/Alignment(paragraph) plugin config', () => {
     const configString = JSON.stringify(EDITOR_CONFIG);
     assert.doesNotMatch(configString, /font/i);
     assert.doesNotMatch(configString, /"alignment"/i);
-    assert.doesNotMatch(configString, /resize/i);
+});
+
+// P13-T40: 25%/50%/75%/원본 preset 이미지 크기 조절 custom plugin이 extraPlugins로 등록되어
+// 있어야 한다. CKEditor CDN URL/build 자체는 바뀌지 않으므로(별도 테스트에서 재확인) 공식
+// ImageResize plugin을 쓰지 않고, 이 자체 plugin만 추가되는 것을 확인한다.
+const { Plugin: ResizePlugin } = require('../../../main/resources/static/js/admin/ckeditor-resize-plugin.js');
+
+test('EDITOR_CONFIG.extraPlugins registers the custom resize plugin (not the official ImageResize)', () => {
+    assert.ok(Array.isArray(EDITOR_CONFIG.extraPlugins));
+    assert.equal(EDITOR_CONFIG.extraPlugins.length, 1);
+    assert.equal(EDITOR_CONFIG.extraPlugins[0], ResizePlugin);
 });
 
 ['board', 'program', 'page', 'popup'].forEach((domain) => {
@@ -91,5 +101,42 @@ test('EDITOR_CONFIG does not declare any Font/Alignment(paragraph)/ImageResize p
         assert.notEqual(createCallIndex, -1);
         assert.ok(configScriptIndex < createCallIndex,
             'ckeditor-config.js script tag must appear before the ClassicEditor.create call');
+    });
+});
+
+// P13-T40: CKEditor 버전/배포방식을 바꾸지 않는다는 승인 조건의 회귀 확인 - 4개 폼 전부 여전히
+// 기존 41.4.2 classic predefined CDN build를 그대로 로드해야 한다.
+['board', 'program', 'page', 'popup'].forEach((domain) => {
+    test(`templates/admin/${domain}/form.html still loads the unchanged 41.4.2 classic CDN build`, () => {
+        const html = readTemplate(`admin/${domain}/form.html`);
+        assert.match(html, /https:\/\/cdn\.ckeditor\.com\/ckeditor5\/41\.4\.2\/classic\/ckeditor\.js/);
+    });
+});
+
+// 기존 업로드 어댑터 설치 호출이 그대로 유지되는지 회귀 확인.
+['board', 'program', 'page', 'popup'].forEach((domain) => {
+    test(`templates/admin/${domain}/form.html still installs the existing upload adapter`, () => {
+        const html = readTemplate(`admin/${domain}/form.html`);
+        assert.match(html, /AdminCkeditorUploadAdapter\.installUploadAdapterPlugin\(/);
+    });
+});
+
+// P13-T40: 4개 폼 모두 resize 컨트롤 마크업 + ckeditor-resize-plugin.js 로드(ckeditor-config.js보다
+// 먼저) + bindResizeControls 연결이 동일하게 있어야 한다(로직 복붙이 아니라 마크업만 복제, JS는 공유).
+['board', 'program', 'page', 'popup'].forEach((domain) => {
+    test(`templates/admin/${domain}/form.html wires up the shared resize controls`, () => {
+        const html = readTemplate(`admin/${domain}/form.html`);
+        const resizePluginScriptIndex = html.indexOf('/js/admin/ckeditor-resize-plugin.js');
+        const configScriptIndex = html.indexOf('/js/admin/ckeditor-config.js');
+
+        assert.notEqual(resizePluginScriptIndex, -1, 'ckeditor-resize-plugin.js script tag must be present');
+        assert.ok(resizePluginScriptIndex < configScriptIndex,
+            'ckeditor-resize-plugin.js must load before ckeditor-config.js (EDITOR_CONFIG references it at load time)');
+        assert.match(html, /id="content-resize-controls"/);
+        assert.match(html, /data-resize-value="25"/);
+        assert.match(html, /data-resize-value="50"/);
+        assert.match(html, /data-resize-value="75"/);
+        assert.match(html, /data-resize-value=""/);
+        assert.match(html, /AdminCkeditorResizePlugin\.bindResizeControls\(editor, document\.querySelector\('#content-resize-controls'\)\)/);
     });
 });
