@@ -3148,39 +3148,38 @@ test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래�
       });
     }
 
-    // P13-T30D(A2): "가운데로 옮겼다"를 감각으로 보지 않고 boundingBox로 증명한다. 단, nav는
-    // flex-grow로 "로고를 제외한 잔여 영역"을 차지하고 그 안에서 중앙 정렬되므로 viewport 정중앙이
-    // 아니라 로고 폭만큼 우측으로 치우친 상수 오프셋이 남는 것이 기하학적으로 정상이다(주석 §3).
-    // 그 상수가 기존(768px 시절 실측 +306~+386px 수준)보다 훨씬 작아졌음과, 로고→메뉴 여백과
-    // 메뉴→우측 여백이 더는 극단적으로 비대칭이 아님(과거엔 우측 여백이 거의 0에 가깝게 붙어 있었다)
-    // 두 가지를 함께 확인한다.
+    // P14-T2(Editorial Rule): 기존(P13-T30D A2)의 "nav를 로고를 제외한 잔여 영역 안에서 중앙 정렬"이라는
+    // 구현 방식에 묶인 검증(nav 중심의 viewport 중심 오프셋, 좌/우 여백 차이)을 확정된 새 디자인 계약의
+    // 결과 검증으로 교체한다. 새 계약: brand는 header inner(container)의 좌측 정렬선에, nav 마지막 셀은 우측
+    // 정렬선에 붙는다(T1의 --container-max/gutter 체계). "어디쯤 있어야 한다"가 아니라 그 정렬선을 직접 확인하고,
+    // 로고와 nav가 겹치지 않으며 충분한 여백(>= 48px)이 있음을 함께 검증한다(원래 의도였던 "nav가 로고에 붙지
+    // 않고, 한쪽으로 극단적으로 쏠려 어색해지지 않음"을 보존).
     for (const width of [1024, 1440]) {
-      test(`${width}px: nav 우측 치우침이 개선되고 logo/nav 시각적 균형이 확보된다(boundingBox 근거)`, async ({ page }) => {
+      test(`${width}px: brand는 container 좌측, nav는 container 우측 정렬선에 붙고 서로 겹치지 않으며 충분한 여백이 있다(boundingBox 근거)`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto('/');
 
         const items = await readTopLevelItems(page);
         const menuStart = Math.min(...items.map((i) => i.x));
         const menuEnd = Math.max(...items.map((i) => i.right));
-        const menuCenter = (menuStart + menuEnd) / 2;
-        const centerOffset = menuCenter - width / 2;
-
-        // "viewport 정중앙 강제"가 목표가 아니라 "심한 우측 치우침 제거"가 목표이므로 완화된 상한을
-        // 쓴다 - 기존(768px 시절) 실측은 1024에서 +178px, 1440에서 +386px였다.
-        expect(centerOffset, `${width}px에서 nav 시각적 중심이 viewport 중심에서 크게 벗어나면 안 된다`)
-          .toBeLessThan(150);
-        expect(centerOffset, 'nav가 로고 왼쪽으로 넘어가는 등 반대 방향 회귀가 없어야 한다')
-          .toBeGreaterThan(0);
 
         const brandBox = await page.locator('.site-header__brand').boundingBox();
-        const innerBox = await page.locator('.site-header__inner').boundingBox();
-        const leftGap = menuStart - (brandBox.x + brandBox.width);
-        const rightGap = (innerBox.x + innerBox.width) - 16 - menuEnd;
-        // 기존에는 rightGap이 항상 16px(패딩만)로 고정되고 leftGap만 뷰포트 크기에 비례해 커졌다
-        // (1440에서 leftGap 612px vs rightGap 16px). 균형 확보를 "두 여백의 차이가 더는 그 정도로
-        // 극단적이지 않다"로 검증한다.
-        expect(Math.abs(leftGap - rightGap), `${width}px에서 로고-nav 여백과 nav-우측 여백이 균형 잡혀야 한다`)
-          .toBeLessThan(120);
+        const inner = await page.locator('.site-header__inner').evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return { left: r.left + parseFloat(cs.paddingLeft), right: r.right - parseFloat(cs.paddingRight) };
+        });
+
+        expect(Math.abs(brandBox.x - inner.left), `${width}px에서 brand 좌측이 container 좌측 정렬선과 일치해야 한다`)
+          .toBeLessThanOrEqual(1);
+        expect(Math.abs(menuEnd - inner.right), `${width}px에서 nav 우측 끝이 container 우측 정렬선과 일치해야 한다`)
+          .toBeLessThanOrEqual(1);
+
+        const brandRight = brandBox.x + brandBox.width;
+        expect(brandRight, `${width}px에서 brand와 nav의 bounding box가 겹치면 안 된다`)
+          .toBeLessThanOrEqual(menuStart);
+        expect(menuStart - brandRight, `${width}px에서 brand와 nav 사이에 충분한 여백(>= 48px)이 있어야 한다`)
+          .toBeGreaterThanOrEqual(48);
       });
     }
 
@@ -3199,15 +3198,22 @@ test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래�
       expect(fs).toBe('18px');
     });
 
-    test(`${DESKTOP_BREAKPOINT}px(breakpoint 시작점): font-size/gap이 기존 모바일 기준값에서 축소되지 않는다`, async ({ page }) => {
+    test(`${DESKTOP_BREAKPOINT}px(breakpoint 시작점): font-size/항목 간 간격(셀 padding 합)이 기존 모바일 기준값에서 축소되지 않는다`, async ({ page }) => {
       await page.setViewportSize({ width: DESKTOP_BREAKPOINT, height: 900 });
       await page.goto('/');
       const fs = await page.locator('#quick-menu > li:first-child > a')
         .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-      const gap = await page.locator('#quick-menu')
-        .evaluate((el) => parseFloat(getComputedStyle(el).columnGap));
+      // P14-T2(Editorial Rule): 항목 간 리듬을 #quick-menu의 column-gap이 아니라 각 top-level 셀의
+      // padding-inline이 만든다(셀이 header 높이 전체를 쓰며 서로 맞닿는 구조, column-gap은 0). 기존 "gap >= 20px"의
+      // 의도(900px에서 항목 사이 실제 간격이 기존 P13 값 20px 아래로 압축되지 않는다)는 인접 셀 글자 사이의 실제
+      // 간격 = 셀 좌우 padding 합(computed style)으로 그대로 검증한다.
+      const cellSpacing = await page.locator('#quick-menu > li:first-child > a').evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      });
       expect(fs, `${DESKTOP_BREAKPOINT}px font-size는 기존 16px 아래로 줄어들면 안 된다`).toBeGreaterThanOrEqual(16);
-      expect(gap, `${DESKTOP_BREAKPOINT}px gap은 기존 20px 아래로 줄어들면 안 된다`).toBeGreaterThanOrEqual(20);
+      expect(cellSpacing, `${DESKTOP_BREAKPOINT}px 셀 좌우 padding 합(항목 간 실제 간격)은 기존 20px 아래로 줄어들면 안 된다`)
+        .toBeGreaterThanOrEqual(20);
     });
   });
 
@@ -4256,4 +4262,141 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
       }
     });
   }
+});
+
+// P14-T2: 공개 Header sticky. header는 position: sticky; top: 0(normal flow 유지 - main에 padding을 더하지 않는다),
+// z-index 10(Popup 1000보다 낮음)이며 배경은 불투명하다. sticky는 parent(body)의 content box 안에서만 유지되므로,
+// 실제 데이터 양에 상관없이 긴 페이지를 재현하려고 #site-main에 min-height만 준다(body padding은 sticky 범위 밖이라 쓰지 않는다).
+test.describe('P14-T2: sticky Header', () => {
+  async function makeTall(page) {
+    await page.evaluate(() => { document.querySelector('#site-main').style.minHeight = '3500px'; });
+  }
+  const headerTop = (page) => page.locator('#site-header').evaluate((el) => el.getBoundingClientRect().top);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 667 }]) {
+    test(`${viewport.width}px: 스크롤해도 header가 viewport 상단(top 0)에 유지되고 layout이 밀리지 않는다`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.goto('/');
+      await makeTall(page);
+
+      const style = await page.locator('#site-header').evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { position: cs.position, zIndex: cs.zIndex, background: cs.backgroundColor };
+      });
+      expect(style.position, 'header는 fixed가 아니라 sticky여야 한다').toBe('sticky');
+      expect(style.zIndex, 'header z-index는 10 유지(Popup 1000보다 낮음)').toBe('10');
+      expect(style.background, '스크롤 중 본문이 비치지 않도록 배경이 불투명해야 한다').not.toMatch(/rgba\(.*,\s*0\)|transparent/);
+
+      const before = await page.evaluate(() => ({
+        headerH: document.querySelector('#site-header').getBoundingClientRect().height,
+        mainTop: document.querySelector('#site-main').getBoundingClientRect().top,
+      }));
+      expect(before.mainTop, 'main은 normal flow대로 header 바로 아래에서 시작해야 한다(sticky는 공간을 유지)')
+        .toBeCloseTo(before.headerH, 0);
+
+      const max = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+      expect(max, '스크롤 가능한 긴 페이지여야 한다').toBeGreaterThan(600);
+      for (const y of [100, 500, Math.round(max / 2), max]) {
+        await page.evaluate((top) => window.scrollTo(0, top), y);
+        await page.waitForTimeout(50);
+        expect(await headerTop(page), `scrollY=${y}에서 header 상단이 viewport 상단(0)에 있어야 한다`)
+          .toBeCloseTo(0, 0);
+        const h = await page.locator('#site-header').evaluate((el) => el.getBoundingClientRect().height);
+        expect(h, 'header 높이는 스크롤과 무관하게 같아야 한다').toBeCloseTo(before.headerH, 0);
+      }
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, '가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+    });
+  }
+
+  for (const width of [900, 1440]) {
+    test(`${width}px: 스크롤된 상태에서 GROUP dropdown과 전체메뉴(mega)가 header에 붙어 viewport 안에서 열린다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      await makeTall(page);
+      await page.evaluate(() => window.scrollTo(0, 800));
+      await page.waitForTimeout(50);
+      expect(await headerTop(page), '스크롤된 상태에서 header가 상단에 고정되어 있어야 한다').toBeCloseTo(0, 0);
+
+      const group = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger').first();
+      await group.hover();
+      const submenu = page.locator('#quick-menu > li.has-submenu.is-open .site-nav__submenu');
+      await expect(submenu).toBeVisible();
+      const dd = await page.evaluate(() => {
+        const t = document.querySelector('#quick-menu > li.has-submenu.is-open > .site-nav__trigger').getBoundingClientRect();
+        const s = document.querySelector('#quick-menu > li.has-submenu.is-open .site-nav__submenu').getBoundingClientRect();
+        const top = document.elementFromPoint(s.left + s.width / 2, s.top + s.height / 2);
+        return { gap: s.top - t.bottom, inViewport: s.top >= 0 && s.bottom <= window.innerHeight, onTop: !!(top && top.closest('.site-nav__submenu')) };
+      });
+      expect(dd.gap, '스크롤 상태에서도 trigger 하단과 dropdown 상단 사이에 dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+      expect(dd.inViewport, 'dropdown이 viewport 안에 있어야 한다').toBe(true);
+      expect(dd.onTop, 'dropdown이 본문보다 위에 그려져야 한다').toBe(true);
+
+      await page.mouse.move(5, 700);
+      const mega = page.locator('#megamenu');
+      await page.locator('[data-menu-id="all"] > .site-nav__trigger').hover();
+      await expect(mega).toBeVisible();
+      const mg = await page.evaluate((vw) => {
+        const t = document.querySelector('[data-menu-id="all"] > .site-nav__trigger').getBoundingClientRect();
+        const m = document.querySelector('#megamenu').getBoundingClientRect();
+        const top = document.elementFromPoint(m.left + m.width / 2, m.top + m.height / 2);
+        return {
+          gap: m.top - t.bottom,
+          contained: m.left >= 0 && m.right <= vw && m.top >= 0 && m.bottom <= window.innerHeight,
+          rightAligned: Math.abs(m.right - t.right) <= 1,
+          onTop: !!(top && top.closest('#megamenu')),
+        };
+      }, width);
+      expect(mg.gap, '스크롤 상태의 전체메뉴도 dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+      expect(mg.contained, 'mega가 viewport 안에 있어야 한다').toBe(true);
+      expect(mg.rightAligned, 'mega 우측이 trigger(= container 우측)에 정렬되어야 한다').toBe(true);
+      expect(mg.onTop, 'mega가 본문보다 위에 그려져야 한다').toBe(true);
+    });
+  }
+
+  test('모바일: 스크롤된 상태에서 nav를 열어도 header가 상단에 있고, 낮은 viewport에서도 열린 GROUP 하단 메뉴까지 접근할 수 있다', async ({ page }) => {
+    await page.setViewportSize({ width: 667, height: 375 });
+    await page.goto('/');
+    await makeTall(page);
+    await page.evaluate(() => window.scrollTo(0, 500));
+    await page.locator('#nav-toggle').click();
+    await page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger').first().click();
+
+    const m = await page.evaluate(() => {
+      const nav = document.querySelector('#site-nav');
+      const h = document.querySelector('#site-header').getBoundingClientRect();
+      return { headerTop: h.top, headerBottom: h.bottom, vh: window.innerHeight, scrollable: nav.scrollHeight > nav.clientHeight };
+    });
+    expect(m.headerTop, '스크롤 후 nav를 열어도 header 상단이 viewport 상단에 있어야 한다').toBeCloseTo(0, 0);
+    expect(m.headerBottom, '열린 header가 viewport보다 커서 아래쪽 메뉴가 잘리면 안 된다(nav 자체가 스크롤된다)')
+      .toBeLessThanOrEqual(m.vh + 1);
+    expect(m.scrollable, '낮은 viewport에서는 열린 nav 안에서 스크롤할 수 있어야 한다').toBe(true);
+
+    await page.locator('#site-nav').evaluate((nav) => { nav.scrollTop = nav.scrollHeight; });
+    const lastBottom = await page.evaluate(() => {
+      const items = [...document.querySelectorAll('#quick-menu > li')].filter((li) => li.getBoundingClientRect().height > 0);
+      return items[items.length - 1].getBoundingClientRect().bottom;
+    });
+    expect(lastBottom, '마지막 메뉴 항목이 nav 스크롤로 viewport 안에 나타나야 한다').toBeLessThanOrEqual(m.vh + 1);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  test('keyboard focus 이동으로 스크롤되어도 focus된 요소가 sticky header 뒤에 가려지지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await makeTall(page);
+    const headerBottom = await page.locator('#site-header').evaluate((el) => el.getBoundingClientRect().bottom);
+    const max = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    const count = Math.min(await page.locator('#site-main a').count(), 16);
+    for (let i = 0; i < count; i++) {
+      await page.evaluate((m) => window.scrollTo(0, m), max);
+      await page.waitForTimeout(30);
+      await page.evaluate((idx) => { document.querySelectorAll('#site-main a')[idx].focus(); }, i);
+      // 스크롤 정착 후 focus된 요소의 상단이 header 하단 아래에 있어야 한다(scroll-padding-top 검증).
+      await expect.poll(() => page.evaluate((idx) => document.querySelectorAll('#site-main a')[idx].getBoundingClientRect().top, i),
+        { message: `#site-main a[${i}]가 sticky header(하단 ${headerBottom}px) 뒤에 가려지면 안 된다`, timeout: 3000 })
+        .toBeGreaterThanOrEqual(headerBottom - 1);
+    }
+  });
 });
