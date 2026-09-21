@@ -1,5 +1,5 @@
 // @ts-check
-const { test, expect } = require('@playwright/test');
+const { test, expect, createTracker, observeCreate, observeNavigatingCreate } = require('./support/e2e-fixtures');
 
 // 여러 describe 블록(Hero 배너 캐러셀, 긴 제목 오버플로우, 메인 카드 폭)이 공통으로 쓰는
 // 관리자 로그인/CSRF 헬퍼. 각 블록은 이 두 함수만 공유하고, 무엇을 생성/삭제할지는 각자 정의한다.
@@ -266,17 +266,11 @@ test.describe('Hero 배너 캐러셀', () => {
     return body.data.id;
   }
 
-  async function deleteBanner(context, baseURL, xsrfToken, id) {
-    await context.request.delete(`${baseURL}/api/admin/banners/${id}`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-    });
-  }
-
   let xsrfToken;
   let bannerIds;
   let titles;
 
-  test.beforeEach(async ({ context, baseURL }) => {
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
 
@@ -284,14 +278,8 @@ test.describe('Hero 배너 캐러셀', () => {
     titles = [`캐러셀 테스트 A ${runId}`, `캐러셀 테스트 B ${runId}`, `캐러셀 테스트 C ${runId}`];
     bannerIds = [];
     for (let i = 0; i < titles.length; i++) {
-      const id = await createBanner(context, baseURL, xsrfToken, titles[i], 900000 + i);
+      const id = tracker.track('banner', await createBanner(context, baseURL, xsrfToken, titles[i], 900000 + i));
       bannerIds.push(id);
-    }
-  });
-
-  test.afterEach(async ({ context, baseURL }) => {
-    for (const id of bannerIds) {
-      await deleteBanner(context, baseURL, xsrfToken, id);
     }
   });
 
@@ -548,7 +536,7 @@ test.describe('긴 제목 오버플로우 회귀 검증', () => {
   let programId;
   let boardId;
 
-  test.beforeEach(async ({ context, baseURL }) => {
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
 
@@ -562,23 +550,14 @@ test.describe('긴 제목 오버플로우 회귀 검증', () => {
       },
     });
     expect(programResponse.ok()).toBeTruthy();
-    programId = (await programResponse.json()).data.id;
+    programId = tracker.track('program', (await programResponse.json()).data.id);
 
     const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: { boardType: 'NOTICE', title: longUnbreakableTitle('LongBoardTitle'), isPublic: true },
     });
     expect(boardResponse.ok()).toBeTruthy();
-    boardId = (await boardResponse.json()).data.id;
-  });
-
-  test.afterEach(async ({ context, baseURL }) => {
-    await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-    });
-    await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-    });
+    boardId = tracker.track('board', (await boardResponse.json()).data.id);
   });
 
   async function overflowX(page) {
@@ -618,7 +597,7 @@ test.describe('메인 카드 폭 회귀 검증', () => {
   let programTitle;
   let boardTitle;
 
-  test.beforeEach(async ({ context, baseURL }) => {
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
 
@@ -631,23 +610,14 @@ test.describe('메인 카드 폭 회귀 검증', () => {
       data: { programType: 'COURSE', title: programTitle, content: '카드 폭 확인', isPublic: true },
     });
     expect(programResponse.ok()).toBeTruthy();
-    programId = (await programResponse.json()).data.id;
+    programId = tracker.track('program', (await programResponse.json()).data.id);
 
     const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: { boardType: 'GALLERY', title: boardTitle, isPublic: true },
     });
     expect(boardResponse.ok()).toBeTruthy();
-    boardId = (await boardResponse.json()).data.id;
-  });
-
-  test.afterEach(async ({ context, baseURL }) => {
-    await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-    });
-    await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-    });
+    boardId = tracker.track('board', (await boardResponse.json()).data.id);
   });
 
   test('1440px에서 Program 카드가 minmax 하한 대비 과도하게 커지지 않는다', async ({ page }) => {
@@ -727,7 +697,7 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
     let boardId;
     let pinnedId;
 
-    test.beforeEach(async ({ context, baseURL }) => {
+    test.beforeEach(async ({ context, baseURL, tracker }) => {
       await loginAsAdmin(context, baseURL);
       xsrfToken = await getXsrfToken(context);
 
@@ -740,23 +710,14 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
         },
       });
       expect(boardResponse.ok()).toBeTruthy();
-      boardId = (await boardResponse.json()).data.id;
+      boardId = tracker.track('board', (await boardResponse.json()).data.id);
 
       const pinResponse = await context.request.post(`${baseURL}/api/admin/home-pinned-contents`, {
         headers: { 'X-XSRF-TOKEN': xsrfToken },
         data: { targetType: 'BOARD', targetId: boardId, sortOrder: 900000 },
       });
       expect(pinResponse.ok()).toBeTruthy();
-      pinnedId = (await pinResponse.json()).data.id;
-    });
-
-    test.afterEach(async ({ context, baseURL }) => {
-      await context.request.delete(`${baseURL}/api/admin/home-pinned-contents/${pinnedId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
+      pinnedId = tracker.track('pinned', (await pinResponse.json()).data.id);
     });
 
     test('"주요 소식" 섹션이 "최신 프로그램" 섹션보다 위에 위치한다', async ({ page }) => {
@@ -778,7 +739,7 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
     let titleWithThumb;
     let titleWithoutThumb;
 
-    test.beforeEach(async ({ context, baseURL }) => {
+    test.beforeEach(async ({ context, baseURL, tracker }) => {
       await loginAsAdmin(context, baseURL);
       xsrfToken = await getXsrfToken(context);
       const runId = Date.now();
@@ -793,23 +754,14 @@ test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일',
         },
       });
       expect(withThumbRes.ok()).toBeTruthy();
-      programIdWithThumb = (await withThumbRes.json()).data.id;
+      programIdWithThumb = tracker.track('program', (await withThumbRes.json()).data.id);
 
       const withoutThumbRes = await context.request.post(`${baseURL}/api/admin/programs`, {
         headers: { 'X-XSRF-TOKEN': xsrfToken },
         data: { programType: 'COURSE', title: titleWithoutThumb, content: '내용', isPublic: true },
       });
       expect(withoutThumbRes.ok()).toBeTruthy();
-      programIdWithoutThumb = (await withoutThumbRes.json()).data.id;
-    });
-
-    test.afterEach(async ({ context, baseURL }) => {
-      await context.request.delete(`${baseURL}/api/admin/programs/${programIdWithThumb}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-      await context.request.delete(`${baseURL}/api/admin/programs/${programIdWithoutThumb}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
+      programIdWithoutThumb = tracker.track('program', (await withoutThumbRes.json()).data.id);
     });
 
     function itemFor(page, title) {
@@ -1021,21 +973,8 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     programId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-    if (programId) {
-      await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('Board 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL }) => {
-    boardId = await createBoardWithFiles(context, baseURL, 'Board 썸네일 미리보기 확인 ' + Date.now());
+  test('Board 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 썸네일 미리보기 확인 ' + Date.now()));
     await page.goto(`/admin/boards/${boardId}/edit`);
 
     await expect(page.locator('#thumbnailPreview')).toBeVisible();
@@ -1045,8 +984,8 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  test('Board 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL }) => {
-    boardId = await createBoardWithFiles(context, baseURL, 'Board 첨부파일 미리보기 확인 ' + Date.now());
+  test('Board 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 첨부파일 미리보기 확인 ' + Date.now()));
     await page.goto(`/admin/boards/${boardId}/edit`);
 
     await expect(page.locator('#attachmentPreview')).toBeVisible();
@@ -1054,8 +993,8 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#attachmentPreviewLink')).not.toHaveAttribute('target', /.+/);
   });
 
-  test('Program 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL }) => {
-    programId = await createProgramWithFiles(context, baseURL, 'Program 썸네일 미리보기 확인 ' + Date.now());
+  test('Program 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 썸네일 미리보기 확인 ' + Date.now()));
     await page.goto(`/admin/programs/${programId}/edit`);
 
     await expect(page.locator('#thumbnailPreview')).toBeVisible();
@@ -1064,8 +1003,8 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  test('Program 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL }) => {
-    programId = await createProgramWithFiles(context, baseURL, 'Program 첨부파일 미리보기 확인 ' + Date.now());
+  test('Program 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 첨부파일 미리보기 확인 ' + Date.now()));
     await page.goto(`/admin/programs/${programId}/edit`);
 
     await expect(page.locator('#attachmentPreview')).toBeVisible();
@@ -1083,8 +1022,8 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#attachmentPreview')).toBeHidden();
   });
 
-  test('Board: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL }) => {
-    boardId = await createBoardWithFiles(context, baseURL, 'Board URL 유지 확인 ' + Date.now());
+  test('Board: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board URL 유지 확인 ' + Date.now()));
     await page.goto(`/admin/boards/${boardId}/edit`);
     await expect(page.locator('#thumbnailPreview')).toBeVisible();
 
@@ -1098,8 +1037,8 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     expect(payload.attachment).toBe('/api/files/900202');
   });
 
-  test('Program: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL }) => {
-    programId = await createProgramWithFiles(context, baseURL, 'Program URL 유지 확인 ' + Date.now());
+  test('Program: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program URL 유지 확인 ' + Date.now()));
     await page.goto(`/admin/programs/${programId}/edit`);
     await expect(page.locator('#thumbnailPreview')).toBeVisible();
 
@@ -1113,14 +1052,16 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     expect(payload.attachment).toBe('/api/files/900302');
   });
 
-  test('Board: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL }) => {
-    boardId = await createBoardWithFiles(context, baseURL, 'Board 새 썸네일 갱신 확인 ' + Date.now());
+  test('Board: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 새 썸네일 갱신 확인 ' + Date.now()));
     await page.goto(`/admin/boards/${boardId}/edit`);
     await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900201');
 
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
     await page.setInputFiles('#thumbnailInput', {
       name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
     });
+    await uploadedFileId;
 
     await expect(page.locator('#thumbnail')).not.toHaveValue('/api/files/900201');
     const newUrl = await page.locator('#thumbnail').inputValue();
@@ -1129,14 +1070,16 @@ test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#thumbnailPreview')).toBeVisible();
   });
 
-  test('Program: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL }) => {
-    programId = await createProgramWithFiles(context, baseURL, 'Program 새 썸네일 갱신 확인 ' + Date.now());
+  test('Program: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 새 썸네일 갱신 확인 ' + Date.now()));
     await page.goto(`/admin/programs/${programId}/edit`);
     await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900301');
 
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
     await page.setInputFiles('#thumbnailInput', {
       name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
     });
+    await uploadedFileId;
 
     await expect(page.locator('#thumbnail')).not.toHaveValue('/api/files/900301');
     const newUrl = await page.locator('#thumbnail').inputValue();
@@ -1191,21 +1134,8 @@ test.describe('P13-T26: 관리자 Board/Program 기존 썸네일/첨부파일 �
     programId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-    if (programId) {
-      await context.request.delete(`${baseURL}/api/admin/programs/${programId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('Board: 썸네일/첨부파일 제거 버튼을 각각 클릭하면 hidden input이 비고 해당 preview만 사라지며 서로 영향을 주지 않는다', async ({ page, context, baseURL }) => {
-    boardId = await createBoardWithFiles(context, baseURL, 'Board 제거 상호 비영향 확인 ' + Date.now());
+  test('Board: 썸네일/첨부파일 제거 버튼을 각각 클릭하면 hidden input이 비고 해당 preview만 사라지며 서로 영향을 주지 않는다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 제거 상호 비영향 확인 ' + Date.now()));
     await page.goto(`/admin/boards/${boardId}/edit`);
 
     await expect(page.locator('#thumbnailPreview')).toBeVisible();
@@ -1223,8 +1153,8 @@ test.describe('P13-T26: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#attachmentPreview')).toBeHidden();
   });
 
-  test('Board: 제거 후 저장하면 PUT payload에서 thumbnail/attachment가 null이 되고, 재진입 시 두 preview 모두 hidden으로 유지된다', async ({ page, context, baseURL }) => {
-    boardId = await createBoardWithFiles(context, baseURL, 'Board 제거 저장 round-trip 확인 ' + Date.now());
+  test('Board: 제거 후 저장하면 PUT payload에서 thumbnail/attachment가 null이 되고, 재진입 시 두 preview 모두 hidden으로 유지된다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 제거 저장 round-trip 확인 ' + Date.now()));
     await page.goto(`/admin/boards/${boardId}/edit`);
 
     await page.locator('#thumbnailRemoveButton').click();
@@ -1245,16 +1175,18 @@ test.describe('P13-T26: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#attachmentPreview')).toBeHidden();
   });
 
-  test('Board: 썸네일 제거 후 새 파일을 업로드하면 정상적으로 새 URL이 설정되고, 다시 제거하면 hidden 상태로 돌아간다', async ({ page, context, baseURL }) => {
-    boardId = await createBoardWithFiles(context, baseURL, 'Board 제거 후 재업로드 확인 ' + Date.now());
+  test('Board: 썸네일 제거 후 새 파일을 업로드하면 정상적으로 새 URL이 설정되고, 다시 제거하면 hidden 상태로 돌아간다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 제거 후 재업로드 확인 ' + Date.now()));
     await page.goto(`/admin/boards/${boardId}/edit`);
 
     await page.locator('#thumbnailRemoveButton').click();
     await expect(page.locator('#thumbnailPreview')).toBeHidden();
 
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
     await page.setInputFiles('#thumbnailInput', {
       name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
     });
+    await uploadedFileId;
 
     // 업로드는 비동기(change 핸들러 안에서 fetch 완료 후 값이 채워짐) - 값이 채워질 때까지
     // expect의 폴링을 이용해 기다린 뒤(P13-T18 테스트와 동일 패턴) inputValue를 읽는다.
@@ -1269,8 +1201,8 @@ test.describe('P13-T26: 관리자 Board/Program 기존 썸네일/첨부파일 �
     await expect(page.locator('#thumbnailPreview')).toBeHidden();
   });
 
-  test('Program: 썸네일/첨부파일 제거 → 저장 → 재진입 round-trip', async ({ page, context, baseURL }) => {
-    programId = await createProgramWithFiles(context, baseURL, 'Program 제거 저장 round-trip 확인 ' + Date.now());
+  test('Program: 썸네일/첨부파일 제거 → 저장 → 재진입 round-trip', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 제거 저장 round-trip 확인 ' + Date.now()));
     await page.goto(`/admin/programs/${programId}/edit`);
 
     await page.locator('#thumbnailRemoveButton').click();
@@ -1310,12 +1242,6 @@ test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', ()
     return (await response.json()).data.id;
   }
 
-  async function deleteBoard(context, baseURL, xsrfToken, id) {
-    await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-    });
-  }
-
   test('"공지사항" 필터가 active일 때 다른 필터보다 굵게 표시된다', async ({ page }) => {
     await page.goto('/boards?boardType=NOTICE');
 
@@ -1352,19 +1278,13 @@ test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', ()
     let boardIds;
     let titlePrefix;
 
-    test.beforeEach(async ({ context, baseURL }) => {
+    test.beforeEach(async ({ context, baseURL, tracker }) => {
       await loginAsAdmin(context, baseURL);
       xsrfToken = await getXsrfToken(context);
       titlePrefix = `P13-T14 목록확인 ${Date.now()}`;
       boardIds = [];
       for (let i = 0; i < 3; i++) {
-        boardIds.push(await createNoticeBoard(context, baseURL, xsrfToken, `${titlePrefix}-${i}`));
-      }
-    });
-
-    test.afterEach(async ({ context, baseURL }) => {
-      for (const id of boardIds) {
-        await deleteBoard(context, baseURL, xsrfToken, id);
+        boardIds.push(tracker.track('board', await createNoticeBoard(context, baseURL, xsrfToken, `${titlePrefix}-${i}`)));
       }
     });
 
@@ -1455,17 +1375,9 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     boardId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('GALLERY 필터에서 #board-grid 썸네일 카드가 실제로 노출되고, 카드 클릭 시 상세로 이동한다', async ({ page, context, baseURL }) => {
+  test('GALLERY 필터에서 #board-grid 썸네일 카드가 실제로 노출되고, 카드 클릭 시 상세로 이동한다', async ({ page, context, baseURL, tracker }) => {
     const title = 'P13-T27 갤러리 그리드 확인 ' + Date.now();
-    boardId = await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900801');
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900801'));
     await page.goto('/boards?boardType=GALLERY');
 
     await expect(page.locator('#board-grid')).toBeVisible();
@@ -1480,9 +1392,9 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     await expect(page).toHaveURL(new RegExp(`/boards/${boardId}(\\?|$)`));
   });
 
-  test('REVIEW 필터에서도 #board-grid 썸네일 카드가 노출된다', async ({ page, context, baseURL }) => {
+  test('REVIEW 필터에서도 #board-grid 썸네일 카드가 노출된다', async ({ page, context, baseURL, tracker }) => {
     const title = 'P13-T27 강의 후기 그리드 확인 ' + Date.now();
-    boardId = await createBoard(context, baseURL, 'REVIEW', title, '/api/files/900802');
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'REVIEW', title, '/api/files/900802'));
     await page.goto('/boards?boardType=REVIEW');
 
     await expect(page.locator('#board-grid')).toBeVisible();
@@ -1491,9 +1403,9 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     await expect(card.locator('.gallery-card__thumb img')).toHaveAttribute('src', '/api/files/900802');
   });
 
-  test('NOTICE 필터와 전체 목록은 기존 #board-list 텍스트 목록을 유지하고 #board-grid는 노출되지 않는다', async ({ page, context, baseURL }) => {
+  test('NOTICE 필터와 전체 목록은 기존 #board-list 텍스트 목록을 유지하고 #board-grid는 노출되지 않는다', async ({ page, context, baseURL, tracker }) => {
     const title = 'P13-T27 공지 텍스트 목록 유지 확인 ' + Date.now();
-    boardId = await createBoard(context, baseURL, 'NOTICE', title, null);
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'NOTICE', title, null));
 
     await page.goto('/boards?boardType=NOTICE');
     await expect(page.locator('#board-list')).toBeVisible();
@@ -1504,9 +1416,9 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     await expect(page.locator('#board-grid')).toHaveCount(0);
   });
 
-  test('썸네일이 없는 GALLERY 게시글은 카드가 무너지지 않고 placeholder로 표시되며 카드 전체 클릭이 가능하다', async ({ page, context, baseURL }) => {
+  test('썸네일이 없는 GALLERY 게시글은 카드가 무너지지 않고 placeholder로 표시되며 카드 전체 클릭이 가능하다', async ({ page, context, baseURL, tracker }) => {
     const title = 'P13-T27 썸네일 없음 확인 ' + Date.now();
-    boardId = await createBoard(context, baseURL, 'GALLERY', title, null);
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title, null));
     await page.goto('/boards?boardType=GALLERY');
 
     const card = page.locator('#board-grid .gallery-card').filter({ hasText: title });
@@ -1519,9 +1431,9 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     await expect(page).toHaveURL(new RegExp(`/boards/${boardId}(\\?|$)`));
   });
 
-  test('공백 없는 긴 제목이 있는 GALLERY 카드에서도 가로 스크롤이 생기지 않는다', async ({ page, context, baseURL }) => {
+  test('공백 없는 긴 제목이 있는 GALLERY 카드에서도 가로 스크롤이 생기지 않는다', async ({ page, context, baseURL, tracker }) => {
     const title = 'P13T27LongGalleryTitle' + 'A'.repeat(150) + Date.now();
-    boardId = await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900803');
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900803'));
     await page.goto('/boards?boardType=GALLERY');
 
     const overflowX = await page.evaluate(
@@ -1529,8 +1441,8 @@ test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일
     expect(overflowX).toBeLessThanOrEqual(0);
   });
 
-  test('375px/1440px에서 GALLERY 썸네일 그리드에 가로 overflow가 없다', async ({ page, context, baseURL }) => {
-    boardId = await createBoard(context, baseURL, 'GALLERY', 'P13-T27 반응형 확인 ' + Date.now(), '/api/files/900801');
+  test('375px/1440px에서 GALLERY 썸네일 그리드에 가로 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', 'P13-T27 반응형 확인 ' + Date.now(), '/api/files/900801'));
 
     for (const viewport of [{ width: 375, height: 812 }, { width: 1440, height: 900 }]) {
       await page.setViewportSize(viewport);
@@ -1566,17 +1478,9 @@ test.describe('P13-T28: 게시판 상세 → 목록 복귀 상태 보존', () =>
     boardId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('GALLERY 목록 → 카드 클릭 → 상세 → 목록으로 클릭 시 GALLERY 필터가 유지된다', async ({ page, context, baseURL }) => {
+  test('GALLERY 목록 → 카드 클릭 → 상세 → 목록으로 클릭 시 GALLERY 필터가 유지된다', async ({ page, context, baseURL, tracker }) => {
     const title = 'P13-T28 갤러리 복귀 확인 ' + Date.now();
-    boardId = await createBoard(context, baseURL, 'GALLERY', title);
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title));
     await page.goto('/boards?boardType=GALLERY');
 
     await page.locator('#board-grid .gallery-card').filter({ hasText: title }).locator('.gallery-card__link').click();
@@ -1588,10 +1492,10 @@ test.describe('P13-T28: 게시판 상세 → 목록 복귀 상태 보존', () =>
     await expect(page.locator('#board-grid')).toBeVisible();
   });
 
-  test('검색 결과 목록 → 상세 → 목록으로 클릭 시 검색어(keyword)가 유지된다', async ({ page, context, baseURL }) => {
+  test('검색 결과 목록 → 상세 → 목록으로 클릭 시 검색어(keyword)가 유지된다', async ({ page, context, baseURL, tracker }) => {
     const keyword = 'P13T28SearchKeyword' + Date.now();
     const title = keyword + ' 검색 복귀 확인';
-    boardId = await createBoard(context, baseURL, 'NOTICE', title);
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'NOTICE', title));
     await page.goto(`/boards?keyword=${keyword}`);
 
     await page.locator('.board-list__link').filter({ hasText: title }).click();
@@ -1664,12 +1568,6 @@ test.describe('공개 Popup 레이어', () => {
     return body.data.id;
   }
 
-  async function deletePopup(context, baseURL, xsrfToken, id) {
-    await context.request.delete(`${baseURL}/api/admin/popups/${id}`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-    });
-  }
-
   let xsrfToken;
   let popupIdA;
   let popupIdB;
@@ -1681,7 +1579,7 @@ test.describe('공개 Popup 레이어', () => {
   let titleD;
   let imageUrlA;
 
-  test.beforeEach(async ({ context, baseURL }) => {
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
 
@@ -1700,21 +1598,19 @@ test.describe('공개 Popup 레이어', () => {
     // (실측: 동률일 때 나중에 만든 쪽이 먼저 온다는 보장이 없었다). A가 항상 가장 최신이 되도록
     // D->C->B->A 순으로, 매 생성 사이에 최소 1초(1100ms 여유)를 두어 서로 다른 초에 기록되게 한다.
     // 최대 3개 동시 노출 + 4번째 보충 계약을 검증하려면 최소 4건이 필요하다.
-    popupIdD = await createPopup(context, baseURL, xsrfToken, titleD, '<p>D 내용</p>');
+    popupIdD = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleD, '<p>D 내용</p>'));
     await sleep(1100);
-    popupIdC = await createPopup(context, baseURL, xsrfToken, titleC, '<p>C 내용</p>');
+    popupIdC = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleC, '<p>C 내용</p>'));
     await sleep(1100);
-    popupIdB = await createPopup(context, baseURL, xsrfToken, titleB, '<p>B 내용</p>');
+    popupIdB = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleB, '<p>B 내용</p>'));
     await sleep(1100);
-    popupIdA = await createPopup(context, baseURL, xsrfToken, titleA,
-      `<p>A 내용</p><img src="${imageUrlA}" alt="A 이미지">`);
+    popupIdA = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleA,
+      `<p>A 내용</p><img src="${imageUrlA}" alt="A 이미지">`));
   });
 
-  test.afterEach(async ({ context, baseURL, page }) => {
-    await deletePopup(context, baseURL, xsrfToken, popupIdA);
-    await deletePopup(context, baseURL, xsrfToken, popupIdB);
-    await deletePopup(context, baseURL, xsrfToken, popupIdC);
-    await deletePopup(context, baseURL, xsrfToken, popupIdD);
+  // Popup 리소스(A~D 및 테스트 중 만든 것)의 삭제는 tracker fixture가 책임진다. 여기서는 서버 리소스와
+  // 무관한 localStorage 정리만 한다.
+  test.afterEach(async ({ page }) => {
     // addInitScript로 심은 값(파일 전역 beforeEach가 심음)은 컨텍스트 종료 시 자동 폐기되지만,
     // 명시적으로도 정리한다.
     if (page && !page.isClosed()) {
@@ -2047,14 +1943,16 @@ test.describe('공개 Popup 레이어', () => {
     });
   }
 
-  test('콘텐츠 길이에 따라 Popup 폭이 최소 480px~최대 720px 사이에서 자연스럽게 늘어난다(fit-content)', async ({ page, context, baseURL }) => {
+  test('콘텐츠 길이에 따라 Popup 폭이 최소 480px~최대 720px 사이에서 자연스럽게 늘어난다(fit-content)', async ({ page, context, baseURL, tracker }) => {
     async function widthFor(contentHtml) {
       const runId = Date.now();
       const title = `폭가변 확인 ${runId}`;
-      const id = await createPopup(context, baseURL, xsrfToken, title, contentHtml);
+      const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title, contentHtml));
       await page.goto('/');
       const box = await page.locator(`#popup-modal-${id}`).boundingBox();
-      await deletePopup(context, baseURL, xsrfToken, id);
+      // 다음 측정 전에 이 Popup을 제거하는 것이 원래 동작이므로 tracker로 중간 삭제를 유지한다
+      // (204/404면 등록이 해제되어 최종 cleanup에서 다시 지우지 않는다).
+      await tracker.remove('popup', id);
       return box.width;
     }
 
@@ -2070,24 +1968,22 @@ test.describe('공개 Popup 레이어', () => {
     expect(longWidth).toBeCloseTo(720, 0);
   });
 
-  test('이미지만 있고 텍스트가 짧으면 이미지 크기와 무관하게 폭이 최소값(480px)에 머문다', async ({ page, context, baseURL }) => {
+  test('이미지만 있고 텍스트가 짧으면 이미지 크기와 무관하게 폭이 최소값(480px)에 머문다', async ({ page, context, baseURL, tracker }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const title = `이미지단독 폭확인 ${Date.now()}`;
     // 실제 파일 존재 여부와 무관하게 width/height 속성으로 큰 이미지의 intrinsic size를 흉내낸다.
-    const id = await createPopup(context, baseURL, xsrfToken, title,
-      `<p>짧은 캡션</p><img src="${imageUrlA}" width="1600" height="900">`);
+    const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title,
+      `<p>짧은 캡션</p><img src="${imageUrlA}" width="1600" height="900">`));
 
     await page.goto('/');
     const box = await page.locator(`#popup-modal-${id}`).boundingBox();
     expect(box.width).toBeCloseTo(480, 0);
-
-    await deletePopup(context, baseURL, xsrfToken, id);
   });
 
-  test('공백 없는 긴 문자열도 최대폭(720px)에서 카드 내부에 정상적으로 줄바꿈된다(overflow-wrap)', async ({ page, context, baseURL }) => {
+  test('공백 없는 긴 문자열도 최대폭(720px)에서 카드 내부에 정상적으로 줄바꿈된다(overflow-wrap)', async ({ page, context, baseURL, tracker }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const title = `줄바꿈 확인 ${Date.now()}`;
-    const id = await createPopup(context, baseURL, xsrfToken, title, '<p>' + 'A'.repeat(500) + '</p>');
+    const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title, '<p>' + 'A'.repeat(500) + '</p>'));
 
     await page.goto('/');
     const box = await page.locator(`#popup-modal-${id}`).boundingBox();
@@ -2099,15 +1995,13 @@ test.describe('공개 Popup 레이어', () => {
     }, id);
     // scrollWidth가 clientWidth를 넘지 않으면 카드 내부에서도 가로 스크롤 없이 정상 줄바꿈된 것이다.
     expect(wrap.scrollWidth).toBeLessThanOrEqual(wrap.clientWidth + 1);
-
-    await deletePopup(context, baseURL, xsrfToken, id);
   });
 
-  test('375px 모바일에서는 데스크톱 min-width(480px)가 적용되지 않고 화면 폭에 맞춰진다', async ({ page, context, baseURL }) => {
+  test('375px 모바일에서는 데스크톱 min-width(480px)가 적용되지 않고 화면 폭에 맞춰진다', async ({ page, context, baseURL, tracker }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     const title = `모바일 폭확인 ${Date.now()}`;
-    const id = await createPopup(context, baseURL, xsrfToken, title,
-      '<p>' + '이것은 실제 관리자 CKEditor로 작성했을 법한 다소 긴 안내 문구입니다. '.repeat(8) + '</p>');
+    const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title,
+      '<p>' + '이것은 실제 관리자 CKEditor로 작성했을 법한 다소 긴 안내 문구입니다. '.repeat(8) + '</p>'));
 
     await page.goto('/');
     const box = await page.locator(`#popup-modal-${id}`).boundingBox();
@@ -2116,11 +2010,9 @@ test.describe('공개 Popup 레이어', () => {
     expect(box.width).toBeLessThan(375);
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(375.5);
-
-    await deletePopup(context, baseURL, xsrfToken, id);
   });
 
-  test('실제 관리자 CKEditor 업로드 이미지가 공개 Popup 안에서 렌더링된다', async ({ page, context, baseURL }) => {
+  test('실제 관리자 CKEditor 업로드 이미지가 공개 Popup 안에서 렌더링된다', async ({ page, tracker }) => {
     // A~D와 별개로, 진짜 CKEditor 업로드 버튼을 통해 만든 5번째 Popup으로 별도 검증한다
     // (HtmlSanitizer가 /api/files/{id} 상대 경로를 보존하도록 고친 fix가 실제 렌더링까지 이어지는지 확인).
     const title = `CKEditor 이미지 렌더링 확인 ${Date.now()}`;
@@ -2133,6 +2025,8 @@ test.describe('공개 Popup 레이어', () => {
     const uploadButton = page
       .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
       .first();
+    // 업로드 응답의 exact File ID를 파일 선택 전에 관찰해 등록한다(이동 없는 fetch라 waitForResponse로 충분하다).
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
     const fileChooserPromise = page.waitForEvent('filechooser');
     await uploadButton.click();
     const fileChooser = await fileChooserPromise;
@@ -2144,6 +2038,8 @@ test.describe('공개 Popup 레이어', () => {
         'base64'
       ),
     });
+
+    await uploadedFileId;
 
     // placeholder만 뜬 시점이 아니라 실제 업로드가 끝나 /api/files/{id} src가 채워질 때까지 기다린다.
     await page.waitForFunction(() => {
@@ -2158,14 +2054,14 @@ test.describe('공개 Popup 레이어', () => {
     await page.locator('#endDate').fill(toLocalIsoString(end).slice(0, 16));
     await page.locator('#isVisible').check();
 
+    // 저장은 fetch POST 성공 직후 location.href로 이동한다. 이동하면 응답 body를 읽을 수 없으므로 이동 전에
+    // 페이지 안에서 생성 응답의 exact ID를 관찰해 tracker에 등록한다(최신 목록 조회로 ID를 추정하지 않는다).
+    const createdPopup = await observeNavigatingCreate(page, tracker, 'popup', { timeout: 10000 });
     await Promise.all([
       page.waitForURL(/\/admin\/popups$/, { timeout: 10000 }),
       page.locator('button[type="submit"]').click(),
     ]);
-
-    const listRes = await context.request.get(`${baseURL}/api/admin/popups?page=0&size=1`);
-    const listBody = await listRes.json();
-    const popupId = listBody.data[0].id;
+    const popupId = await createdPopup.id;
 
     await page.goto('/');
     const img = page.locator(`#popup-modal-${popupId} img`);
@@ -2180,12 +2076,6 @@ test.describe('공개 Popup 레이어', () => {
       setTimeout(() => resolve(el.naturalWidth > 0), 3000);
     }));
     expect(loaded).toBeTruthy();
-
-    const cookies = await context.cookies();
-    const xsrf = cookies.find((c) => c.name === 'XSRF-TOKEN').value;
-    await context.request.delete(`${baseURL}/api/admin/popups/${popupId}`, {
-      headers: { 'X-XSRF-TOKEN': xsrf },
-    });
   });
 });
 
@@ -2212,25 +2102,12 @@ test.describe('P13-T20: 게시글 본문 링크 새 탭/내부 이동', () => {
     linkedBoardId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-    if (linkedBoardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${linkedBoardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('본문의 외부 링크를 클릭하면 새 탭에서 열린다', async ({ page, context, baseURL }) => {
-    boardId = await createBoard(
+  test('본문의 외부 링크를 클릭하면 새 탭에서 열린다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoard(
       context, baseURL,
       '외부 링크 새 탭 확인 ' + Date.now(),
       '<p>본문 <a href="https://example.com">외부 링크</a></p>'
-    );
+    ));
 
     await page.goto(`/boards/${boardId}`);
     const link = page.locator('#board-detail-content a[href="https://example.com"]');
@@ -2246,13 +2123,13 @@ test.describe('P13-T20: 게시글 본문 링크 새 탭/내부 이동', () => {
     await newPage.close();
   });
 
-  test('본문의 내부 링크를 클릭하면 같은 탭에서 해당 게시글로 이동한다', async ({ page, context, baseURL }) => {
-    linkedBoardId = await createBoard(context, baseURL, '내부 링크 대상 게시글 ' + Date.now(), '내용');
-    boardId = await createBoard(
+  test('본문의 내부 링크를 클릭하면 같은 탭에서 해당 게시글로 이동한다', async ({ page, context, baseURL, tracker }) => {
+    linkedBoardId = tracker.track('board', await createBoard(context, baseURL, '내부 링크 대상 게시글 ' + Date.now(), '내용'));
+    boardId = tracker.track('board', await createBoard(
       context, baseURL,
       '내부 링크 같은 탭 확인 ' + Date.now(),
       `<p>본문 <a href="/boards/${linkedBoardId}">내부 링크</a></p>`
-    );
+    ));
 
     await page.goto(`/boards/${boardId}`);
     const link = page.locator(`#board-detail-content a[href="/boards/${linkedBoardId}"]`);
@@ -2277,15 +2154,7 @@ test.describe('P13-T22: Board 기존 첨부파일 파일명 표시', () => {
     boardId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('기존 첨부파일이 있는 게시글 수정 화면에 실제 업로드 원본 파일명이 표시된다', async ({ page, context, baseURL }) => {
+  test('기존 첨부파일이 있는 게시글 수정 화면에 실제 업로드 원본 파일명이 표시된다', async ({ page, context, baseURL, tracker }) => {
     const uploadRes = await context.request.post(`${baseURL}/api/admin/files`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       multipart: {
@@ -2294,7 +2163,9 @@ test.describe('P13-T22: Board 기존 첨부파일 파일명 표시', () => {
       },
     });
     expect(uploadRes.ok()).toBeTruthy();
-    const uploadedUrl = (await uploadRes.json()).data.url;
+    const uploaded = (await uploadRes.json()).data;
+    tracker.track('file', uploaded.id); // 업로드 성공 직후 exact File ID 등록(파일은 콘텐츠 삭제 후 마지막에 정리된다)
+    const uploadedUrl = uploaded.url;
 
     const boardRes = await context.request.post(`${baseURL}/api/admin/boards`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
@@ -2304,7 +2175,7 @@ test.describe('P13-T22: Board 기존 첨부파일 파일명 표시', () => {
       },
     });
     expect(boardRes.ok()).toBeTruthy();
-    boardId = (await boardRes.json()).data.id;
+    boardId = tracker.track('board', (await boardRes.json()).data.id);
 
     await page.goto(`/admin/boards/${boardId}/edit`);
 
@@ -2326,19 +2197,11 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
     boardId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
   // 관리자 편집기에서 정렬 버튼 노출 -> 실제 정렬 적용 -> 저장 -> DB/API 재조회 -> 수정 화면 재진입 시
   // 스타일 유지 -> 공개 상세 화면에서 동일 정렬 적용 -> 375/768/1024/1440 overflow/겹침 없음까지
   // 하나의 흐름으로 검증한다(Board 대표 1건, Program/Page/Popup은 HtmlSanitizer/CSS 공용 로직이므로
   // 반복하지 않는다).
-  test('CKEditor에서 이미지를 왼쪽 정렬로 저장하면 재조회/공개 화면/반응형까지 유지된다', async ({ page, context, baseURL }) => {
+  test('CKEditor에서 이미지를 왼쪽 정렬로 저장하면 재조회/공개 화면/반응형까지 유지된다', async ({ page, context, baseURL, tracker }) => {
     await page.goto('/admin/boards/new');
     await page.locator('#boardType').selectOption('NOTICE');
     await page.locator('#title').fill('이미지 정렬 round-trip 확인 ' + Date.now());
@@ -2350,12 +2213,15 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
     const uploadButton = page
       .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
       .first();
+    // 업로드 응답의 exact File ID를 파일 선택 전에 관찰해 등록한다(이동 없는 fetch라 waitForResponse로 충분하다).
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
     const fileChooserPromise = page.waitForEvent('filechooser');
     await uploadButton.click();
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles({
       name: 'align-test.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
     });
+    await uploadedFileId;
 
     await page.waitForFunction(() => {
       const img = document.querySelector('.ck-editor__editable img');
@@ -2381,15 +2247,14 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
     await page.waitForSelector('.ck-editor__editable figure.image-style-align-left', { timeout: 10000 });
 
     await page.locator('#isPublic').check();
+    // 저장은 fetch POST 성공 직후 location.href로 이동한다. 이동하면 응답 body를 읽을 수 없으므로 이동 전에
+    // 페이지 안에서 생성 응답의 exact ID를 관찰해 tracker에 등록한다(최신 목록 조회로 ID를 추정하지 않는다).
+    const createdBoard = await observeNavigatingCreate(page, tracker, 'board', { timeout: 10000 });
     await Promise.all([
       page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
       page.locator('button[type="submit"]').click(),
     ]);
-
-    const listRes = await context.request.get(
-      `${baseURL}/api/admin/boards?page=0&size=1&sort=createdAt,DESC`);
-    const listBody = await listRes.json();
-    boardId = listBody.data.content[0].id;
+    boardId = await createdBoard.id;
 
     // DB/API를 거친 재조회: 수정 화면 재진입 시 정렬이 CKEditor 안에서 그대로 복원되는지 확인.
     await page.goto(`/admin/boards/${boardId}/edit`);
@@ -2419,7 +2284,7 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
   // P13-T25: dropdown 도입 이전(P13-T23)에 이미 저장돼 있었을 법한 HTML이 새 config에서도 그대로
   // 복원되는지 확인한다. API로 직접 저장해(UI를 거치지 않음) "기존 저장 HTML 자체는 이번 변경으로
   // 건드리지 않는다"는 것과, dropdown UI로도 그 style이 정확히 업캐스트되는지를 함께 검증한다.
-  test('P13-T23 시절에 저장된 정렬 HTML이 dropdown UI에서도 그대로 복원되고 공개 화면도 무변경이다', async ({ page, context, baseURL }) => {
+  test('P13-T23 시절에 저장된 정렬 HTML이 dropdown UI에서도 그대로 복원되고 공개 화면도 무변경이다', async ({ page, context, baseURL, tracker }) => {
     const boardRes = await context.request.post(`${baseURL}/api/admin/boards`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: {
@@ -2430,7 +2295,7 @@ test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
       },
     });
     expect(boardRes.ok()).toBeTruthy();
-    boardId = (await boardRes.json()).data.id;
+    boardId = tracker.track('board', (await boardRes.json()).data.id);
 
     // 수정 화면 재진입 시 dropdown UI에서도 정확히 같은 style(alignRight)로 복원되는지 확인.
     await page.goto(`/admin/boards/${boardId}/edit`);
@@ -2460,15 +2325,6 @@ test.describe('P13-T29: 공개 게시글 상세 CKEditor inline 이미지 overfl
     boardId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (boardId) {
-      const xsrfToken = await getXsrfToken(context);
-      await context.request.delete(`${baseURL}/api/admin/boards/${boardId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
   // 파일 크기(byte)가 아니라 PNG의 intrinsic 가로/세로 픽셀 값이 커야 overflow가 재현되므로,
   // 브라우저 <canvas>로 즉석 생성한다(별도 대용량 fixture 파일 불필요).
   async function generateLargePngBuffer(page, width, height) {
@@ -2484,7 +2340,7 @@ test.describe('P13-T29: 공개 게시글 상세 CKEditor inline 이미지 overfl
     return Buffer.from(dataUrl.split(',')[1], 'base64');
   }
 
-  test('큰 intrinsic 크기의 inline("글 안에 배치") 이미지가 375/768/1440px 어디에서도 overflow를 만들지 않는다', async ({ page, context, baseURL }) => {
+  test('큰 intrinsic 크기의 inline("글 안에 배치") 이미지가 375/768/1440px 어디에서도 overflow를 만들지 않는다', async ({ page, tracker }) => {
     await page.goto('/admin/boards/new');
     await page.locator('#boardType').selectOption('NOTICE');
     await page.locator('#title').fill('inline 이미지 overflow 확인 ' + Date.now());
@@ -2497,12 +2353,15 @@ test.describe('P13-T29: 공개 게시글 상세 CKEditor inline 이미지 overfl
     const uploadButton = page
       .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
       .first();
+    // 업로드 응답의 exact File ID를 파일 선택 전에 관찰해 등록한다(이동 없는 fetch라 waitForResponse로 충분하다).
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
     const fileChooserPromise = page.waitForEvent('filechooser');
     await uploadButton.click();
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles({
       name: 'large-inline-test.png', mimeType: 'image/png', buffer: largePngBuffer,
     });
+    await uploadedFileId;
 
     await page.waitForFunction(() => {
       const img = document.querySelector('.ck-editor__editable img');
@@ -2523,15 +2382,14 @@ test.describe('P13-T29: 공개 게시글 상세 CKEditor inline 이미지 overfl
     }, { timeout: 10000 });
 
     await page.locator('#isPublic').check();
+    // 저장은 fetch POST 성공 직후 location.href로 이동한다. 이동하면 응답 body를 읽을 수 없으므로 이동 전에
+    // 페이지 안에서 생성 응답의 exact ID를 관찰해 tracker에 등록한다(최신 목록 조회로 ID를 추정하지 않는다).
+    const createdBoard = await observeNavigatingCreate(page, tracker, 'board', { timeout: 10000 });
     await Promise.all([
       page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
       page.locator('button[type="submit"]').click(),
     ]);
-
-    const listRes = await context.request.get(
-      `${baseURL}/api/admin/boards?page=0&size=1&sort=createdAt,DESC`);
-    const listBody = await listRes.json();
-    boardId = listBody.data.content[0].id;
+    boardId = await createdBoard.id;
 
     await page.goto(`/boards/${boardId}`);
     const publicContent = page.locator('#board-detail-content .ckeditor-content');
@@ -2576,16 +2434,8 @@ test.describe('P13-T24: Banner 수정 화면 기존 이미지 미리보기', () 
     bannerId = undefined;
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    if (bannerId) {
-      await context.request.delete(`${baseURL}/api/admin/banners/${bannerId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('Banner 수정 화면 진입 시 기존 이미지 미리보기가 표시된다', async ({ page, context, baseURL }) => {
-    bannerId = await createBannerWithImage(context, baseURL, 'Banner 이미지 미리보기 확인 ' + Date.now());
+  test('Banner 수정 화면 진입 시 기존 이미지 미리보기가 표시된다', async ({ page, context, baseURL, tracker }) => {
+    bannerId = tracker.track('banner', await createBannerWithImage(context, baseURL, 'Banner 이미지 미리보기 확인 ' + Date.now()));
     await page.goto(`/admin/banners/${bannerId}/edit`);
 
     await expect(page.locator('#imagePreview')).toBeVisible();
@@ -2601,14 +2451,16 @@ test.describe('P13-T24: Banner 수정 화면 기존 이미지 미리보기', () 
     await expect(page.locator('#imagePreview')).toBeHidden();
   });
 
-  test('새 이미지 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL }) => {
-    bannerId = await createBannerWithImage(context, baseURL, 'Banner 새 이미지 갱신 확인 ' + Date.now());
+  test('새 이미지 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    bannerId = tracker.track('banner', await createBannerWithImage(context, baseURL, 'Banner 새 이미지 갱신 확인 ' + Date.now()));
     await page.goto(`/admin/banners/${bannerId}/edit`);
     await expect(page.locator('#imagePreviewImage')).toHaveAttribute('src', '/api/files/900401');
 
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
     await page.setInputFiles('#imageInput', {
       name: 'new-banner.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
     });
+    await uploadedFileId;
 
     await expect(page.locator('#image')).not.toHaveValue('/api/files/900401');
     const newUrl = await page.locator('#image').inputValue();
@@ -2641,35 +2493,23 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     return (await res.json()).data.id;
   }
 
-  async function deleteMenu(context, baseURL, id) {
-    if (id) {
-      await context.request.delete(`${baseURL}/api/admin/menus/${id}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  }
-
-  test.beforeEach(async ({ context, baseURL }) => {
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
     groupId = undefined;
     childId = undefined;
 
-    groupId = await createMenu(context, baseURL, {
+    groupId = tracker.track('menu', await createMenu(context, baseURL, {
       label: GROUP_LABEL, targetType: 'GROUP', sortOrder: 999, visible: true, openInNewTab: false,
-    });
-    childId = await createMenu(context, baseURL, {
+    }));
+    childId = tracker.track('menu', await createMenu(context, baseURL, {
       label: CHILD_LABEL, parentId: groupId, targetType: 'BOARD_LIST', targetValue: 'NOTICE',
       sortOrder: 0, visible: true, openInNewTab: false,
-    });
+    }));
   });
 
-  // child를 먼저 삭제해야 group 삭제가 MENU_HAS_CHILDREN(409)로 막히지 않는다. 테스트 실패로 도중에
-  // 끊겨도 afterEach는 항상 실행되므로 정리가 최대한 보장된다.
-  test.afterEach(async ({ context, baseURL }) => {
-    await deleteMenu(context, baseURL, childId);
-    await deleteMenu(context, baseURL, groupId);
-  });
+  // Menu 삭제는 tracker fixture가 책임진다. child는 group보다 나중에 등록되므로 LIFO cleanup이 child -> group
+  // 순으로 지워 MENU_HAS_CHILDREN(409)을 피한다. 테스트가 도중에 실패해도 fixture teardown은 항상 실행된다.
 
   test('Desktop 1440: hover로 열리고 aria-expanded가 실제 open 상태와 동기화되며, submenu 이동 유지/영역 이탈 닫힘/click toggle/Escape/키보드 접근이 모두 정상 동작한다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -2793,39 +2633,34 @@ test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', 
     expect(overflow, '1440px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
   });
 
-  test('Desktop 1440: 다른 GROUP을 열면 기존에 열려 있던 GROUP은 자동으로 닫힌다', async ({ page, context, baseURL }) => {
-    const secondGroupId = await createMenu(context, baseURL, {
+  test('Desktop 1440: 다른 GROUP을 열면 기존에 열려 있던 GROUP은 자동으로 닫힌다', async ({ page, context, baseURL, tracker }) => {
+    const secondGroupId = tracker.track('menu', await createMenu(context, baseURL, {
       label: 'P13-T30B 두번째 그룹', targetType: 'GROUP', sortOrder: 1000, visible: true, openInNewTab: false,
-    });
-    const secondChildId = await createMenu(context, baseURL, {
+    }));
+    const secondChildId = tracker.track('menu', await createMenu(context, baseURL, {
       label: 'P13-T30B 두번째 하위메뉴', parentId: secondGroupId, targetType: 'BOARD_LIST', targetValue: 'GALLERY',
       sortOrder: 0, visible: true, openInNewTab: false,
-    });
+    }));
 
-    try {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto('/');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
 
-      const firstTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL })
-        .locator('.site-nav__trigger');
-      const secondTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: '두번째 그룹' })
-        .locator('.site-nav__trigger');
+    const firstTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL })
+      .locator('.site-nav__trigger');
+    const secondTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: '두번째 그룹' })
+      .locator('.site-nav__trigger');
 
-      await firstTrigger.click();
-      await expect(firstTrigger).toHaveAttribute('aria-expanded', 'true');
-      // P13-T30D(A1): 열린 GROUP의 trigger가 활성 강조 상태가 된다
-      await expect(firstTrigger).toHaveCSS('font-weight', '700');
+    await firstTrigger.click();
+    await expect(firstTrigger).toHaveAttribute('aria-expanded', 'true');
+    // P13-T30D(A1): 열린 GROUP의 trigger가 활성 강조 상태가 된다
+    await expect(firstTrigger).toHaveCSS('font-weight', '700');
 
-      await secondTrigger.click();
-      await expect(secondTrigger).toHaveAttribute('aria-expanded', 'true');
-      await expect(firstTrigger).toHaveAttribute('aria-expanded', 'false');
-      // P13-T30D(A1): 다른 GROUP으로 전환되면 기존 강조는 해제되고 새 GROUP만 강조된다
-      await expect(secondTrigger).toHaveCSS('font-weight', '700');
-      await expect(firstTrigger).not.toHaveCSS('font-weight', '700');
-    } finally {
-      await deleteMenu(context, baseURL, secondChildId);
-      await deleteMenu(context, baseURL, secondGroupId);
-    }
+    await secondTrigger.click();
+    await expect(secondTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(firstTrigger).toHaveAttribute('aria-expanded', 'false');
+    // P13-T30D(A1): 다른 GROUP으로 전환되면 기존 강조는 해제되고 새 GROUP만 강조된다
+    await expect(secondTrigger).toHaveCSS('font-weight', '700');
+    await expect(firstTrigger).not.toHaveCSS('font-weight', '700');
   });
 
   // hasTouch:true로 실제 터치 기기를 재현한다 - matchMedia(hover:hover)가 false가 되어 nav-submenu.js가
@@ -3479,24 +3314,16 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
     boardIds = [];
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    for (const id of boardIds) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('필터 nav에서 수강 후기/특강 후기를 클릭하면 정확한 programType으로만 필터링된다', async ({ page, context, baseURL }) => {
+  test('필터 nav에서 수강 후기/특강 후기를 클릭하면 정확한 programType으로만 필터링된다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const courseTitle = `T30D 수강후기 ${runId}`;
     const specialTitle = `T30D 특강후기 ${runId}`;
-    boardIds.push(await createBoard(context, baseURL, {
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
       boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
-    }));
-    boardIds.push(await createBoard(context, baseURL, {
+    })));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
       boardType: 'REVIEW', title: specialTitle, programType: 'SPECIAL', isPublic: true,
-    }));
+    })));
 
     await page.goto('/boards');
     await page.locator('#board-type-filter a', { hasText: '수강 후기' }).click();
@@ -3511,16 +3338,16 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
   });
 
   // REVIEW without programType은 기존 generic 호환 경로다 - subtype과 무관하게 전부 노출된다.
-  test('boardType=REVIEW만 있고 programType이 없으면 subtype과 무관하게 전체 강의 후기가 노출된다', async ({ page, context, baseURL }) => {
+  test('boardType=REVIEW만 있고 programType이 없으면 subtype과 무관하게 전체 강의 후기가 노출된다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const courseTitle = `T30D 전체보기 수강 ${runId}`;
     const specialTitle = `T30D 전체보기 특강 ${runId}`;
-    boardIds.push(await createBoard(context, baseURL, {
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
       boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
-    }));
-    boardIds.push(await createBoard(context, baseURL, {
+    })));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
       boardType: 'REVIEW', title: specialTitle, programType: 'SPECIAL', isPublic: true,
-    }));
+    })));
 
     await page.goto('/boards?boardType=REVIEW');
     await expect(page.locator('body')).toContainText(courseTitle);
@@ -3537,12 +3364,12 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
       'NOTICE로 전환하면 stale programType 파라미터가 URL에 남아있지 않아야 한다').toBeFalsy();
   });
 
-  test('REVIEW 상세 페이지의 "목록으로" 링크가 programType을 보존해 필터된 목록으로 정확히 복귀한다', async ({ page, context, baseURL }) => {
+  test('REVIEW 상세 페이지의 "목록으로" 링크가 programType을 보존해 필터된 목록으로 정확히 복귀한다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const courseTitle = `T30D 상세복귀 ${runId}`;
-    boardIds.push(await createBoard(context, baseURL, {
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
       boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
-    }));
+    })));
 
     await page.goto('/boards?boardType=REVIEW&programType=COURSE');
     await page.locator('a', { hasText: courseTitle }).click();
@@ -3556,12 +3383,12 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
 
   // pagination fragment는 programType 슬롯을 이미 갖고 있었다(board/list.html이 이번에 null 대신
   // 실값을 전달하도록만 바뀌었다) - 필터된 목록에서 pagination 링크에도 programType이 실려 있는지 확인.
-  test('강의 후기 subtype 필터 상태에서 pagination 링크도 programType을 함께 실어 보낸다', async ({ page, context, baseURL }) => {
+  test('강의 후기 subtype 필터 상태에서 pagination 링크도 programType을 함께 실어 보낸다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     for (let i = 0; i < 12; i++) {
-      boardIds.push(await createBoard(context, baseURL, {
+      boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
         boardType: 'REVIEW', title: `T30D 페이지네이션 ${runId} #${i}`, programType: 'COURSE', isPublic: true,
-      }));
+      })));
     }
 
     await page.goto('/boards?boardType=REVIEW&programType=COURSE');
@@ -3576,12 +3403,12 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
   });
 
   // NOTICE/GALLERY/ARCHIVE 공개 목록은 REVIEW subtype 도입과 무관하게 기존 그대로 동작해야 한다.
-  test('NOTICE/GALLERY/ARCHIVE 공개 목록은 REVIEW subtype 도입 이후에도 기존과 동일하게 동작한다', async ({ page, context, baseURL }) => {
+  test('NOTICE/GALLERY/ARCHIVE 공개 목록은 REVIEW subtype 도입 이후에도 기존과 동일하게 동작한다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const noticeTitle = `T30D 공지 회귀 ${runId}`;
-    boardIds.push(await createBoard(context, baseURL, {
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
       boardType: 'NOTICE', title: noticeTitle, isPublic: true,
-    }));
+    })));
 
     await page.goto('/boards?boardType=NOTICE');
     await expect(page.locator('body')).toContainText(noticeTitle);
@@ -3612,14 +3439,6 @@ test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
     syntheticMenuId = undefined;
-  });
-
-  test.afterEach(async ({ context, baseURL }) => {
-    if (syntheticMenuId) {
-      await context.request.delete(`${baseURL}/api/admin/menus/${syntheticMenuId}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
   });
 
   test('/admin/menus: GROUP/child 계층이 CSS class로 구분되고, 유형/공개여부는 badge로, 대상은 사람이 읽는 라벨로 표시된다', async ({ page }) => {
@@ -3669,7 +3488,7 @@ test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
   // Menu UI의 범용 formatter 기능이다 - 관리자가 이 조합의 메뉴를 새로 만들 가능성은 여전히 남아있고
   // (예: 과거처럼 REVIEW를 다시 세분화하고 싶어질 경우), 이 능력 자체가 seed 구조 변경으로 사라져서는
   // 안 되므로 자체 임시 Menu 1개로 formatter 동작을 직접 검증한다(seed 데이터는 건드리지 않음).
-  test('/admin/menus: BOARD_LIST+REVIEW+targetSubvalue 조합은 "강의 후기(수강)"처럼 조합 표시된다(범용 formatter, seed와 무관)', async ({ page, context, baseURL }) => {
+  test('/admin/menus: BOARD_LIST+REVIEW+targetSubvalue 조합은 "강의 후기(수강)"처럼 조합 표시된다(범용 formatter, seed와 무관)', async ({ page, context, baseURL, tracker }) => {
     const res = await context.request.post(`${baseURL}/api/admin/menus`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: {
@@ -3684,7 +3503,7 @@ test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
       },
     });
     expect(res.ok()).toBeTruthy();
-    syntheticMenuId = (await res.json()).data.id;
+    syntheticMenuId = tracker.track('menu', (await res.json()).data.id);
 
     await page.goto('/admin/menus');
     const row = page.locator('#menu-list-body tr')
@@ -3765,25 +3584,12 @@ test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용
     programIds = [];
   });
 
-  test.afterEach(async ({ context, baseURL }) => {
-    for (const id of boardIds) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-    for (const id of programIds) {
-      await context.request.delete(`${baseURL}/api/admin/programs/${id}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
-    }
-  });
-
-  test('게시판 관리: boardType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL }) => {
+  test('게시판 관리: boardType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const noticeTitle = `P13-T31 공지 ${runId}`;
     const galleryTitle = `P13-T31 갤러리 ${runId}`;
-    boardIds.push(await createBoard(context, baseURL, 'NOTICE', noticeTitle));
-    boardIds.push(await createBoard(context, baseURL, 'GALLERY', galleryTitle));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', noticeTitle)));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'GALLERY', galleryTitle)));
 
     await page.goto('/admin/boards');
     await expect(page.locator('#board-list-body')).toContainText(noticeTitle);
@@ -3798,13 +3604,13 @@ test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용
     await expect(page.locator('#prev-page')).toBeDisabled();
   });
 
-  test('게시판 관리: 검색 버튼으로 확정한 keyword는 boardType select 변경 후에도 유지된다', async ({ page, context, baseURL }) => {
+  test('게시판 관리: 검색 버튼으로 확정한 keyword는 boardType select 변경 후에도 유지된다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const matchTitle = `P13-T31 키워드유지 ${runId} 확인용`;
     const otherNoticeTitle = `P13-T31 다른공지 ${runId}`;
-    boardIds.push(await createBoard(context, baseURL, 'NOTICE', matchTitle));
-    boardIds.push(await createBoard(context, baseURL, 'NOTICE', otherNoticeTitle));
-    boardIds.push(await createBoard(context, baseURL, 'GALLERY', matchTitle));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', matchTitle)));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', otherNoticeTitle)));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'GALLERY', matchTitle)));
 
     await page.goto('/admin/boards');
     await page.locator('#searchKeyword').fill(`키워드유지 ${runId}`);
@@ -3820,10 +3626,10 @@ test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용
     await expect(page.locator('#board-list-body')).toContainText(matchTitle);
   });
 
-  test('게시판 관리: 검색창에 아직 확정하지 않은 입력은 boardType select 변경으로 자동 실행되지 않는다', async ({ page, context, baseURL }) => {
+  test('게시판 관리: 검색창에 아직 확정하지 않은 입력은 boardType select 변경으로 자동 실행되지 않는다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const title = `P13-T31 미확정 ${runId}`;
-    boardIds.push(await createBoard(context, baseURL, 'NOTICE', title));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', title)));
 
     await page.goto('/admin/boards');
     // 검색 버튼을 누르지 않고 keyword만 입력한다(미확정 상태).
@@ -3834,12 +3640,12 @@ test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용
     await expect(page.locator('#board-list-body')).toContainText(title);
   });
 
-  test('프로그램 관리: programType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL }) => {
+  test('프로그램 관리: programType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const courseTitle = `P13-T31 정규 ${runId}`;
     const specialTitle = `P13-T31 특강 ${runId}`;
-    programIds.push(await createProgram(context, baseURL, 'COURSE', courseTitle));
-    programIds.push(await createProgram(context, baseURL, 'SPECIAL', specialTitle));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'COURSE', courseTitle)));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'SPECIAL', specialTitle)));
 
     await page.goto('/admin/programs');
     await expect(page.locator('#program-list-body')).toContainText(courseTitle);
@@ -3852,13 +3658,13 @@ test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용
     await expect(page.locator('#prev-page')).toBeDisabled();
   });
 
-  test('프로그램 관리: 검색 버튼으로 확정한 keyword는 programType select 변경 후에도 유지된다', async ({ page, context, baseURL }) => {
+  test('프로그램 관리: 검색 버튼으로 확정한 keyword는 programType select 변경 후에도 유지된다', async ({ page, context, baseURL, tracker }) => {
     const runId = Date.now();
     const matchTitle = `P13-T31 프로그램키워드유지 ${runId} 확인용`;
     const otherCourseTitle = `P13-T31 다른정규 ${runId}`;
-    programIds.push(await createProgram(context, baseURL, 'COURSE', matchTitle));
-    programIds.push(await createProgram(context, baseURL, 'COURSE', otherCourseTitle));
-    programIds.push(await createProgram(context, baseURL, 'SPECIAL', matchTitle));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'COURSE', matchTitle)));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'COURSE', otherCourseTitle)));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'SPECIAL', matchTitle)));
 
     await page.goto('/admin/programs');
     await page.locator('#searchKeyword').fill(`프로그램키워드유지 ${runId}`);
@@ -4211,8 +4017,14 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
   let reviewBoardId;
   let courseProgramId;
   let specialProgramId;
+  // beforeAll/afterAll은 test-scoped tracker fixture를 쓸 수 없으므로 이 describe 전용 tracker를 쓴다.
+  // cleanup은 로그인된 별도 세션으로 하므로(예전 afterAll은 로그인하지 않은 새 context로 DELETE해서
+  // 항상 403이었다) 실제로 삭제된다.
+  let resourceCleanup;
 
   test.beforeAll(async ({ browser, baseURL }) => {
+    // 생성 전에 만들어 두어, 중간에 실패해도 이미 만든 리소스가 tracker에 남아 afterAll이 정리한다.
+    resourceCleanup = createTracker({ baseURL });
     const context = await browser.newContext();
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
@@ -4222,42 +4034,38 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: { boardType: 'NOTICE', title: `P13-T37 공지 ${runId}`, isPublic: true },
     });
-    noticeBoardId = (await notice.json()).data.id;
+    noticeBoardId = resourceCleanup.tracker.track('board', (await notice.json()).data.id);
 
     const review = await context.request.post(`${baseURL}/api/admin/boards`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: { boardType: 'REVIEW', title: `P13-T37 후기 ${runId}`, isPublic: true },
     });
-    reviewBoardId = (await review.json()).data.id;
+    reviewBoardId = resourceCleanup.tracker.track('board', (await review.json()).data.id);
 
     const course = await context.request.post(`${baseURL}/api/admin/programs`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: { programType: 'COURSE', title: `P13-T37 정규 ${runId}`, content: '내용', isPublic: true },
     });
-    courseProgramId = (await course.json()).data.id;
+    courseProgramId = resourceCleanup.tracker.track('program', (await course.json()).data.id);
 
     const special = await context.request.post(`${baseURL}/api/admin/programs`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: { programType: 'SPECIAL', title: `P13-T37 특강 ${runId}`, content: '내용', isPublic: true },
     });
-    specialProgramId = (await special.json()).data.id;
+    specialProgramId = resourceCleanup.tracker.track('program', (await special.json()).data.id);
 
     await context.close();
   });
 
-  test.afterAll(async ({ browser, baseURL }) => {
-    const context = await browser.newContext();
-    for (const id of [noticeBoardId, reviewBoardId]) {
-      await context.request.delete(`${baseURL}/api/admin/boards/${id}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
+  test.afterAll(async () => {
+    if (!resourceCleanup) {
+      return;
     }
-    for (const id of [courseProgramId, specialProgramId]) {
-      await context.request.delete(`${baseURL}/api/admin/programs/${id}`, {
-        headers: { 'X-XSRF-TOKEN': xsrfToken },
-      });
+    try {
+      await resourceCleanup.tracker.cleanup();
+    } finally {
+      await resourceCleanup.dispose();
     }
-    await context.close();
   });
 
   const homeLeaf = (page) => page.locator('#quick-menu > li.site-nav__item:first-child > a');

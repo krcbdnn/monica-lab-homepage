@@ -1,5 +1,5 @@
 // @ts-check
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./support/e2e-fixtures');
 
 // fix/admin-common-fetch-load-order 회귀 검증.
 // 앱은 테스트 실행 전에 별도로 기동되어 있어야 한다(server 자동 기동 없음, 다른 spec과 동일 원칙).
@@ -57,7 +57,7 @@ test.describe('관리자 화면 최초 진입 시 AdminFetch 로딩 순서 회�
     });
   }
 
-  test('/admin/boards 최초 진입 시 검색 버튼을 누르지 않아도 방금 생성한 게시글이 목록에 보인다', async ({ page, context, baseURL }) => {
+  test('/admin/boards 최초 진입 시 검색 버튼을 누르지 않아도 방금 생성한 게시글이 목록에 보인다', async ({ page, context, baseURL, tracker }) => {
     const xsrfToken = await getXsrfToken(context);
     const uniqueTitle = 'AdminFetch 회귀 확인용 공지 ' + Date.now();
 
@@ -66,6 +66,8 @@ test.describe('관리자 화면 최초 진입 시 AdminFetch 로딩 순서 회�
       data: { boardType: 'NOTICE', title: uniqueTitle, isPublic: true },
     });
     expect(createResponse.ok()).toBeTruthy();
+    // 생성 응답의 exact ID를 즉시 등록한다. 이후 단언이 실패해도 fixture teardown이 이 게시글을 정리한다.
+    tracker.track('board', (await createResponse.json()).data.id);
 
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
