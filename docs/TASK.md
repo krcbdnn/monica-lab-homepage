@@ -1266,7 +1266,34 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
   - 기존 개발 데이터(Board 12건 + Program 2건, thumbnail만 있고 본문 이미지가 없던 콘텐츠)는 자동으로 수정되지 않으며, 이후 상세 화면에서 이미지 없이 표시되는 것을 정상 동작으로 받아들인다(DB migration 없음).
   - `BoardViewControllerTest`/`ProgramViewControllerTest`/`board-admin-view.test.js`/`program-admin-view.test.js` 신규 케이스 통과, 기존 전체 Java/Node 테스트 무회귀, `./gradlew build` 통과.
   - `docker-compose.local-test.yml`(untracked 유지).
-- 후속: **P13-T40(CKEditor 이미지 Resize 및 자체 호스팅 전환)**, **P2-2(Resize 미적용 이미지의 데스크톱 기본 최대 폭 결정)**, 공개 홈페이지 디자인 고급화 Phase — 전부 이번 Task 범위 밖.
+- 후속: **P13-T40(CKEditor 이미지 Resize)**, **P2-2(Resize 미적용 이미지의 데스크톱 기본 최대 폭 결정)**, 공개 홈페이지 디자인 고급화 Phase — 전부 이번 Task 범위 밖.
+
+---
+
+### P13-T40. CKEditor 이미지 Resize(25%/50%/75%/원본 preset) 자체 기능 추가
+
+- 의존성: P13-T39, P13-T41
+- 산출물: `static/js/admin/ckeditor-resize-plugin.js`(신규), `static/js/admin/ckeditor-config.js`, `templates/admin/{board,program,page,popup}/form.html`, `common/util/HtmlSanitizer.java`, `static/css/home.css`, `src/test/java/com/monicalab/common/util/HtmlSanitizerTest.java`, `src/test/js/admin/ckeditor-config.test.js`, `src/test/js/admin/ckeditor-resize-plugin.test.js`(신규), `docs/TASK.md`
+- 작업 내용: "무료로 이미지 크기 조절 기능을 구현할 수 있는가"를 사전 조사한 결과(라이선스 비용 0원/사용량 제한 없음/소스공개 의무 없음 등 필수 조건), CKEditor 5 최신 버전 self-host(licenseKey:'GPL', "Powered by CKEditor" 배지 강제)나 Cloud CDN 무료 플랜(월 1,000 editor loads 제한, 상용 라이선스)은 채택하지 않고, **현재 CKEditor 5 41.4.2 predefined classic build를 그대로 유지**(CDN URL 무변경, npm/bundler 도입 없음, 공식 ImageResize plugin 미사용)한 채 프로젝트 자체 custom plugin으로 25%/50%/75%/원본 preset resize만 구현한다.
+  1. `ckeditor-resize-plugin.js`: CKEditor의 `Plugin`/`Command`/`ButtonView` 베이스 클래스를 extends하지 않는(41.4.2 CDN predefined build가 이 클래스들을 전역 노출하지 않아 번들러 없이는 import 불가 - 헤드리스로 실측 확인) 순수 생성자 함수. `editor.model.schema.extend('imageBlock', {allowAttributes:['resizedWidth']})`로 block 이미지에만 attribute를 허용하고(imageInline은 미지원, 1차 범위), downcast에서 `<figure class="image image_resized" style="width:N%;">`로, upcast에서 style width(25/50/75%만 정규식 매칭)로 각각 변환한다. `resizedWidth`는 공식 `ImageResizeEditing`(GitHub v41.4.2 태그 원본 확인, 우리 build엔 없음)이 쓰는 것과 동일한 이름이지만 이는 이름 재사용일 뿐 향후 공식 plugin과의 완전한 호환을 보장하지 않는다(전환 시 별도 재검증 필요). Command architecture는 쓰지 않고 `setResize(editor, value)` 평범한 함수로 값(`'25'|'50'|'75'|null` 외 거부)을 검증 후 `editor.model.change`/`writer.setAttribute`/`removeAttribute`만으로 변경한다(undo/redo는 CKEditor의 기본 model 변경 이력에 자동 편입).
+  2. UI는 CKEditor의 native balloon toolbar에 새 버튼을 넣지 않고(41.4.2에서 ButtonView 없이는 불가), 4개 admin 폼 각각에 정적 HTML 버튼 4개(`data-resize-value="25"/"50"/"75"/""`)를 배치하고 `bindResizeControls(editor, container)` 공용 함수 하나로 클릭 바인딩·disabled/active 상태 동기화(selection 변경 + `document.on('change:data')` 양쪽 구독, undo/redo 후에도 정확히 갱신됨을 실측 확인)를 전 폼 공통 처리한다. JS 로직은 4곳에서 전혀 복붙하지 않고 마크업만 반복한다.
+  3. `HtmlSanitizer.java`: 기존 Safelist는 `figure`에 `style`을 전혀 허용하지 않는 원칙을 그대로 유지한다. 대신 raw HTML을 Safelist clean 이전에 별도로 파싱해 `<figure>`를 문서 순서대로 순회하며 style이 정확히 `width: (25|50|75)%;`(공백/세미콜론 변형만 허용) 전체 일치일 때만 그 값을 Java `List<String>`(인덱스=문서상 figure 순서)으로 보존하고, 기존 Safelist clean이 끝난 뒤 같은 순서로 다시 그려 넣는다("extract → clean → reinject", 위조 가능한 임시 attribute/class를 전혀 만들지 않음). `<figure>`는 Safelist에 항상 허용된 태그라 어떤 처리 단계에서도 제거·재정렬·중복되지 않으므로 이 인덱스 대응은 취약하지 않다(허용 안 된 형제/조상이 섞여도 순서가 안 깨짐을 회귀 테스트로 직접 증명). `ALLOWED_FIGURE_CLASS_TOKENS`에 `image_resized`를 추가한다.
+  4. `home.css`: `.ckeditor-content`/`.popup-modal__body` 양쪽에 `.image.image_resized{max-width:100%}` + `.image.image_resized img{width:100%;height:auto}`를 추가한다. class 조합의 특이도가 기존 `image-style-side` 등 단일 클래스 규칙보다 높아, resize와 정렬 style이 동시에 걸려도 항상 지정한 %가 우선 적용됨을 실측(75% + image-style-side 조합에서 실제 렌더링 폭이 600px로 나와 50% cap에 갇히지 않음)으로 확인했다.
+- DoD:
+  - CKEditor CDN URL(`https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js`)이 4개 admin 폼 전부에서 무변경, npm/package.json/vendor 디렉터리 신규 없음, licenseKey/"Powered by CKEditor" 배지 없음.
+  - 관리자가 Board/Program/Page/Popup 어디서든 본문 block 이미지를 선택하면 25%/50%/75%/원본 버튼이 활성화되고, 클릭 시 실제 편집 화면 크기가 즉시 바뀌며 현재 크기에 해당하는 버튼만 active 표시된다(실제 로컬 Docker+관리자 로그인 E2E로 확인).
+  - undo/redo 시 크기와 버튼 active 상태가 모두 정확히 복원된다(실측 확인: 50%→75%→undo→50%→redo→75%).
+  - 저장 시 `<figure class="image image_resized" style="width:50%;">`(canonical, 공백 없음) 형태로 DB에 저장되고, 공개 상세/팝업 화면에 해당 %로 정확히 렌더링되며 desktop(1280px)/mobile(375px) 양쪽에서 container overflow 없이 비율이 유지된다(실측: 두 뷰포트 모두 정확히 지정 %와 일치, horizontal scroll 없음).
+  - 원본으로 되돌려 저장하면 최종 DB content에 `style`도 `image_resized` class도 남지 않는다(stale metadata 없음, 실제 재편집→원본 복원→재저장 라운드트립으로 확인).
+  - `image-style-side`/`alignLeft`/`alignCenter`/`alignRight` 4개 정렬 style과 resize가 동시에 적용되고, 순서(정렬 후 리사이즈/리사이즈 후 정렬 변경) 무관하게 정상 동작한다(실측 확인).
+  - caption(`figcaption`)/`alt`가 resize와 항상 함께 유지된다(P13-T39 계약 무회귀, 실측 확인).
+  - `HtmlSanitizerTest` 전체(기존 33개 + 신규 resize 관련 35개, 총 68개) 통과, 악성 style(다른 property 혼입/범위 밖 값/소수/음수/`calc()`/`var()`/`expression()`/중복 선언 등) 전부 style 전체 폐기 확인.
+  - `ckeditor-config.test.js`/`ckeditor-resize-plugin.test.js` 등 Node 테스트 전체(272개) 통과, `./gradlew build`/전체 Java 테스트(567개) 통과.
+  - Board/Program/Page/Popup 4개 admin CKEditor 사용처 모두 콘솔 에러 없이 정상 초기화되고 기존 toolbar(Bold/Italic/Link/Table/이미지 업로드/캡션/정렬/alt)와 업로드 어댑터가 무회귀로 동작한다.
+  - P13-T39(alt/figcaption sanitizer)·P13-T41(대표이미지/본문이미지 역할 분리) 무회귀.
+  - DB/Entity/Repository/Service/Controller/API 계약 변경 없음.
+  - `docker-compose.local-test.yml`(untracked 유지), 검증용 테스트 콘텐츠/업로드 파일은 검증 후 전량 삭제됨(운영 DB에 잔존 데이터 없음).
+- 후속: **P2-2(Resize 미적용 이미지의 데스크톱 기본 최대 폭 결정)**, drag handle 방식의 자유 리사이즈(2차, 필요성 재검토 후 별도 Task), 공개 홈페이지 디자인 고급화 Phase — 전부 이번 Task 범위 밖.
 
 ---
 

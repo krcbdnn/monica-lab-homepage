@@ -1177,3 +1177,21 @@
     margin-left: auto;
     margin-right: auto;
 }
+
+/* P13-T40: 관리자가 25%/50%/75% preset으로 지정한 <figure class="image image_resized"
+   style="width:N%;">를 공개 화면에 반영한다. image_resized는 이 figure의 style.width가 진짜
+   크기이니 위 image-style-side(max-width:50%) 같은 ImageStyle 기본 제약을 눌러야 한다는 신호다 -
+   class 조합(.image.image_resized)이 .image-style-side 같은 단일 클래스 규칙보다 특이도가 높아
+   항상 이 규칙이 이긴다(정렬 style과 resize가 동시에 걸려도 폭은 항상 style의 %를 따름).
+   내부 img는 100%로 채워 figure의 width가 실제 렌더링 폭을 결정하게 한다(공식 CKEditor
+   ImageResize의 CSS와 동일한 원리, 헤드리스로 실측 확인). */
+.ckeditor-content .image.image_resized,
+.popup-modal__body .image.image_resized {
+    max-width: 100%;
+}
+
+.ckeditor-content .image.image_resized img,
+.popup-modal__body .image.image_resized img {
+    width: 100%;
+    height: auto;
+}

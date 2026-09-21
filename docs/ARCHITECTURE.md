@@ -478,7 +478,8 @@ CKEditor5로 작성된 콘텐츠는 HTML 형태로 저장되며, Thymeleaf에서
 
 - 서버 저장 시점에 HTML 화이트리스트 정제(sanitize)를 수행한다(예: OWASP Java HTML Sanitizer 또는 jsoup의 `Safelist` 사용).
 - 허용 태그: 텍스트 서식(`p`, `br`, `strong`, `em`, `u`, `h1~h6`), 표(`table`, `tr`, `td`, `th`), 링크(`a[href]`), 이미지(`img[src]`), 이미지 wrapper(`figure[class]`) 등 CKEditor5 기본 툴바가 생성하는 태그로 한정한다.
-- `figure`의 `class` 속성은 값 전체를 정규식으로 검증하지 않고, whitespace로 분리한 토큰 단위로 화이트리스트(`image`, `image-style-side`, `image-style-align-left`, `image-style-align-right`, `image-style-align-center`)와 대조해 안전한 토큰만 남긴다. `img`에는 class를 허용하지 않는다. `style`/`width`/`height`/`figcaption`/font 관련 속성·값은 허용하지 않는다(향후 확장 시에도 속성/값 단위 화이트리스트만 확장하고 `style` 속성 전체를 허용하지 않는 것을 원칙으로 한다).
+- `figure`의 `class` 속성은 값 전체를 정규식으로 검증하지 않고, whitespace로 분리한 토큰 단위로 화이트리스트(`image`, `image-style-side`, `image-style-align-left`, `image-style-align-right`, `image-style-align-center`, `image_resized`)와 대조해 안전한 토큰만 남긴다. `img`에는 class를 허용하지 않는다. `img`의 `width`/`height`, font 관련 속성·값은 허용하지 않는다.
+- `figure`의 `style` 속성은 Safelist 자체에는 추가하지 않는다(`style` 전체를 허용하지 않는 원칙 유지). 대신 이미지 크기 조절(P13-T40) 값만 별도의 "extract(clean 이전 원본에서 검증) → clean → reinject(검증된 값만 재적용)" 패턴으로 좁게 허용한다: `style`이 정확히 `width: 25%;`/`50%;`/`75%;`(공백·세미콜론 변형만 허용) 전체 일치일 때만 그 값을 clean 이후 다시 그려 넣고, 그 외 값이나 다른 property가 하나라도 섞이면 `style` 전체를 폐기한다. 향후 확장 시에도 이 좁은 값 단위 화이트리스트만 확장하고 `style` 속성을 Safelist에 일반 허용하지 않는 것을 원칙으로 한다.
 - `script`, `iframe`, `on*` 이벤트 속성, `javascript:` 스킴 링크는 모두 제거한다.
 - 정제는 `PageService`, `ProgramService`, `BoardService`, `PopupService`의 등록/수정 로직에서 공통 유틸(`common/util/HtmlSanitizer.java`)을 통해 일괄 적용한다.
 

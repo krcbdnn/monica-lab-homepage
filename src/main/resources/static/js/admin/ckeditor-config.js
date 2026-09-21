@@ -1,10 +1,10 @@
 (function (root, factory) {
     if (typeof module === 'object' && module.exports) {
-        module.exports = factory();
+        module.exports = factory(require('./ckeditor-resize-plugin.js'));
     } else {
-        root.AdminCkeditorConfig = factory();
+        root.AdminCkeditorConfig = factory(root.AdminCkeditorResizePlugin);
     }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (AdminCkeditorResizePlugin) {
     'use strict';
 
     // P13-T25: 기존 6개 ImageStyle(inline/block/side/alignLeft/alignCenter/alignRight)의
@@ -28,6 +28,11 @@
     // P13-T25: 6개 버튼을 balloon toolbar에 나열하지 않고 "이미지 정렬" dropdown 1개로 묶는다.
     // image.styles를 건드리는 것은 title(한글 라벨)뿐이고, className/modelElements는 CKEditor
     // 기본값을 그대로 쓴다(문자열로만 등록해 기존 값을 재사용) - 저장 HTML/round-trip 무변경.
+    // P13-T40: 25%/50%/75%/원본 preset 이미지 크기 조절 기능. CKEditor UI(balloon toolbar)에 새
+    // 버튼을 얹지 않고(41.4.2 predefined build는 ButtonView를 전역 노출하지 않아 번들러 없이는 불가능함을
+    // 헤드리스로 확인) admin 폼 자체의 일반 HTML 버튼으로 제공하므로, 여기서는 model/conversion만
+    // 추가하는 extraPlugins 등록 외에 별도 toolbar 항목이 없다. 이 config.js보다 먼저 로드되어야 한다
+    // (admin/*/form.html 참고 - ckeditor-resize-plugin.js를 ckeditor-config.js 앞에 배치).
     var EDITOR_CONFIG = {
         image: {
             styles: { options: imageStyles },
@@ -43,7 +48,8 @@
                 },
                 '|', 'toggleImageCaption', 'imageTextAlternative'
             ]
-        }
+        },
+        extraPlugins: [AdminCkeditorResizePlugin.Plugin]
     };
 
     return {

@@ -24,6 +24,17 @@
         <div class="mb-3">
             <label for="content" class="form-label">내용</label>
             <textarea class="form-control" id="content" name="content" rows="8"></textarea>
+            <!-- P13-T40: CKEditor 네이티브 balloon toolbar가 아니라 admin 폼 자체의 일반 버튼으로
+                 이미지 크기를 조절한다(41.4.2 predefined build 유지, 공식 ImageResize 미사용). -->
+            <div id="content-resize-controls" class="mt-2" hidden>
+                <span class="form-text me-2">이미지 크기</span>
+                <div class="btn-group btn-group-sm" role="group" aria-label="이미지 크기 조절">
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="25">25%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="50">50%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="75">75%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="">원본</button>
+                </div>
+            </div>
         </div>
         <div class="mb-3">
             <label for="thumbnailInput" class="form-label">대표 이미지</label>
@@ -68,6 +79,7 @@
 
 <script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
 <script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-resize-plugin.js"></script>
 <script src="/js/admin/ckeditor-config.js"></script>
 <script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script src="/js/admin/program-file-upload.js"></script>
@@ -79,6 +91,7 @@
         .then(function (editor) {
             contentEditor = editor;
             AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
+            AdminCkeditorResizePlugin.bindResizeControls(editor, document.querySelector('#content-resize-controls'));
             return editor;
         })
         .catch(function (error) {
