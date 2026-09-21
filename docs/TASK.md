@@ -446,6 +446,7 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
 - 산출물: `home/program/list.html`, `home/program/detail.html`, `static/css/home.css`
 - 작업 내용: Sub Page 공통 Hero/Breadcrumb 적용. `program/detail.html`에 현재 누락된 viewport meta가 P13-T1 layout 적용으로 자동 해결됨을 확인한다.
 - DoD: `ProgramViewControllerTest` 무변경 통과, "등록된 프로그램이 없습니다" empty state 유지, Playwright 반응형 통과.
+- 정정(P14-T0): 위 "Sub Page 공통 Hero/Breadcrumb 적용"은 현재 코드에 구현되어 있지 않다(공개 목록/상세 template은 `<h2>` 제목으로 시작). Phase 14에서 자동 복원하거나 Task로 추가하지 않는다(Phase 14 공통 계약 A-17 참고).
 
 ### P13-T5. Board NOTICE/ARCHIVE 목록/상세 UI
 - 의존성: P13-T0, P13-T1
@@ -1312,6 +1313,172 @@ Version 2.0 — AI 코딩 에이전트 실행용 재구성
   - `resource-tracker.test.js`(tracker 순서/정책/집계/`remove`, 브라우저 측 fetch 관찰자의 의미 보존) 및 Node 전체 테스트 통과. `visual-regression`/`admin-console-errors`/`public-console-errors` 전체 통과, 실행 후 tracked exact ID와 실행 중 소비된 AUTO_INCREMENT 구간 전체가 존재하지 않고 DB 개수/물리 파일 수가 실행 전과 같다.
   - 기존 테스트 assertion의 의미 무변경, 기존 실제 콘텐츠 무영향, `docker-compose.local-test.yml` 미변경.
 - 한계: `kill -9`, 머신/Docker 강제 종료처럼 teardown 자체가 실행되지 않는 경우와, 생성 요청 직후 등록 전에 프로세스가 중단되는 경우의 누수는 보장 범위 밖이다. 이를 위해 journal/stale-resource sweep 같은 자동 삭제는 두지 않는다(오삭제 위험).
+
+---
+
+## Phase 14. 공개 홈페이지 디자인 고급화
+
+Phase 14는 **공개 홈페이지의 시각 디자인만** 개선한다. 기능/정보구조/URL/데이터 흐름/JS 동작은 Phase 13까지의 결정을 그대로 유지한다. 관리자 화면(관리자 CSS/템플릿/CKEditor 설정 포함)은 범위 밖이다. 이 Phase의 근거는 P14-T0 직전에 수행한 READ-ONLY 디자인/UX 감사(공개 template 12개, `home.css` 1197줄, JS 4개, Playwright `visual-regression.spec.js` 기준)다.
+
+### P14 공통 계약 (P14-T1~T7 전체에 적용)
+
+#### A. 확정 사항 (P14-T0에서 확정, 이후 Task가 임의로 바꾸지 않는다)
+
+1. **디자인 방향**: "Editorial / Academic 기반의 Modern Education". 고급스러움은 장식의 양이 아니라 typography, spacing, alignment, visual hierarchy, 절제된 색, 일관된 component language로 만든다.
+   - 피할 것: 과도한 gradient, glassmorphism, 과도한 shadow, 지나치게 둥근 card, pill 남용, animation 남용, SaaS dashboard/스타트업 landing page 스타일, dark+gold 위주의 luxury 스타일, 콘텐츠보다 장식이 먼저 보이는 디자인.
+2. **Typography**: 단일 sans 계열. Serif 혼용은 이번 Phase에서 사용하지 않는다. weight는 가능한 한 400/600/700으로 제한한다. display/h1/h2/h3/body/meta 계층을 token화한다. 방향값(본문 1rem, 본문 line-height 약 1.7, heading line-height 약 1.3)은 목표이며 실제 값은 T1에서 header width 검증 후 확정한다.
+3. **Color 방향**: Deep Navy + Warm Neutral(background=warm off-white 또는 white, surface=warm neutral, primary=deep navy, text=near-black, muted=충분한 contrast의 neutral, border=warm hairline). accent는 디자인상 필요성이 확인될 때만 제한적으로 추가한다. 감사 단계에서 제안된 hex 값은 **확정값이 아니다**.
+4. **Shape / Surface**: 전체적으로 radius를 낮춘다. 단 `--radius` 하나의 값을 바꿔 popup/hero/pagination/dropdown 등을 한꺼번에 바꾸지 않는다(현재 `--radius`는 hero, popup, empty-state, dropdown, program-card, gallery thumb, pagination 등이 공유한다). T1/T2에서 사용처를 다시 조사하고 필요한 최소한의 component-specific radius token으로 분리한다. 일반 content card는 border+spacing 중심, shadow는 dropdown/popup처럼 elevation이 실제 필요한 요소에만, pill은 상태 표시처럼 의미가 있을 때만 쓴다.
+5. **Layout**: 콘텐츠 순서, URL, Controller/data flow 유지. Bootstrap 5.3.3 CDN은 제거하지 않고 새 CSS framework도 추가하지 않는다. mobile 좌우 padding 약 1rem, detail 읽기 폭 약 760~820px, section vertical rhythm 강화를 목표로 한다. 기존 **900px navigation breakpoint는 P13 결정이므로 변경하지 않는다.** 새 breakpoint를 불필요하게 추가하지 않는다.
+6. **Home**: 콘텐츠 순서(Hero/banner → 주요 소식 → 최신 프로그램 → 강의 후기 → 공지사항 → 갤러리)와 Controller/data flow를 유지한다. P13-T17에서 제거한 소개(greeting) 영역과 프로그램 shortcut CTA, 신규 브랜드 메시지 section/신청 CTA를 추가하지 않는다. Hero는 관리자 배너 중심 구조를 유지하고 배너 이미지 위에 overlay text를 추가하지 않는다. 배너가 없을 때의 empty state는 시각만 개선할 수 있다. section 사이에 white/warm surface를 제한적으로 써서 리듬을 만들 수 있으나 과도한 zebra stripe로 보이면 안 된다.
+7. **Section heading**: P13-T12의 제목 링크 구조를 유지한다. "영문 eyebrow + 한글 제목 + 더보기" 패턴을 강제하지 않으며, P13-T12에서 제거한 "전체보기" 텍스트를 디자인 이유만으로 복원하지 않는다. 위계는 typography/spacing/hairline·accent/alignment 중 최소한의 요소로 만든다. 영문 eyebrow는 브랜드 콘텐츠상 자연스러운 경우가 아니면 쓰지 않는다.
+8. **Image / Card**: 현재 콘텐츠 성격별 비율을 유지한다(Program 4:3, Gallery/Review/주요 소식 gallery 스타일 1:1). 전체를 한 비율로 통일하지 않는다. `object-fit`과 placeholder 동작을 유지한다. card는 과도한 shadow/radius 없이 border/spacing/typography 중심으로 하고, hover에서 큰 이동/scale animation을 쓰지 않는다.
+9. **사용자 노출 enum**: 공개 UI에 직접 보이는 raw enum(예: `COURSE`, `OPEN`, `NOTICE`)은 Phase 14에서 사람이 읽을 수 있는 한글 표시명으로 정리한다.
+   - **domain enum, DB 값, API/internal value는 변경하지 않는다. 표시명은 presentation layer에서만 적용한다.**
+   - 기존 테스트가 raw enum 문자열을 고정하고 있으면 새 사용자 표시 계약에 맞게 기대값을 **갱신**할 수 있다. 테스트 삭제/assertion 약화는 금지한다.
+   - 감사 시점 조사 결과: **raw enum을 직접 기대하는 테스트 2곳** — `BoardViewControllerTest:322`(`.board-list__type` 텍스트가 `"NOTICE"`), `ProgramViewControllerTest:217`(`#program-list .program-list__meta`가 `"COURSE"`, `"OPEN"` 포함). **기존 한글 표시 계약 선례 1곳** — `HomeControllerTest:262~265`(홈 `#latest-programs .program-card__status`가 "모집중/모집마감"을 표시하고 `OPEN/CLOSED`가 노출되지 않음을 검증; raw enum 의존 테스트가 아니라 이미 한글 표시를 검증하는 선례). Playwright에는 표시 텍스트로서의 enum 단언이 발견되지 않았으나 `.badge` locator 사용 3곳은 T4A/T4B 착수 전에 재확인한다.
+10. **Detail / Static**: 읽기 경험을 개선한다(읽기 폭 약 760~820px, page title/metadata 위계, paragraph spacing, CKEditor content typography). semantic heading은 가능하면 h1을 쓰되 h2→h1 변경 전에 Java/Playwright test 의존성을 재확인한다(감사 시점에 `h1`/`h2` selector 의존은 발견되지 않음). CKEditor의 image resize, image alignment, alt, figcaption, overflow protection, link policy, 대표 이미지/본문 이미지 분리(P13-T41)를 훼손하지 않는다. 새 typography CSS는 `.ckeditor-content`의 텍스트 요소에 한정하며 기존 image 관련 CSS(`home.css` 하단 `.ckeditor-content .image*` 블록)를 광범위 selector로 덮어쓰지 않는다.
+11. **Accessibility**: 기존 focus-visible/aria-current/keyboard navigation/Escape close/focusout close/popup focus trap/prefers-reduced-motion을 유지한다. Phase 14에 skip link, heading hierarchy 개선, text contrast 검증, interactive target 크기 점검, mobile keyboard/focus QA를 포함한다. 색만으로 상태를 전달하지 않는다.
+12. **Footer**: 현재 사업자 정보와 링크 내용은 그대로 유지하고 정보 계층만 개선한다(brand/navigation과 business information 그룹, desktop 2단 가능, mobile 1단). 사업자 정보가 축약/숨김되면 안 된다.
+13. **CSS 구조**: **Phase 14 동안 `home.css`를 분할하지 않는다**(디자인 변경과 CSS architecture refactoring을 동시에 하지 않아 회귀 원인을 분리한다). T1에서 구조가 구현을 심각하게 방해함이 확인된 경우에만 분할 필요 이유/예상 파일 구조/template 영향/회귀 위험을 보고하고 **별도 승인**을 받는다(승인 없이 분할 금지). Phase 완료 후 필요하면 별도 CSS refactoring Task를 만든다. `!important`를 추가하지 않고 기존 specificity를 먼저 이해한 뒤 수정한다.
+14. **Bootstrap**: Bootstrap 5.3.3 CDN은 유지한다(제거/대체는 범위 밖). 공개 화면에서 눈에 띄는 `list-group`, `badge`, `btn`, `form-control` 기본 스타일은 필요한 범위에서 프로젝트 디자인에 맞게 override할 수 있다(공개 pagination은 Bootstrap이 아니라 커스텀 `.pagination-bar`다). DOM/기능 계약을 깨지 않는다.
+15. **DOM 안정성 원칙**: "디자인을 위해 안정된 DOM을 불필요하게 변경하지 않는다." 기존 selector의 제거/rename은 금지하고, DOM 재구성이 꼭 필요하면 기존 selector를 보존한 wrapper 추가 방식부터 검토한다. 기존 테스트를 디자인에 맞추려고 약화하지 않으며, 테스트가 깨지면 "테스트가 낡은 것인지 vs 실제 회귀인지"를 먼저 판단한다.
+16. **범위 제한**: 공개 홈페이지 전용. 관리자 화면 디자인과 관리자 CKEditor 설정은 변경하지 않는다. 새 npm dependency를 추가하지 않는다. 외부 유료 디자인 시스템/유료 asset을 사용하지 않는다.
+17. **정정 노트(P13-T4)**: P13-T4에 기록된 "Sub Page 공통 Hero/Breadcrumb 적용"은 **현재 코드(`home/*/list.html`, `detail.html`)에 구현되어 있지 않다**(각 페이지는 `<h2>` 제목으로 시작한다). Phase 14에서 이를 자동으로 복원하지 않고, P14 Task로 추가하지 않으며, 디자인 개선을 이유로 새 breadcrumb/hero를 만들지 않는다. 향후 별도 요구가 생겼을 때만 새 Task로 검토한다.
+
+#### B. 이후 Task에서 결정할 사항 (P14-T0에서 확정하지 않음)
+
+| 항목 | 결정 시점 | 비고 |
+|---|---|---|
+| 폰트 제공 방식 | P14-T1 계획 | Pretendard는 **우선 후보**일 뿐 사용 방식은 확정하지 않는다. T1에서 원문 기준으로 license(웹 사용, 재배포 조건, self-host 시 notice, CDN 조건, 저장소 포함 시 license 처리)를 확인한 뒤 A. self-host / B. CDN / C. system font 유지를 라이선스·운영 안정성·외부 의존성·초기 로딩·caching·repository 영향·900px navigation 폭 영향 기준으로 비교하고 **하나를 제안하여 승인**받는다. 라이선스/운영상 문제가 있으면 시스템 한글 sans stack이 fallback이어야 한다. |
+| color 실제 값 | P14-T1 | WCAG contrast를 계산해 AA 기준을 만족하는 값으로 확정 |
+| typography 실제 크기/line-height | P14-T1 | header 폭(900~1440px 한 줄 유지) 검증 후 확정 |
+| container max-width | P14-T1 | 1200px/1320px를 T0에서 확정하지 않는다. 실제 렌더링(1440/1024/900/899/768/375)에서 header와 본문의 좌우 정렬선, whitespace, navigation 한 줄 유지, card/grid 밀도, 본문 가독성, horizontal overflow를 기준으로 결정한다. 일반 content와 reading content에 서로 다른 max-width를 쓸 수 있다. |
+| component-specific radius token 분리 범위 | P14-T1/T2 | `--radius` 사용처 재조사 후 |
+| Home heading(h1) 구조 | P14-T3 계획 | 실제 Home DOM/시각 기준으로 조사 후 제안·승인. 숨겨진 SEO 전용 h1을 억지로 추가하지 않고, Hero/banner 데이터 구조를 바꾸지 않으며, 새 브랜드 메시지를 자동 추가하지 않는다. |
+| Home section 배경 wrapper 추가 | P14-T3 (조건부) | 기본은 **DOM 무변경**. 아래 P14-T3 참고 |
+| 공통 list foundation 위치(T4A vs T4B) | P14-T4A 계획 | 실제 코드 조사 후 더 안전한 쪽에 배치 |
+| `home.css` 분할 | 기본 "하지 않음" | 위 A-13 조건 충족 시에만 별도 승인 |
+
+### P14 보존 계약 (Phase 14 전체에서 보호할 DOM/JS/Test 계약)
+
+아래 id/class/data 속성은 JS 또는 Playwright/Java 테스트가 의존한다. **임의로 제거/rename하지 않는다.**
+
+| 영역 | 보존 대상 |
+|---|---|
+| Header/nav | `#site-header`, `#nav-toggle`, `#site-nav`, `.is-open`, `#quick-menu`, `.site-nav__item.has-submenu`, `.site-nav__trigger`, `.site-nav__submenu`, `data-menu-id`(`all` 포함), `#megamenu`, `.site-nav__megamenu*`, `.site-header__brand`, `.is-active`/`.has-active-child`/`aria-current`, `aria-expanded` |
+| Hero | `#banners`, `#hero-viewport`, `#hero-controls`, `.hero__slide`(`hidden` 전환), `.hero__indicator`(`.is-active`), `#hero-prev`, `#hero-next`, `#hero-play-pause` |
+| Popup | `#popups`, `#popup-overlay`, `.popup-modal`, `data-popup-id`, `.popup-modal__header`, `.popup-modal__title`, `.popup-modal__close`, `.popup-modal__hide-today`, `.popup-modal__body`. **위치(top/left)와 z-index는 `popup-modal.js`가 inline style로 지정하므로 CSS에서 고정하지 않는다.** |
+| Home 섹션 | `#index-content`(layout fragment selector), `#home-pinned`, `#latest-programs`, `#latest-reviews`, `#latest-notices`, `#latest-gallery`, `.section-title__link` |
+| 목록 | `#board-grid`, `#board-list`, `#program-list`, `#board-type-filter`, `#program-type-filter`, `.filter-nav__link`(`.is-active`), `.board-list__*`, `.program-list__*`, `.gallery-grid`/`.gallery-card*`, `.program-card*` |
+| Pagination | `#pagination`, `#prev-page`, `#next-page`, `#page-jump-input`, `#page-jump-submit`, `.pagination-bar*`(`.is-active`) |
+| Detail | `.ckeditor-content`, `#attachment-link`, `#apply-link`, "목록으로" 링크(텍스트 기준 selector 사용) |
+| Footer | `#site-footer`, `.site-footer__brand`, `.site-footer__nav`, `.site-footer__address`, `.site-footer__phone`, `.site-footer__reg-no`, `.site-footer__site`, `.site-footer__copyright` |
+
+추가로 보호할 검증 계약: 900px 경계(899.98/900) 및 top-level 메뉴 한 줄 유지(900~1440), header 터치 영역 하한(32px), 1024px header font-size 상한(18px), GROUP/LEAF `font-weight` 단언(`toHaveCSS('font-weight')` 16곳), 모든 viewport에서 horizontal overflow 없음, CKEditor image resize/alignment/caption/overflow 규칙, `HomeControllerTest`/`ProgramViewControllerTest`/`BoardViewControllerTest`/`PageViewControllerTest`(A-9의 2곳 갱신 대상 제외) 무변경 통과.
+
+### P14 실제 화면 검증 계약
+
+T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는다. 현재 프로젝트의 실행 방법(Docker 8088 등)으로 **실제 브라우저 렌더링**을 확인한다.
+
+- 최소 viewport: **1440, 1024, 900, 899, 768, 375** (필요 시 390/430 추가).
+- 각 Task 확인 항목: horizontal overflow, navigation wrapping, text clipping, image distortion, section spacing, card alignment, focus state, hover state, mobile stacking, typography hierarchy.
+- 기존 Playwright/visual regression infrastructure를 최대한 활용한다. 디자인 변경을 이유로 기존 테스트를 무조건 수정하지 않는다(테스트 갱신은 "낡은 계약"으로 판단된 경우에 한하며 assertion 삭제/약화는 금지).
+
+### Phase 14 Task 구조
+
+`P14-T0 → P14-T1 → P14-T2 → P14-T3`, `P14-T1 → P14-T4A → P14-T4B`, `P14-T1,T4B → P14-T5`, `P14-T2~T5 → P14-T6A/T6B → P14-T7`. 모든 Task의 공통 DoD: `./gradlew build` 통과, Playwright 기존 테스트 무회귀(정당한 계약 갱신 제외), 관리자 화면/DB/Java domain 변경 없음, `docker-compose.local-test.yml`(untracked 유지).
+
+### P14-T0. 공개 홈페이지 디자인 계약 확정
+- 의존성: P13-T42, Phase 14 디자인 감사(READ-ONLY) 승인
+- 산출물: `docs/TASK.md`(본 Phase 14), `docs/ARCHITECTURE.md`(Frontend 절)
+- 작업 내용: 위 Phase 14 공통 계약/보존 계약/검증 계약/Task 구조를 문서로 확정한다. 코드/template/CSS/JS/Java/DB/테스트 변경 없음. `docs/PRD.md`/`docs/FEATURES.md`는 기능 요구사항 변경이 없으므로 수정하지 않는다.
+- 변경 금지: Java, template, CSS, JS, tests, DB/Flyway, build/Docker 파일, `docker-compose.local-test.yml`, PRD, FEATURES.
+- 위험: 낮음(문서 전용). 계약 문구가 P13 결정과 충돌하지 않도록 해야 한다.
+- 검증: `git diff --stat`으로 변경 파일이 `docs/TASK.md`, `docs/ARCHITECTURE.md` 2개뿐임을 확인.
+- DoD: 변경 범위가 두 문서로만 한정, Phase 14 확정/미확정 사항 구분, 보존 계약과 raw enum 조사 결과(직접 의존 2곳 + 한글 표시 선례 1곳)와 P13-T4 정정 노트가 기록됨, `./gradlew build`/`test` 결과에 영향 없음.
+
+### P14-T1. Design Foundation
+- 의존성: P14-T0
+- 산출물(예상): `static/css/home.css`(`:root` token, base typography/surface, container), `home/layout/default.html`(폰트 제공 방식이 요구하는 경우에 한해), 공개 6개 template의 inline `style="margin-top: 40px;"` 정리(클래스/CSS로 대체), (self-host 선택 시) 폰트 파일과 license notice
+- 작업 내용: (1) 폰트 제공 방식 A/B/C 비교 후 제안·승인(license 원문 확인 포함, 새 npm dependency 금지), (2) color token을 Deep Navy + Warm Neutral로 재정의하고 WCAG AA contrast 계산으로 값 확정(`#site-header`/`#site-footer`의 하드코딩 `#dee2e6`/`#495057`을 token으로), (3) typography token(display/h1/h2/h3/body/meta, weight 400/600/700)과 line-height, (4) spacing/section rhythm token, (5) container/reading width를 실제 렌더링으로 확정, (6) `--radius` 사용처 재조사 후 component-specific radius token 분리 범위 결정, (7) base surface.
+- 변경 금지: header/footer/hero/card 등 component별 규칙 재설계(T2 이후), JS, Java, DOM id/class, 900px breakpoint, `home.css` 분할(별도 승인 없이 금지).
+- 위험: 폰트 metric 변화로 900~1440px에서 top-level 메뉴가 wrap될 수 있음(P13-T30D/T35/T36/T37 회귀), `font-weight` 단언 16곳, container 폭 변경이 header와의 정렬을 깨뜨릴 수 있음, `--radius` 공유로 인한 popup/hero/pagination 연쇄 변화.
+- 검증: 6개 viewport 실제 렌더링, P13-T30B/C/D·T35·T36·T37 Playwright, `public-console-errors.spec.js`, `./gradlew build`.
+- DoD: token 체계가 확정되어 문서화됨, 폰트 방식 승인 및 반영, 모든 대비가 AA 기준을 만족, 900~1440px top-level 메뉴 한 줄 유지, 6개 viewport horizontal overflow 없음, 기존 테스트 무변경 통과, `!important` 미추가.
+
+### P14-T2. Header / Footer Visual Refinement
+- 의존성: P14-T1
+- 산출물(예상): `static/css/home.css`(header/footer 구간), 필요 시 `home/layout/footer.html`(그룹 wrapper 추가)
+- 작업 내용: Header brand/여백/hairline/dropdown·mega menu 패널 시각 정리(active/hover/focus 패턴 유지), Footer를 brand/navigation과 business information 두 그룹으로 정리(desktop 2단 가능, mobile 1단), 사업자 정보 전부 유지. component-specific radius/shadow 정리.
+- 변경 금지: `header.html`, `nav-toggle.js`, `nav-submenu.js`, Menu Java/DB, 메뉴 IA/label/href, footer 링크·사업자 정보 내용, 900px breakpoint.
+- 위험: dropdown dead-zone/z-index/popup stacking, `aria-current`/active 표시 회귀, `font-weight` 단언, footer 클래스 selector(`.site-footer__*`) 보존.
+- 검증: 6개 viewport에서 hover/focus/keyboard 전 경로, P13-T30B/C/D·T34·T35·T36·T37 Playwright.
+- DoD: header/footer 시각 개선 확인, 메뉴 keyboard/Escape/focusout/mega menu 무회귀, top-level 한 줄 유지, footer 사업자 정보 무축약, 기존 테스트 무변경 통과.
+
+### P14-T3. Home Visual Redesign
+- 의존성: P14-T1, P14-T2
+- 산출물(예상): `static/css/home.css`(hero/section/card/notice 구간), `home/index.html`(**class 추가 수준에 한정**)
+- 작업 내용: 홈 섹션 rhythm과 section heading 위계, hero(radius/컨트롤 절제, 배너 0건 empty state 시각 개선), 주요 소식/프로그램/후기/공지/갤러리 카드·목록 시각 통일(Program 4:3, Gallery 계열 1:1 유지). **첫 구현에서는 DOM 구조를 변경하지 않는다**: 현재 `#index-content.container`를 유지하고 CSS와 기존 DOM만으로 white/warm surface rhythm을 만들며, full-bleed background를 위한 wrapper를 처음부터 추가하지 않는다. 실제 렌더링에서 container 내부 surface가 명백히 답답/부자연스럽다고 판단될 때만 (현재 방식의 문제, wrapper 추가 시 변경 DOM, 기존 selector 영향, Playwright 영향)을 보고하고 별도 승인을 받는다. Home heading(h1) 구조는 T3 계획 단계에서 조사 후 제안·승인한다.
+- 변경 금지: 섹션 순서, `HomeController`/data flow, banner/popup JS 및 DOM 계약, greeting/shortcut CTA/브랜드 메시지/overlay text 추가, "전체보기" 복원, 영문 eyebrow 강제.
+- 위험: `#index-content` fragment selector, 캐러셀/popup 회귀(`hero-carousel.js`, `popup-modal.js`), 카드 폭 회귀(auto-fill grid), P13-T12/T38B 단언.
+- 검증: 6개 viewport 렌더링, Hero 캐러셀/공개 Popup/메인 카드 폭/P13-T12/P13-T38B Playwright, `HomeControllerTest`.
+- DoD: 홈 6개 영역 시각 통일과 위계 확보, 기존 id/class 무변경, DOM 구조 무변경(승인된 경우 제외), 기존 테스트 무변경 통과.
+
+### P14-T4A. Program List Visual Refinement
+- 의존성: P14-T1 (T3와 병렬 가능)
+- 산출물(예상): `home/program/list.html`, `static/css/home.css`, `ProgramViewControllerTest`(A-9의 raw enum 기대값 갱신), 필요 시 공통 list visual foundation
+- 작업 내용: Program 목록(제목/thumbnail/metadata/hover/spacing)과 Program filter/search 영역 시각 정리, Program 사용자 표시 라벨(programType/recruitStatus)의 한글 표시명 적용(presentation layer에서만), Bootstrap `list-group`/`badge`/`btn`/`form-control` override. Program과 Board가 공유하는 pagination/filter 등 공통 visual foundation은 여기서 먼저 만들고 T4B가 재사용한다(실제 코드 조사 결과 공통 요소를 어느 Task에 두는 것이 더 안전한지 T4A 계획 단계에서 다시 확인한다). Program 상세(`program/detail.html`)의 배지 표시명은 T5와의 중복을 피해 T4A 계획에서 소속을 확정한다.
+- 변경 금지: domain enum/DB/API 값, 필터·검색·pagination 동작과 파라미터, 목록 상태 보존 계약(P13-T14/T28), `#program-list > li > a` 구조와 `.program-list__*`, thumbnail placeholder 동작.
+- 위험: `ProgramViewControllerTest:217`의 raw enum 기대값 갱신(삭제/약화 금지), `.badge` locator 3곳 재확인, `#program-list` id selector specificity, 목록 thumbnail 회귀(P13-T12).
+- 검증: `ProgramViewControllerTest`(갱신 포함), P13-T12/T14 Playwright, 6개 viewport 렌더링.
+- DoD: Program 목록/필터/검색 시각 통일, raw enum이 한글 표시명으로 표시되고 domain/DB/API 값 무변경, 공통 foundation이 문서화되어 T4B가 재사용 가능, 기존 테스트 무변경 통과(정당한 계약 갱신 제외).
+
+### P14-T4B. Board List Visual Refinement
+- 의존성: P14-T4A
+- 산출물(예상): `home/board/list.html`, `static/css/home.css`, `BoardViewControllerTest`(A-9의 raw enum 기대값 갱신)
+- 작업 내용: Board 목록(NOTICE/ARCHIVE 행 목록, GALLERY/REVIEW 썸네일 그리드)과 Board 사용자 표시 라벨(boardType) 한글 표시명, 날짜 표기 통일 검토(홈 `yyyy.MM.dd` vs 게시판 `yyyy-MM-dd HH:mm`, 표기 변경 시 관련 단언 확인), T4A의 공통 foundation(pagination/filter/검색) 재사용(중복 구현 금지), Bootstrap override.
+- 변경 금지: domain enum/DB/API 값, 필터 nav/pagination/상세→목록 복귀 상태 보존(P13-T28), `#board-grid`/`#board-list`/`#board-type-filter` 및 `.board-list__*`, `.gallery-card*` 구조.
+- 위험: `BoardViewControllerTest:322`(`.board-list__type`이 `"NOTICE"`)의 기대값 갱신, REVIEW 두 하위 목록(수강/특강 후기) 필터 회귀, 갤러리 그리드 비율.
+- 검증: `BoardViewControllerTest`(갱신 포함), P13-T14/T27/T28 Playwright, 6개 viewport 렌더링.
+- DoD: Board 목록 시각이 Program 목록과 하나의 시스템으로 통일, raw enum 한글 표시, 기존 테스트 무변경 통과(정당한 계약 갱신 제외), pagination/filter 중복 구현 없음.
+
+### P14-T5. Detail / Static Page Reading Experience
+- 의존성: P14-T1, P14-T4B (상세 라벨 표시명은 T4A/T4B 결정 반영)
+- 산출물(예상): `home/program/detail.html`, `home/board/detail.html`, `home/page/detail.html`, `static/css/home.css`(`.ckeditor-content` 텍스트 요소 구간)
+- 작업 내용: 읽기 폭(약 760~820px), page title/metadata 위계(가능하면 h1, 변경 전 Java/Playwright 의존성 재확인), paragraph/list/table/blockquote/link typography(`.ckeditor-content`의 **텍스트 요소에 한정**), 첨부파일/신청하기/목록으로 버튼 위계, 정적 페이지(GREETING/INTRODUCTION/HISTORY/LOCATION)가 단순 CKEditor 출력처럼 보이지 않도록 공통 page header 정리(신규 breadcrumb/hero 금지 — 정정 노트 참고). 정적 페이지의 표/iframe 등 콘텐츠 출력은 sanitizer 허용 범위를 T5 계획에서 먼저 확인한다.
+- 변경 금지: CKEditor image resize/alignment/alt/figcaption/overflow/link policy 규칙, sanitizer, 대표 이미지/본문 이미지 분리(P13-T41, 상세에 대표 이미지 자동 출력 금지), `#attachment-link`/`#apply-link`, 목록 복귀 로직(P13-T28), 관리자 CKEditor 설정.
+- 위험: `.ckeditor-content .image*` 규칙과의 specificity 충돌(P13-T29/T39/T40 회귀), h2→h1 변경, 이미지 overflow.
+- 검증: P13-T20/T22/T28/T29 Playwright, `HtmlSanitizerTest`(무변경), 375/768/1440에서 inline 이미지/resize/정렬 콘텐츠 렌더링 확인.
+- DoD: 3종 상세와 정적 페이지의 읽기 경험 개선, CKEditor 이미지 기능 전부 무회귀, 기존 테스트 무변경 통과.
+
+### P14-T6A. Accessibility Polish
+- 의존성: P14-T2, P14-T3, P14-T4B, P14-T5
+- 산출물(예상): `static/css/home.css`, `home/layout/default.html`(skip link), 필요 시 공개 template heading 정리
+- 작업 내용: skip link(`#site-main` 대상), heading hierarchy 재점검(Home 포함, T3 결정 반영), 전 영역 text contrast 재검증, interactive target 크기 점검(filter-nav/pagination 포함), 색만으로 상태를 전달하는 곳 보완, mobile keyboard/focus QA.
+- 변경 금지: 기존 focus-visible/aria-current/keyboard navigation/Escape/focusout/popup focus trap/reduced-motion 동작, 숨겨진 SEO 전용 h1 추가.
+- 위험: skip link가 sticky/stacking과 충돌, heading 변경이 test selector에 영향.
+- 검증: keyboard-only 순회, P13-T30B/C/T35/T37 Playwright, `public-console-errors.spec.js`.
+- DoD: skip link 동작, AA contrast 충족, 터치 영역 기준 충족, 기존 접근성 테스트 무회귀.
+
+### P14-T6B. Responsive Polish
+- 의존성: P14-T2, P14-T3, P14-T4B, P14-T5
+- 산출물(예상): `static/css/home.css`
+- 작업 내용: 1440/1024/900/899/768/375(필요 시 390/430)에서 spacing/stacking/grid 밀도/typography 최종 조정. 기존 breakpoint(480/767.98/899.98/900)를 유지하고 새 breakpoint 추가를 피한다.
+- 변경 금지: 900px navigation breakpoint 변경, DOM 재구성, JS.
+- 위험: 좁은 폭에서 긴 제목/긴 한글 문자열 clipping, gallery/program grid 회귀(P13 "메인 카드 폭"/"긴 제목 오버플로우" 회귀 테스트).
+- 검증: 6개 viewport 전 페이지 실측, 기존 반응형 Playwright 전체.
+- DoD: 전 viewport horizontal overflow/clipping/이미지 왜곡 없음, top-level 한 줄 유지, 기존 테스트 무변경 통과.
+
+### P14-T7. Final Visual Regression / Design QA
+- 의존성: P14-T6A, P14-T6B
+- 산출물(예상): `frontend-tests/visual-regression.spec.js`(신규 케이스 추가 위주, 기존 assertion 약화 금지), `docs/TASK.md`(결과 기록)
+- 작업 내용: 공개 전 페이지 × 6개 viewport 최종 QA, visual QA 보강(기존 infrastructure 우선 활용), 문서 기록. 필요 시 Phase 완료 후 CSS refactoring Task 제안(승인 전 착수 금지).
+- 변경 금지: 기존 테스트 삭제/약화, 새 기능 추가.
+- 위험: 환경 의존 flaky 스냅샷.
+- 검증: Playwright 전체, `./gradlew build`, Docker 8088 수동 확인.
+- DoD: 전 Task DoD 재확인, 보존 계약 전 항목 무회귀, 6개 viewport QA 체크리스트 통과, 남은 후속 항목이 문서에 기록됨.
+
 
 ---
 

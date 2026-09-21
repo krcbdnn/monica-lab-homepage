@@ -777,6 +777,18 @@ DB의 `UploadFile.path`에는 `UPLOAD_ROOT`를 제외한 상대경로(`yyyy/MM/d
 - JavaScript ES6
 - CKEditor5
 
+## 공개 화면 디자인 시스템 원칙 (Phase 14, P14-T0)
+
+공개 홈페이지 시각 디자인 개선(Phase 14)의 구조 관련 원칙이다. 세부 디자인 계약, Task 구성, 보존 대상 DOM/JS/Test 목록은 `docs/TASK.md`의 "Phase 14"를 따르며 여기에 중복 기재하지 않는다. 이 원칙은 기능/URL/Controller/data flow를 바꾸지 않는다.
+
+- 공개 스타일은 `static/css/home.css` 단일 파일이며 관리자 CSS(`static/css/admin/`)와 분리한다. Phase 14 동안 `home.css`를 분할하지 않는다(필요하면 사유와 영향을 보고하고 별도 승인 후 진행).
+- 색상/typography/spacing/radius 등 디자인 값은 `:root`의 CSS custom property(token)로 관리하고, component는 token을 참조한다. 기존 token 이름은 가능한 한 유지하고 값 조정을 우선한다. `!important`는 추가하지 않는다.
+- Bootstrap 5.3.3 CDN은 유지한다. 필요한 범위에서만 공개 화면의 Bootstrap 기본 스타일(`list-group`, `badge`, `btn`, `form-control`)을 override하며, 새 CSS framework와 새 npm dependency는 도입하지 않는다.
+- 폰트는 단일 sans 계열을 우선 후보로 하되 제공 방식(self-host/CDN/system font)은 P14-T1에서 license 원문 확인 후 결정한다. 시스템 한글 sans stack이 항상 fallback으로 동작해야 한다.
+- 사용자에게 보이는 enum 표시명(예: `COURSE`, `OPEN`, `NOTICE`의 한글 표시)은 presentation layer에서만 적용한다. domain enum, DB 값, API/internal value는 변경하지 않는다.
+- `header.html`/`nav-*.js`/`hero-carousel.js`/`popup-modal.js`가 의존하는 id/class/data 속성과 Playwright/Java 테스트가 의존하는 selector는 보존한다. 디자인을 위해 안정된 DOM을 불필요하게 바꾸지 않으며, 재구성이 꼭 필요하면 기존 selector를 보존한 wrapper 추가부터 검토한다.
+- 공통 layout fragment(`home/layout/default.html`)의 fragment 시그니처와 `#site-main` 구조, 900px navigation breakpoint(P13 결정)는 Phase 14에서 변경하지 않는다(폰트 link, skip link 추가처럼 TASK.md에 명시된 범위의 추가만 허용).
+
 ---
 
 # URL
