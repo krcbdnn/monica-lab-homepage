@@ -25,10 +25,16 @@ import org.testcontainers.containers.MariaDBContainer;
 //
 // P13-T33: 발주처 요구사항 재확인 결과 "강의 후기"는 GROUP(수강 후기/특강 후기 child 2개)이 아니라
 // 하나의 게시판(BOARD_LIST/REVIEW) top-level LEAF여야 한다는 것이 확인되어, V10이 이를 되돌린다.
-// 이 클래스는 V1~최신(V10 포함) 전체를 순서대로 적용하므로, 아래 테스트들은 "V8/V9가 만든 상태"가
-// 아니라 "V10까지 전부 적용된 이후의 최종 상태"를 검증한다 - V8/V9 자체의 무결성(DELETE 미사용,
-// row 재사용)을 확인하는 테스트는 그대로 유지하되, REVIEW 관련 최종 개수/구조만 V10 반영 값으로
-// 갱신했다.
+//
+// P14-T2A: 이후 발주처 요구사항이 다시 최신으로 변경되어, V12가 "강의 후기"를 다시 GROUP(전체/수강
+// 후기/특강 후기 child 3개)으로 전환하고, 기존 top-level LEAF였던 공지사항/갤러리/자료실을 신규
+// "소식·자료" GROUP의 자식으로 옮긴다. V10 자체는 당시 요구사항 기준으로 올바른 작업이었으므로
+// 수정하지 않고(이력 보존), 그 위에 V12를 forward migration으로 쌓는다.
+//
+// 이 클래스는 V1~최신(V12 포함) 전체를 순서대로 적용하므로, 아래 테스트들은 "V10까지 적용된 상태"가
+// 아니라 "V12까지 전부 적용된 이후의 최종 상태"를 검증한다 - V8/V9/V10 자체의 무결성(DELETE 미사용
+// 또는 정밀 DELETE, row 재사용)을 확인하는 테스트는 그대로 유지하되, top-level IA/REVIEW 관련
+// 최종 개수·구조만 V12 반영 값으로 갱신했다.
 //
 // AbstractIntegrationTest의 정적 공유 컨테이너를 재사용하면 다른 테스트 클래스들이 menuRepository.
 // deleteAll()로 이 테이블을 자유롭게 비우기 때문에, "migration이 직접 만든 원본 상태"를 실행 순서와
@@ -71,14 +77,24 @@ class MenuIaMigrationTest {
         assertThat(appliedCount).as("version 10 applied successfully").isEqualTo(1);
     }
 
+    // P14-T2A: V10 이후 V12도 정상 적용되는지 확인한다("V10 → V12 forward migration" 성공의 증거).
+    @Test
+    void flywayAppliesP14T2AMigrationSuccessfully() {
+        Integer appliedCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '12' AND success = true",
+                Integer.class);
+        assertThat(appliedCount).as("version 12 applied successfully").isEqualTo(1);
+    }
+
     // 기존 V5가 만든 13행(GROUP 3 + child 10)이 하나도 삭제되지 않고, '특강 후기' 1행만 새로 추가되어
     // V9까지는 정확히 14행이었다(DELETE 미사용 + row 재사용 전략의 핵심 검증). P13-T33(V10)이
-    // '수강 후기'/'특강 후기' 자식 2행을 정밀 삭제하므로 최종(V10 이후) 행 수는 12행이다.
+    // '수강 후기'/'특강 후기' 자식 2행을 정밀 삭제해 12행이 됐고, P14-T2A(V12)가 DELETE 없이 신규
+    // 4행(소식·자료 GROUP + 강의 후기의 전체/수강 후기/특강 후기)을 추가해 최종 16행이다.
     @Test
-    void menuTableHasExactlyTwelveRowsAfterAllMigrations() {
+    void menuTableHasExactlySixteenRowsAfterAllMigrations() {
         Integer totalCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM menu", Integer.class);
 
-        assertThat(totalCount).isEqualTo(12);
+        assertThat(totalCount).isEqualTo(16);
     }
 
     // Row identity 보존 검증: DELETE+재삽입이었다면 원래 13개 행의 id가 사라지고 새로운 id로
@@ -86,10 +102,10 @@ class MenuIaMigrationTest {
     // INSERT하므로(V5__update_menu_ia.sql 실제 순서), 그 id를 기준으로 원래 13개 행의 id 범위를
     // 특정 상수(예: "5") 없이 상대적으로 계산한다.
     //
-    // P13-T33(V10)이 이 범위 안의 1개('수강 후기', V5가 만든 13번째 행)와 범위 밖의 1개('특강 후기',
-    // V8이 새로 추가한 행)를 정밀 삭제하므로, 이 테스트가 검증하는 "V8까지는 DELETE+재삽입이 아니라
-    // row 재사용이었다"는 사실 자체는 그대로 유효하되(남은 12개 id 전부가 여전히 원래 식별자를
-    // 유지), 최종 카운트만 V10 삭제분만큼 줄어든다.
+    // P13-T33(V10)이 이 범위 안의 1개('수강 후기', V5가 만든 13번째 행)를 정밀 삭제해 범위 안에는
+    // 12개가 남았다(V8이 추가했던 '특강 후기' 1행은 V10이 삭제해 범위 밖에는 남지 않았다). 이후
+    // P14-T2A(V12)는 DELETE 없이 신규 4행(소식·자료 GROUP + 강의 후기 자식 3개)만 추가하므로,
+    // 원래 12개는 여전히 그대로 남아 있고 범위 밖(새 id)에는 정확히 4개가 있어야 한다.
     @Test
     void originalThirteenV5RowsAreReusedNotDeletedAndRecreated() {
         Long aboutGroupId = jdbcTemplate.queryForObject(
@@ -108,8 +124,9 @@ class MenuIaMigrationTest {
         Integer newRowCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM menu WHERE id > ?", Integer.class, originalRangeEndInclusive);
         assertThat(newRowCount)
-                .as("the one new row V8 added('특강 후기') is exactly the row P13-T33 deletes, so none remain")
-                .isEqualTo(0);
+                .as("P14-T2A(V12) adds exactly 4 new rows(소식·자료 GROUP + 전체/수강 후기/특강 후기) "
+                        + "with no DELETE, so none of the original ids are consumed")
+                .isEqualTo(4);
     }
 
     // 사용자 요구: "SQL 파일 자체에도 DELETE가 들어가지 않는지" 확인. 순수 텍스트 검사이며 실제 SQL
@@ -159,6 +176,17 @@ class MenuIaMigrationTest {
                 .contains("target_subvalue = 'SPECIAL'");
     }
 
+    // P14-T2A(V12)는 V8/V9와 동일한 원칙(DELETE 미사용)으로 돌아간다 - V10처럼 정밀 DELETE조차
+    // 쓰지 않고, guarded INSERT/UPDATE만으로 IA를 재구성한다. dataMigrationSqlFileContainsNoActualDeleteStatement와
+    // 동일한 패턴(실제 DELETE FROM 문 패턴만 검사, 한글 설명 주석의 "DELETE" 단어는 오탐 없음)을 V12에도 적용한다.
+    @Test
+    void v12MigrationSqlFileContainsNoActualDeleteStatement() throws IOException {
+        String v12Sql = readClasspathResource("db/migration/V12__reinstate_review_and_news_menu_groups.sql");
+        assertThat(Pattern.compile("(?i)delete\\s+from").matcher(v12Sql).find())
+                .as("V12 migration에는 실제 DELETE FROM 문이 없어야 한다")
+                .isFalse();
+    }
+
     private String readClasspathResource(String path) throws IOException {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream(path)) {
             assertThat(is).as("classpath resource %s must exist", path).isNotNull();
@@ -166,23 +194,20 @@ class MenuIaMigrationTest {
         }
     }
 
-    // 최종 공개 IA의 6개 top-level Menu row(HOME/전체메뉴는 header.html 정적 마크업이라 Menu row가
-    // 아니다)가 정확한 라벨/유형/순서로 존재해야 한다.
-    //
-    // P13-T33(V10) 반영: "강의 후기"는 더 이상 dropdown GROUP이 아니라 BOARD_LIST top-level LEAF다
-    // (V10이 target_type만 바꾸고 sort_order는 건드리지 않으므로 라벨 순서 자체는 V9 그대로 유지).
-    // 순서: dropdown이 있는 GROUP 2개(연구소 소개/수강 신청) 먼저, 그 다음 dropdown 없는 top-level
-    // LEAF 4개(강의 후기/공지사항/갤러리/자료실).
+    // P14-T2A(V12) 최종 공개 IA의 4개 top-level Menu row(HOME/전체메뉴는 header.html 정적 마크업이라
+    // Menu row가 아니다)가 정확한 라벨/유형/순서로 존재해야 한다. V10 시점에는 "강의 후기/공지사항/
+    // 갤러리/자료실" 4개가 top-level BOARD_LIST LEAF였지만, V12가 공지사항/갤러리/자료실을 "소식·자료"
+    // GROUP의 자식으로, "강의 후기"를 다시 GROUP으로 전환해 top-level은 GROUP 4개만 남는다.
     @Test
-    void sixTopLevelItemsExistInFinalOrder() {
+    void fourTopLevelGroupsExistInFinalOrder() {
         List<Map<String, Object>> topLevel = jdbcTemplate.queryForList(
                 "SELECT label, target_type FROM menu WHERE parent_id IS NULL ORDER BY sort_order");
 
-        assertThat(topLevel).hasSize(6);
+        assertThat(topLevel).hasSize(4);
         assertThat(topLevel).extracting(row -> row.get("label"))
-                .containsExactly("연구소 소개", "수강 신청", "강의 후기", "공지사항", "갤러리", "자료실");
+                .containsExactly("연구소 소개", "수강 신청", "소식·자료", "강의 후기");
         assertThat(topLevel).extracting(row -> row.get("target_type"))
-                .containsExactly("GROUP", "GROUP", "BOARD_LIST", "BOARD_LIST", "BOARD_LIST", "BOARD_LIST");
+                .containsOnly("GROUP");
     }
 
     // 예전 3-GROUP 구조(top-level '프로그램'/'게시판' GROUP)가 더 이상 존재하지 않아야 한다 -
@@ -255,67 +280,70 @@ class MenuIaMigrationTest {
         assertThat(children).extracting(row -> row.get("target_value")).containsExactly("COURSE", "SPECIAL");
     }
 
-    // P13-T33(V10): "강의 후기"는 더 이상 GROUP이 아니므로(그 자체가 하나의 게시판) 이 이름의 GROUP은
-    // 존재하지 않아야 하고, 대신 BOARD_LIST/REVIEW top-level LEAF 1개로 존재하며 target_subvalue는
-    // 항상 NULL이어야 한다(수강 후기/특강 후기는 이제 Menu가 아니라 home/board/list.html의 게시판
-    // 내부 필터 nav에서만 라벨로 쓰인다 - Board.programType 자체는 무변경, Menu 레이어의 이야기다).
+    // P14-T2A(V10 → V12 반영): "강의 후기"는 다시 top-level GROUP이며(그 자체 target_type/target_value
+    // 는 NULL/NULL, target_subvalue도 NULL), 정확히 3개의 자식(전체/수강 후기/특강 후기)을 이
+    // 순서와 target_subvalue(NULL/COURSE/SPECIAL)로 가져야 한다. "전체"의 href는 boardType=REVIEW만
+    // 실어(programType 없음) 기존 REVIEW+NULL 포함 semantics를 그대로 재현한다(Board.programType/
+    // BoardService는 이 migration과 무관하게 무수정).
     @Test
-    void reviewMenuIsNowASingleTopLevelLeafWithNoSubtypeChildren() {
-        Integer legacyReviewGroupCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM menu WHERE label = '강의 후기' AND target_type = 'GROUP'",
-                Integer.class);
-        assertThat(legacyReviewGroupCount).as("'강의 후기' GROUP은 더 이상 존재하지 않아야 한다").isZero();
+    void reviewIsNowATopLevelGroupWithAllCourseAndSpecialChildren() {
+        List<Map<String, Object>> reviewGroup = jdbcTemplate.queryForList(
+                "SELECT id, target_type, target_value, target_subvalue, sort_order FROM menu "
+                        + "WHERE label = '강의 후기' AND parent_id IS NULL");
+        assertThat(reviewGroup).as("'강의 후기'는 정확히 1개의 top-level row여야 한다").hasSize(1);
+        assertThat(reviewGroup.get(0).get("target_type")).isEqualTo("GROUP");
+        assertThat(reviewGroup.get(0).get("target_value")).as("GROUP 전환 시 target_value는 NULL이어야 한다").isNull();
+        assertThat(reviewGroup.get(0).get("target_subvalue")).isNull();
+        assertThat(reviewGroup.get(0).get("sort_order"))
+                .as("V12가 재배치한 top-level sort_order(3)여야 한다").isEqualTo(3);
 
-        List<Map<String, Object>> reviewLeaf = jdbcTemplate.queryForList(
-                "SELECT id, sort_order, target_subvalue FROM menu "
-                        + "WHERE label = '강의 후기' AND target_type = 'BOARD_LIST' "
-                        + "AND target_value = 'REVIEW' AND parent_id IS NULL");
-        assertThat(reviewLeaf).as("'강의 후기'는 정확히 1개의 top-level LEAF여야 한다").hasSize(1);
-        assertThat(reviewLeaf.get(0).get("target_subvalue")).as("target_subvalue는 NULL이어야 한다").isNull();
-        assertThat(reviewLeaf.get(0).get("sort_order")).as("V9이 배치한 sort_order(2)가 V10 이후에도 유지돼야 한다")
-                .isEqualTo(2);
+        Long reviewGroupId = ((Number) reviewGroup.get(0).get("id")).longValue();
+        List<Map<String, Object>> children = jdbcTemplate.queryForList(
+                "SELECT label, target_type, target_value, target_subvalue FROM menu "
+                        + "WHERE parent_id = ? ORDER BY sort_order", reviewGroupId);
 
-        Long reviewMenuId = ((Number) reviewLeaf.get(0).get("id")).longValue();
-        Integer childCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM menu WHERE parent_id = ?", Integer.class, reviewMenuId);
-        assertThat(childCount).as("'강의 후기'는 더 이상 자식을 가지면 안 된다(수강 후기/특강 후기 Menu 삭제됨)")
-                .isZero();
-
-        Integer subvalueRowCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM menu WHERE target_subvalue IS NOT NULL", Integer.class);
-        assertThat(subvalueRowCount).as("target_subvalue가 값을 가지는 행이 더 이상 하나도 없어야 한다").isZero();
+        assertThat(children).hasSize(3);
+        assertThat(children).extracting(row -> row.get("label"))
+                .containsExactly("전체", "수강 후기", "특강 후기");
+        assertThat(children).extracting(row -> row.get("target_type")).containsOnly("BOARD_LIST");
+        assertThat(children).extracting(row -> row.get("target_value")).containsOnly("REVIEW");
+        assertThat(children).extracting(row -> row.get("target_subvalue"))
+                .containsExactly(null, "COURSE", "SPECIAL");
     }
 
-    // 공지사항/갤러리/자료실만을 대상으로 한 검증 - "강의 후기"도 P13-T33 이후 top-level BOARD_LIST가
-    // 되므로 target_value를 명시적으로 좁혀 이 세 항목만의 계약(개수 3/라벨/순서)이 계속 유효한지
-    // 별도로 확인한다("강의 후기" 자체의 계약은 위 reviewMenuIsNowASingleTopLevelLeafWithNoSubtypeChildren
-    // 에서 이미 검증).
+    // 공지사항/갤러리/자료실은 더 이상 top-level이 아니라 "소식·자료" GROUP의 자식이다(개수 3/라벨/
+    // 순서/href 대상 value 계약).
     @Test
-    void noticeGalleryArchiveAreTopLevelBoardListLeaves() {
+    void noticeGalleryArchiveAreNewsGroupChildren() {
         List<Map<String, Object>> leaves = jdbcTemplate.queryForList(
                 "SELECT label, target_value, is_visible FROM menu "
-                        + "WHERE parent_id IS NULL AND target_type = 'BOARD_LIST' "
-                        + "AND target_value IN ('NOTICE', 'GALLERY', 'ARCHIVE') ORDER BY sort_order");
+                        + "WHERE parent_id = (SELECT id FROM menu WHERE parent_id IS NULL "
+                        + "AND label = '소식·자료' AND target_type = 'GROUP') ORDER BY sort_order");
 
         assertThat(leaves).hasSize(3);
         assertThat(leaves).extracting(row -> row.get("label")).containsExactly("공지사항", "갤러리", "자료실");
         assertThat(leaves).extracting(row -> row.get("target_value")).containsExactly("NOTICE", "GALLERY", "ARCHIVE");
+
+        Integer topLevelLeftoverCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM menu WHERE parent_id IS NULL AND target_type = 'BOARD_LIST' "
+                        + "AND target_value IN ('NOTICE', 'GALLERY', 'ARCHIVE')",
+                Integer.class);
+        assertThat(topLevelLeftoverCount).as("공지사항/갤러리/자료실은 더 이상 top-level에 남아있으면 안 된다").isZero();
     }
 
-    // 사용자 요구: 자료실(ARCHIVE)은 절대 숨기지 않는다 - 이전 초안(V5의 게시판 GROUP 자식일 때와
-    // 동일하게) is_visible=TRUE를 그대로 유지한 채 top-level로 승격돼야 한다.
+    // 사용자 요구: 자료실(ARCHIVE)은 절대 숨기지 않는다 - "소식·자료" 자식으로 이동한 뒤에도
+    // is_visible=TRUE를 그대로 유지해야 한다.
     @Test
-    void archiveRemainsVisibleAfterPromotionToTopLevel() {
+    void archiveRemainsVisibleAsNewsGroupChild() {
         Boolean archiveVisible = jdbcTemplate.queryForObject(
-                "SELECT is_visible FROM menu WHERE parent_id IS NULL AND target_type = 'BOARD_LIST' "
-                        + "AND target_value = 'ARCHIVE'",
+                "SELECT is_visible FROM menu WHERE target_type = 'BOARD_LIST' AND target_value = 'ARCHIVE'",
                 Boolean.class);
 
         assertThat(archiveVisible).isTrue();
     }
 
-    // V9 이후에는 '인사말' 1개만 의도적으로 is_visible=false다 - 그 행을 제외한 나머지(V10 이후
-    // 총 12행 중 11행)는 전부 여전히 visible이고 open_in_new_tab도 전부 false여야 한다.
+    // V9 이후에는 '인사말' 1개만 의도적으로 is_visible=false다 - 그 행을 제외한 나머지(V12 이후
+    // 총 16행 중 15행)는 전부 여전히 visible이고 open_in_new_tab도 전부 false여야 한다.
     @Test
     void allRowsExceptIntentionallyHiddenGreetingAreVisibleAndNotOpenInNewTab() {
         Integer nonCompliantCount = jdbcTemplate.queryForObject(

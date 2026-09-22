@@ -1,36 +1,64 @@
 <!DOCTYPE html>
-<html th:replace="~{home/layout/default :: layout(~{::#board-list-content}, '게시판')}" lang="ko"
-      xmlns:th="http://www.thymeleaf.org">
+<html th:replace="~{home/layout/default :: layout(~{::#board-list-content}, ${boardType == null ? '게시판' : (boardType.name() == 'REVIEW' ? '강의 후기' : '소식·자료')})}"
+      lang="ko" xmlns:th="http://www.thymeleaf.org">
 <head>
     <title>게시판</title>
 </head>
 <body>
-<div id="board-list-content" class="container">
-    <h2 class="mb-4">게시판</h2>
+<!-- P14-T2A: 새 top-level 공개 IA(소식·자료/강의 후기 GROUP 분리)에 맞춰, 기존 /boards 하나의
+     Controller/template을 그대로 재사용하면서 title/filter만 context에 따라 세 가지로 나눈다
+     (새 route/Controller 없음, Controller가 이미 model에 싣는 boardType/programType만 사용).
+     legacy(boardType 없음): 기존 7개 필터 그대로(기존 URL 호환).
+     소식·자료(boardType=NOTICE/GALLERY/ARCHIVE): 공지사항/갤러리/자료실 3개만, "전체" 없음.
+     강의 후기(boardType=REVIEW): 전체/수강 후기/특강 후기 3개만, 공지/갤러리/자료실 없음.
+     "전체"의 href/active 조건은 legacy의 기존 "강의 후기" 링크와 완전히 동일(REVIEW+programType 없음)
+     하며 라벨만 context에 따라 다르다(legacy=필터를 선택하는 맥락이라 "강의 후기", 강의 후기 context
+     내부=이미 그 안에 있는 맥락이라 "전체") - href/query semantics 자체는 변경하지 않는다. -->
+<div id="board-list-content" class="container"
+     th:with="newsContext=${boardType != null and (boardType.name() == 'NOTICE' or boardType.name() == 'GALLERY' or boardType.name() == 'ARCHIVE')},
+              reviewContext=${boardType != null and boardType.name() == 'REVIEW'},
+              pageTitle=${boardType == null ? '게시판' : (boardType.name() == 'REVIEW' ? '강의 후기' : '소식·자료')}">
+    <h2 class="mb-4" th:text="${pageTitle}">게시판</h2>
 
     <!-- P13-T30D(Task C): 강의 후기(REVIEW)는 하나의 boardType이지만 공개 화면에서는 programType으로
          수강 후기/특강 후기 두 목록으로 분리해 노출한다. 내부 Board 도메인/저장 구조는 그대로 재사용하며
          (별도 boardType 분리 아님), 필터 nav의 각 링크는 자신이 가리키는 조합만 명시적으로 실어 보내므로
          다른 링크로 이동하면 현재 페이지에 남아있던 programType이 자동으로 사라진다(전체/공지사항/갤러리/
-         자료실 링크는 애초에 programType 파라미터 자체가 없다).
-         기존 "강의 후기"(P13-T16, subtype 구분 없이 전체 REVIEW를 보여주는 generic 링크)는 계속 유지한다
-         (legacy/전체보기 호환 - REVIEW+programType 없음 상태에서만 active). 세 링크(강의 후기/수강 후기/
-         특강 후기)의 active 조건은 상호 배타적이라 동시에 두 개가 active로 보이는 경우가 없다. -->
+         자료실 링크는 애초에 programType 파라미터 자체가 없다). 세 링크(전체/수강 후기/특강 후기)의
+         active 조건은 상호 배타적이라 동시에 두 개가 active로 보이는 경우가 없다. -->
     <nav id="board-type-filter" class="filter-nav mb-3">
-        <a th:href="@{/boards(keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType == null} ? ' is-active'">전체</a>
-        <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType != null and boardType.name() == 'NOTICE'} ? ' is-active'">공지사항</a>
-        <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType != null and boardType.name() == 'GALLERY'} ? ' is-active'">갤러리</a>
-        <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType != null and boardType.name() == 'ARCHIVE'} ? ' is-active'">자료실</a>
-        <a th:href="@{/boards(boardType='REVIEW', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType == null} ? ' is-active'">강의 후기</a>
-        <a th:href="@{/boards(boardType='REVIEW', programType='COURSE', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'COURSE'} ? ' is-active'">수강 후기</a>
-        <a th:href="@{/boards(boardType='REVIEW', programType='SPECIAL', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'SPECIAL'} ? ' is-active'">특강 후기</a>
+        <th:block th:if="${!newsContext and !reviewContext}">
+            <a th:href="@{/boards(keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType == null} ? ' is-active'">전체</a>
+            <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType != null and boardType.name() == 'NOTICE'} ? ' is-active'">공지사항</a>
+            <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType != null and boardType.name() == 'GALLERY'} ? ' is-active'">갤러리</a>
+            <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType != null and boardType.name() == 'ARCHIVE'} ? ' is-active'">자료실</a>
+            <a th:href="@{/boards(boardType='REVIEW', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType == null} ? ' is-active'">강의 후기</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='COURSE', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'COURSE'} ? ' is-active'">수강 후기</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='SPECIAL', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'SPECIAL'} ? ' is-active'">특강 후기</a>
+        </th:block>
+        <th:block th:if="${newsContext}">
+            <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType.name() == 'NOTICE'} ? ' is-active'">공지사항</a>
+            <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType.name() == 'GALLERY'} ? ' is-active'">갤러리</a>
+            <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${boardType.name() == 'ARCHIVE'} ? ' is-active'">자료실</a>
+        </th:block>
+        <th:block th:if="${reviewContext}">
+            <a th:href="@{/boards(boardType='REVIEW', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${programType == null} ? ' is-active'">전체</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='COURSE', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${programType != null and programType.name() == 'COURSE'} ? ' is-active'">수강 후기</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='SPECIAL', keyword=${keyword})}" class="filter-nav__link"
+               th:classappend="${programType != null and programType.name() == 'SPECIAL'} ? ' is-active'">특강 후기</a>
+        </th:block>
     </nav>
 
     <form method="get" th:action="@{/boards}" class="row g-2 mb-4">
