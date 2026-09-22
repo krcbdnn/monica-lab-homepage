@@ -21,6 +21,9 @@
     --space-4: 2.5rem;
     --space-5: 4rem;
     --radius: 0.5rem;
+    /* P14-T2: Header/nav(hover·open tint, dropdown/mega 패널, mobile nav, nav-toggle)에서만 쓰는 작은
+       radius. --radius(0.5rem)는 popup/hero/card/pagination이 공유하므로 값을 바꾸지 않는다. */
+    --radius-sm: 0.25rem;
 
     /* P14-T1: typography. 폰트는 layout/default.html이 불러오는 Pretendard Variable(jsDelivr,
        버전 고정, dynamic subset, font-display: swap)이며, 로딩 실패 시 시스템 한글 sans로 대체된다.
@@ -107,11 +110,27 @@ h3 {
 /* P13-T1: 공개 공통 Header/Footer/모바일 내비게이션.
    본문(Hero/카드/목록 등) 디자인은 P13-T2 이후 범위이므로 포함하지 않는다. */
 
+/* P14-T2: sticky header 때문에 keyboard focus(Tab/Shift+Tab)나 fragment 이동이 요소를 viewport 맨 위로
+   스크롤해 오면 그 요소가 header 뒤에 가려진다(실측: 긴 페이지에서 Shift+Tab 이동 시 대부분 header에 가려짐).
+   header 높이(desktop 68px/mobile 56px)보다 큰 5rem을 스크롤 여백으로 잡아 가려짐을 막는다. */
+html {
+    scroll-padding-top: 5rem;
+}
+
 /* P13-T30B: dropdown이 뒤따르는 hero/banner 섹션에 가려지지 않도록 header를 별도 stacking context로
    승격한다. popup-modal의 z-index:1000(fixed)보다 훨씬 낮은 값이라 popup과 충돌하지 않는다. */
 #site-header {
-    position: relative;
+    /* P14-T2: 스크롤해도 viewport 상단에 고정(sticky - normal flow를 유지하므로 main에 padding을 더하지 않아도
+       되고 layout jump가 없다). sticky도 relative처럼 positioned라 dropdown/mega(absolute)의 containing block과
+       위 stacking context(z-index 10 < popup 1000)는 그대로다. 스크롤 중 본문이 비쳐 보이지 않도록 배경을
+       불투명하게 명시한다(blur/투명도/shadow 없음). */
+    position: sticky;
+    top: 0;
+    background: var(--color-bg);
     z-index: 10;
+    /* P14-T2(Editorial Rule): 상단 3px navy rule + 하단 1px hairline이 header를 하나의 frame으로 닫는다
+       (새 accent color 없이 기존 primary만 사용). desktop 총 높이 = 3 + inner 64 + 1 = 68px. */
+    border-top: 3px solid var(--color-primary);
     border-bottom: 1px solid var(--color-border);
     /* P14-T1: body line-height가 1.7이 되어도 header geometry(높이, dropdown 접촉부)가 P13과 같도록
        기존 Bootstrap 값(1.5)을 header 안에서만 고정한다. */
@@ -126,10 +145,19 @@ h3 {
     padding: 0.75rem 1rem;
 }
 
+/* P14-T2: brand를 nav(400)보다 명확한 위계로 - navy(--color-primary, 대비 11.48:1) + 700.
+   mobile은 1.125rem, 900px 이상은 아래 media query에서 1.375rem. nowrap은 모든 폭에 적용해
+   모바일 nav가 열려도 brand가 여러 줄로 깨지지 않게 한다. */
 .site-header__brand {
+    font-size: 1.125rem;
     font-weight: 700;
+    white-space: nowrap;
     text-decoration: none;
-    color: inherit;
+    color: var(--color-primary);
+}
+
+.site-header__brand:hover {
+    color: var(--color-primary-hover);
 }
 
 #quick-menu {
@@ -206,16 +234,25 @@ h3 {
        900px 부근 wrap 여유에 전혀 개입하지 않는다(위 padding 실측 회귀를 피하기 위해 P13-T36에서
        얻은 교훈을 그대로 재사용). LEAF는 font-weight를 바꾸지 않는다(P13-T36 원칙 유지). */
     #quick-menu > li > a.is-active {
-        background: var(--color-primary-soft);
+        /* P14-T2: current는 배경 없이 navy 글자 + 셀 하단(= header 하단 기준선)에 닿는 3px line.
+           hover(tint)보다 강하고, tint를 쓰는 GROUP open과도 표현이 다르다. */
+        background: none;
         color: var(--color-primary);
-        box-shadow: inset 0 -2px 0 var(--color-primary);
+        box-shadow: inset 0 -3px 0 var(--color-primary);
+    }
+
+    /* current 셀에 hover/keyboard focus가 가도 다른 셀과 같은 tint를 보여 준다(focus == hover 계약). */
+    #quick-menu > li > a.is-active:hover,
+    #quick-menu > li > a.is-active:focus-visible {
+        background: var(--color-primary-soft);
     }
 
     /* GROUP 자신은 목적지가 없어 .is-active를 주지 않는다(승인된 정책) - 자식 중 하나가 active일 때만
        얇은 line으로 "이 아래에 현재 페이지가 있다"를 표시한다. .is-open(강한 tint+bold)과 형태적으로
        분명히 구분되도록 배경/font-weight는 추가하지 않는다. */
     .has-submenu.has-active-child > .site-nav__trigger {
-        box-shadow: inset 0 -2px 0 var(--color-primary);
+        color: var(--color-primary);
+        box-shadow: inset 0 -3px 0 var(--color-primary);
     }
 
     /* mega menu 컬럼의 GROUP 헤딩(<p>)에도 개별 dropdown trigger와 동일한 신호를 준다 - 두 사본이
@@ -224,68 +261,93 @@ h3 {
         box-shadow: inset 0 -2px 0 var(--color-primary);
     }
 
-    /* P13-T30D(A2): 기존 .site-header__inner{justify-content:space-between}은 데스크톱에서 flex
-       자식이 brand/nav 단 2개뿐이라 남는 폭 전부를 그 사이 간격 하나에 몰아줘 nav가 항상 오른쪽
-       padding에 붙어 보였다(1440px에서 로고-nav 간격이 실측 612px까지 벌어짐). nav가 잔여 폭을
-       직접 차지하도록 flex-grow를 주고, 그 잔여 폭 "안에서" 메뉴를 중앙 정렬한다 - 즉 이 중앙 정렬은
-       viewport 정중앙이 아니라 "로고를 제외한 나머지 영역"의 중앙이며, 로고 폭(160px) + inner gap(16px)
-       때문에 뷰포트 중심보다 상수 (160+16)/2=88px만큼 오른쪽에 위치한다(실측: 388~626px에 달했던
-       치우침을 뷰포트 크기와 무관한 고정 88px로 줄임). min-width:0이 없으면 flex item은 콘텐츠
-       min-content 밑으로 줄어들 수 없어 overflow가 나므로 반드시 함께 필요하다. */
+    /* P14-T2(Editorial Rule): brand는 container 좌측, nav는 container 우측 정렬선에 붙는다(기존에는 nav가 남은
+       폭의 중앙에 떠서 양쪽에 큰 빈 공간이 생겼다). inner는 T1의 --container-max 폭/gutter 계약을 그대로 쓰고,
+       align-items:stretch로 nav 셀이 64px 높이를 모두 사용한다(brand만 세로 중앙). 셀 하단이 header 하단선에 닿아
+       current indicator와 dropdown/mega가 그 기준선에 붙는다. 고정 height가 아니라 min-height라 top-level이
+       늘어 wrap돼도 header가 함께 커진다. */
     #site-header .site-header__inner {
         max-width: var(--container-max);
         margin-inline: auto;
+        align-items: stretch;
+        min-height: 4rem;
+        padding-block: 0;
     }
 
     .site-header__brand {
-        white-space: nowrap;
+        align-self: center;
+        font-size: 1.375rem;
+        letter-spacing: -0.015em;
     }
 
     #site-nav {
+        display: flex;
         flex: 1 1 auto;
         min-width: 0;
     }
 
     #quick-menu {
-        justify-content: center;
-        /* P13-T30D(A2): flex-wrap은 기본 8개 IA를 이 breakpoint에서 우겨넣기 위한 장치가 아니다 -
-           900px부터는 아래 font-size/gap의 최소값(각각 16px/20px)만으로 이미 한 줄에 들어간다
-           (실측 여유 ~88px). wrap은 오직 관리자가 top-level Menu를 추가해 8개보다 많아졌을 때의
-           안전장치로만 남겨둔다: 그 경우 overlap/overflow보다 header 세로 높이 증가를 선택한다. */
+        flex: 1 1 auto;
+        min-width: 0;
+        justify-content: flex-end;
+        align-items: stretch;
+        /* P13-T30D(A2): flex-wrap은 기본 8개 IA를 이 breakpoint에서 우겨넣기 위한 장치가 아니다 - 900px부터는
+           font-size/padding의 최소값만으로 이미 한 줄에 들어간다. wrap은 관리자가 top-level Menu를 8개보다
+           많이 추가했을 때의 안전장치로만 남겨둔다(overlap/overflow보다 header 세로 높이 증가를 선택). */
         flex-wrap: wrap;
-        row-gap: 0.25rem;
-        /* 900px(하한, 기존 gap 1.25rem=20px과 동일 - 축소 없음)에서 1440px(28px)까지 서서히 증가.
-           gap: clamp(1.25rem, 0.4167rem + 1.4815vw, 1.75rem) */
-        column-gap: clamp(1.25rem, 0.4167rem + 1.4815vw, 1.75rem);
+        row-gap: 0;
+        /* 항목 간 리듬은 gap이 아니라 아래 셀 padding-inline이 만든다. */
+        column-gap: 0;
     }
 
-    /* P13-T30D(A2): li 자체를 flex로 만들어 자식(a/button)의 line-box 높이에 정확히 밀착시킨다.
-       이게 없으면 clamp()가 만드는 소수점 font-size(예: 16.6px)에서 li의 텍스트 line-box가 button의
-       border-box보다 미세하게 커져, dropdown이 열렸을 때 trigger 하단과 submenu 상단 사이에 최대
-       0.8px pointer dead-zone이 생긴다(A1이 막았던 것과 동일한 종류의 회귀 - 실측으로 재현/확인).
-       submenu 쪽에 별도 margin을 다시 주지 않고 li 쪽에서 막아 A1의 "margin 없이 맞닿는다" 전제를
-       그대로 유지한다. */
+    /* P13-T30D(A1/A2)의 dead-zone 방지 원칙은 그대로다: li가 stretch된 셀 높이를 갖고 그 하단에서 submenu가
+       top:100%로 시작하므로 trigger 하단과 submenu 상단 사이에 간격(margin)이 없다(P14-T2에서 dropdown이
+       header 내부가 아니라 header 하단선에 정확히 붙는다). */
     #quick-menu > li {
         display: flex;
-        align-items: center;
+        align-items: stretch;
     }
 
     #quick-menu > li > a,
     #quick-menu > li > .site-nav__trigger {
+        display: flex;
+        align-items: center;
         white-space: nowrap;
         /* 900px(16px, 기존과 동일 - 축소 없음)에서 1024px(18px)까지 커지고 그 이상은 18px로 고정.
            font-size: clamp(1rem, 0.0927rem + 1.6129vw, 1.125rem) */
         font-size: clamp(1rem, 0.0927rem + 1.6129vw, 1.125rem);
-        /* P13-T36: hover/focus/open tint 배경이 텍스트에 바짝 붙지 않도록 보수적인 실제 padding만
-           추가한다(음수 margin으로 상쇄하는 방식은 hit area가 인접 항목 쪽으로 확장될 수 있어 사용하지
-           않음 - 승인 조건). 900px 근처 wrap 여유(§A2, 실측 88px)를 깎아먹지 않도록 작은 값에서
-           시작했고, 899/900/1024px 실측(Playwright)으로 overflow/wrap 회귀가 없음을 확인한 값이다.
-           li가 flex+align-items:center라 padding만큼 li 높이도 함께 늘어나 submenu와의 dead-zone은
-           그대로 유지된다(§A1 전제 무회귀, boundingBox 실측으로 별도 확인). */
-        padding: 0.1875rem 0.125rem;
-        border-radius: var(--radius);
+        /* P14-T2: 셀 좌우 padding이 항목 리듬을 만든다. 900px 0.625rem(= 기존 gap 20px의 절반씩)에서 시작해
+           1200px 이상 1rem. clamp(0.625rem, 2vw - 0.5rem, 1rem)은 900px에서 10px, 1200px에서 16px. */
+        padding: 0 clamp(0.625rem, 2vw - 0.5rem, 1rem);
+        border-radius: 0;
         transition: background-color .15s ease, color .15s ease;
     }
+
+    /* P14-T2: 전체메뉴는 일반 GROUP과 기능이 다르므로 아주 절제된 구분만 준다(왼쪽 hairline + 최소 여백). */
+    #quick-menu > li[data-menu-id="all"] {
+        margin-left: 0.5rem;
+        border-left: 1px solid var(--color-border);
+    }
+}
+
+/* P14-T2: Header 안 focus-visible - UA 기본(검정/흰 이중 링) 대신 navy 2px outline. outline 자체는
+   유지한다(P13-T36 "native outline 존재" 계약). hover/open과 혼동되지 않도록 배경/굵기 규칙과는 별개다. */
+#site-header a:focus-visible,
+#site-header button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+/* dropdown/mega 안의 링크는 패널 가장자리를 넘지 않도록 outline을 안쪽으로 그린다. */
+#site-header .site-nav__submenu a:focus-visible {
+    outline-offset: -2px;
+}
+
+/* P14-T2: top-level 항목은 header 높이 전체를 쓰는 셀(desktop)/44px 행(mobile)이라 바깥 outline이 인접 셀이나
+   header 경계에 가려지거나 침범한다. 셀 안쪽으로 그려 keyboard focus가 항상 온전히 보이게 한다. */
+#site-header #quick-menu > li > a:focus-visible,
+#site-header #quick-menu > li > .site-nav__trigger:focus-visible {
+    outline-offset: -3px;
 }
 
 .site-nav__submenu {
@@ -302,15 +364,16 @@ h3 {
     padding: 0.5rem 0;
     list-style: none;
     min-width: 10rem;
-    background: #fff;
+    background: var(--color-bg);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+    border-radius: var(--radius-sm);
+    /* P14-T2: SaaS 카드 느낌을 줄이기 위해 기존 0 0.5rem 1rem / .1 에서 약화 */
+    box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.08);
 }
 
 .site-nav__submenu a {
     display: block;
-    padding: 0.375rem 1rem;
+    padding: 0.5rem 1rem;
     text-decoration: none;
     color: inherit;
     white-space: nowrap;
@@ -355,7 +418,21 @@ h3 {
 #site-nav .has-submenu.is-open .site-nav__megamenu {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0 2rem;
+    /* P14-T2: 행 사이 간격(기존 0)을 두어 2행째 heading이 윗줄 link에 붙지 않게 한다. */
+    gap: 1.25rem 2rem;
+}
+
+/* P14-T2: mega 패널은 우측 끝 trigger 셀에서 왼쪽으로 넓게 펼쳐지므로, 포인터가 trigger 중앙에서 패널의 왼쪽
+   아래 링크로 대각선으로 이동하면 잠깐 이웃 셀 위(패널 윗선 위쪽 빈 띠)를 지나 li를 벗어나 mouseleave로 닫힐
+   수 있다(P13-T30C trajectory 테스트가 재현). 패널 윗선 위에 투명 다리(1rem)를 붙여 그 띠도 패널(=li)의
+   hover 영역으로 만든다. 패널이 열려 있을 때만 존재하고 boundingBox/layout에는 영향이 없다. */
+#megamenu::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 1rem;
 }
 
 .site-nav__megamenu-column ul {
@@ -366,7 +443,10 @@ h3 {
 
 .site-nav__megamenu-heading {
     display: block;
-    margin: 0 0 0.5rem;
+    /* P14-T2: GROUP heading(p)과 단독 link heading(a)이 같은 box(padding 0.25rem 0, 아래 margin 0.25rem)를
+       가져 세로 위치와 위계가 일치한다(a는 .site-nav__megamenu-column a의 padding을 이미 받는다). */
+    padding: 0.25rem 0;
+    margin: 0 0 0.25rem;
     font-weight: 700;
     color: inherit;
     text-decoration: none;
@@ -389,10 +469,14 @@ h3 {
     display: none;
     align-items: center;
     gap: 0.5rem;
-    border: 1px solid #ced4da;
-    border-radius: 0.25rem;
-    background: #fff;
-    padding: 0.375rem 0.625rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: inherit;
+    padding: 0.375rem 0.75rem;
+    /* P14-T2: touch target 40px 이상 + "메뉴" 라벨이 줄바꿈되지 않게 한다. */
+    min-height: 2.5rem;
+    white-space: nowrap;
     font-size: 0.875rem;
     line-height: 1;
     cursor: pointer;
@@ -426,9 +510,14 @@ h3 {
     top: 5px;
 }
 
+/* P14-T2: Footer 위계 정리(CSS만, DOM/class 무변경). 기존에는 모든 행이 16px/1.7/같은 색이었고 브랜드·
+   reg-no·site·copyright의 <p>에 Bootstrap 기본 margin-bottom(1rem)이 남아 flex gap과 합쳐져 행 간격이
+   24/8/0/24/24/24로 불규칙했다. footer 안의 <p> margin을 0으로 고정하고 간격은 gap/명시적 margin으로만
+   제어한다. 정보(브랜드/링크/주소/전화/사업자등록번호/도메인/copyright)는 추가·삭제·변경하지 않는다. */
 #site-footer {
-    margin-top: 2rem;
-    padding: 1.5rem 1rem;
+    margin-top: var(--space-4);
+    padding: 2rem 1rem;
+    background: var(--color-surface);
     border-top: 1px solid var(--color-border);
     color: var(--color-text-muted);
 }
@@ -436,14 +525,33 @@ h3 {
 .site-footer__inner {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    text-align: center;
+    align-items: flex-start;
+    gap: 0.25rem;
+    text-align: left;
+    line-height: 1.6;
+    /* header inner와 같은 좌우 정렬선: header inner는 max --container-max에 padding 1rem이므로
+       콘텐츠 폭은 --container-max - 2rem. */
+    max-width: calc(var(--container-max) - 2rem);
+    margin-inline: auto;
+}
+
+.site-footer__inner p {
+    margin: 0;
+}
+
+.site-footer__brand {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text);
 }
 
 .site-footer__nav {
     display: flex;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5rem;
+    margin: 0.25rem 0 var(--space-2);
+    font-size: 0.9375rem;
+    color: var(--color-text);
 }
 
 .site-footer__nav a {
@@ -451,14 +559,19 @@ h3 {
     text-decoration: none;
 }
 
+.site-footer__nav a:hover,
+.site-footer__nav a:focus-visible {
+    text-decoration: underline;
+}
+
 .site-footer__site a {
     color: inherit;
 }
 
-/* P13-T34: 발주처 확정 사업자 정보(주소/전화/사업자등록번호) - font-style 리셋(<address> 기본 italic)과
-   <p> 기본 margin 리셋만으로 기존 .site-footer__inner의 column/gap 레이아웃에 자연스럽게 편입된다.
-   전화/사업자등록번호는 하이픈 포함 짧은 값이라 줄 중간에서 끊기지 않도록 nowrap한다(주소는 공백
-   기준 자연 줄바꿈을 허용해야 하므로 nowrap하지 않는다). */
+/* P13-T34: 발주처 확정 사업자 정보(주소/전화/사업자등록번호) - font-style 리셋(<address> 기본 italic)만으로
+   기존 .site-footer__inner의 column/gap 레이아웃에 자연스럽게 편입된다. 전화/사업자등록번호는 하이픈 포함
+   짧은 값이라 줄 중간에서 끊기지 않도록 nowrap한다(주소는 공백 기준 자연 줄바꿈을 허용해야 하므로
+   nowrap하지 않는다). P14-T2: 사업자 정보는 meta 크기(--fs-meta)의 muted 색으로 위계를 낮춘다. */
 .site-footer__business {
     font-style: normal;
 }
@@ -467,9 +580,68 @@ h3 {
     margin: 0;
 }
 
+.site-footer__business,
+.site-footer__reg-no,
+.site-footer__site {
+    font-size: var(--fs-meta);
+}
+
 .site-footer__phone,
 .site-footer__reg-no {
     white-space: nowrap;
+}
+
+/* copyright: 위에 hairline 하나로 정보 영역과 구분한다. `.site-footer__inner p{margin:0}`(0,1,1)보다
+   특이도가 높아야 위쪽 margin이 살아 있으므로 조상 class를 함께 쓴다. */
+.site-footer__inner .site-footer__copyright {
+    align-self: stretch;
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+    font-size: 0.8125rem;
+}
+
+/* P14-T2(F2): desktop(900px 이상, 기존 nav 경계 재사용)에서는 2단 - 좌측 brand/nav, 우측 사업자 정보,
+   하단 copyright. footer.html은 바꾸지 않고 기존 자식(class)에 grid-area만 부여한다. */
+@media (min-width: 900px) {
+    .site-footer__inner {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas:
+            "brand business"
+            "nav business"
+            ". reg"
+            ". site"
+            "copyright copyright";
+        column-gap: var(--space-4);
+        row-gap: 0.25rem;
+        align-items: start;
+    }
+
+    .site-footer__brand {
+        grid-area: brand;
+    }
+
+    .site-footer__nav {
+        grid-area: nav;
+        margin: 0;
+    }
+
+    .site-footer__business {
+        grid-area: business;
+    }
+
+    .site-footer__reg-no {
+        grid-area: reg;
+    }
+
+    .site-footer__site {
+        grid-area: site;
+    }
+
+    .site-footer__inner .site-footer__copyright {
+        grid-area: copyright;
+    }
 }
 
 /* 모바일/좁은 태블릿: 햄버거 토글 노출, 내비게이션은 토글 전까지 접힘.
@@ -484,29 +656,85 @@ h3 {
         display: inline-flex;
     }
 
+    /* P14-T2: 모바일 nav가 열렸을 때 #site-nav(width:100%)가 brand/toggle과 같은 flex 행에 남아 brand를
+       3줄(375px)/2줄(768px)로 찌그러뜨리고 메뉴가 옆으로 밀리던 P13부터의 결함 수정. wrap을 허용해 nav가
+       brand/toggle 아래 별도 행으로 내려가게 한다(DOM/JS 무변경). header 높이(약 53px)는 유지하도록 toggle이
+       40px로 커진 만큼 세로 padding을 줄인다. */
+    #site-header .site-header__inner {
+        flex-wrap: wrap;
+        row-gap: 0;
+        padding-block: 0.375rem;
+    }
+
+    #quick-menu > li {
+        width: 100%;
+    }
+
+    /* 항목 사이 hairline(첫 항목 위에는 없고, display:none인 전체메뉴 li의 영향도 받지 않는다). */
+    #quick-menu > li + li {
+        border-top: 1px solid var(--color-border);
+    }
+
+    /* GROUP trigger 오른쪽 chevron(CSS만, 외부 icon/JS 없음). 닫힘은 아래쪽, .is-open(nav-submenu.js가
+       aria-expanded와 함께 동기화)이면 위쪽. transition 없이 상태만 바꾼다. */
+    .site-nav__trigger::after {
+        content: "";
+        margin: 0 0.25rem 0 auto;
+        width: 0.5rem;
+        height: 0.5rem;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: rotate(45deg) translate(-2px, -2px);
+    }
+
+    .has-submenu.is-open > .site-nav__trigger::after {
+        transform: rotate(-135deg) translate(-2px, -2px);
+    }
+
+    /* P14-T2: 열린 nav는 header row의 두 번째 flex 줄이 아니라 header 폭 전체를 쓰는 별도 surface 패널이다.
+       .site-header__inner의 좌우 padding(1rem, T1의 container gutter와 같은 값)만큼 음수 margin으로 양쪽
+       가장자리까지 넓히고(width = 100% + 2rem), 같은 값의 padding으로 내용은 brand와 같은 정렬선(16px)에 둔다. */
     #site-nav {
         display: none;
-        width: 100%;
+        width: calc(100% + 2rem);
+        margin-inline: -1rem;
+        padding-inline: 1rem;
     }
 
     #site-nav.is-open {
         display: block;
+        margin-top: 0.375rem;
+        background: var(--color-surface);
+        border-top: 1px solid var(--color-border);
+        /* header가 sticky라 열린 nav가 viewport보다 길면(가로 모드/작은 화면에서 GROUP까지 열면 약 447px)
+           header의 아래쪽이 스크롤로 닿을 수 없어 하단 메뉴에 접근하지 못한다. 열린 nav 자체를 남은 높이로
+           제한하고 그 안에서만 스크롤한다(nav 시작 y ≈ 3(rule) + 6 + 40(toggle) + 6, 아래 padding/border ≈ 7px
+           이므로 4rem을 뺀다). 충분히 낮을 때만 스크롤바가 생긴다. */
+        max-height: calc(100vh - 4rem);
+        max-height: calc(100dvh - 4rem);
+        overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     #quick-menu {
         flex-direction: column;
         align-items: flex-start;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
+        /* P14-T2: 44px touch target 행 사이는 gap 대신 아래 li 사이 hairline으로 구분한다. */
+        gap: 0;
+        margin: 0;
+        padding: 0;
     }
 
     /* 모바일은 dropdown이 아니라 accordion으로 펼쳐진다 - position/box-shadow/border만 무력화하고
        열림/닫힘 자체는 위 .has-submenu.is-open 규칙을 그대로 공유한다(중복 선언 없음). */
     .site-nav__submenu {
         position: static;
-        margin: 0.5rem 0 0;
+        margin: 0;
         padding: 0;
-        padding-left: 1rem;
+        /* 들여쓰기: 이 padding(0.5rem) + 아래 링크 padding(0.5rem) = 부모 글자 대비 16px. 흰 카드처럼 보이지
+           않도록 배경은 투명(surface 패널이 그대로 보인다). */
+        padding-left: 0.5rem;
+        background: transparent;
         border: none;
         box-shadow: none;
     }
@@ -521,12 +749,24 @@ h3 {
        고려할 필요가 없음) 터치 타겟을 실제로 키운다 - 음수 margin 상쇄 없이 그대로 padding만 늘린다. */
     #quick-menu > li > a,
     .site-nav__trigger {
-        padding: 0.5rem 0.5rem;
-        border-radius: var(--radius);
+        /* P14-T2: top-level LEAF/GROUP trigger를 같은 44px(2.75rem) 행으로 통일하고 flex+align-items로 텍스트를
+           세로 중앙에 둔다. 셀은 좌우로 0.5rem 넓혀(tint가 패널 안쪽 여백까지 닿음) 글자는 brand와 같은
+           정렬선에 놓이고, li 사이 hairline은 글자 폭(16px 정렬선) 안에서만 그려진다. */
+        display: flex;
+        align-items: center;
+        width: calc(100% + 1rem);
+        margin-inline: -0.5rem;
+        min-height: 2.75rem;
+        padding: 0 0.5rem;
+        border-radius: 0;
     }
 
     .site-nav__submenu a {
-        padding: 0.5rem 1rem;
+        display: flex;
+        align-items: center;
+        min-height: 2.75rem;
+        padding: 0 0.5rem;
+        border-radius: var(--radius-sm);
     }
 
     /* P13-T36: 데스크톱 hover/open 강조(위 @media(min-width:900px) 블록)는 900px 미만에서는 전혀
