@@ -1259,7 +1259,27 @@ html {
    그대로 두고 a 내부에 썸네일/본문만 추가한다 - a 전체가 클릭 영역이라 썸네일/제목 어디를 눌러도
    상세로 이동한다. 썸네일은 폭/높이를 고정해 원본 이미지 비율과 무관하게 행 높이가 항상 동일하고,
    object-fit:cover로 잘라 채운다(placeholder도 같은 크기 유지). min-width:0은 flex item의 기본
-   min-width:auto가 제목 줄바꿈(overflow-wrap)을 막는 것을 방지하기 위함이다. */
+   min-width:auto가 제목 줄바꿈(overflow-wrap)을 막는 것을 방지하기 위함이다.
+   P14-T4A: 기존 ul>li.list-group-item>a 구조/크기 계약(썸네일 112×80/모바일 80×60)은 그대로 두고,
+   Bootstrap list-group 기본 느낌을 줄이기 위해 row border-color를 토큰으로 바꾸고 hover/focus 피드백만
+   추가한다(Option B - Editorial Content Hierarchy, 새 component/카드 grid 전환 없음). */
+#program-list.list-group {
+    border-radius: var(--radius);
+}
+
+#program-list .list-group-item {
+    border-color: var(--color-border);
+    padding: var(--space-2);
+    transition: background-color 0.15s ease;
+}
+
+/* hover/focus 둘 다 같은 배경으로 피드백을 준다(keyboard focus가 hover보다 약하지 않도록 :focus-within도
+   함께 건다). 기존 browser 기본 outline은 제거하지 않고, focus-visible에만 명시적 outline을 더한다. */
+#program-list .list-group-item:hover,
+#program-list .list-group-item:focus-within {
+    background: var(--color-surface);
+}
+
 #program-list .program-list__link {
     display: flex;
     align-items: center;
@@ -1269,11 +1289,21 @@ html {
     text-decoration: none;
 }
 
+#program-list .program-list__link:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+}
+
+#program-list .program-list__link:hover .program-list__title,
+#program-list .program-list__link:focus-visible .program-list__title {
+    color: var(--color-primary);
+}
+
 #program-list .program-list__thumb {
     flex-shrink: 0;
     width: 112px;
     height: 80px;
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     overflow: hidden;
     background: var(--color-surface);
 }
@@ -1302,6 +1332,25 @@ html {
 #program-list .program-list__title {
     font-weight: 600;
     color: var(--color-text);
+    transition: color 0.15s ease;
+}
+
+/* P14-T4A: Bootstrap 기본 배지 색(bg-secondary 회색/bg-info 청록)이 사이트 token과 무관해 "관리자 CRUD
+   나열" 느낌을 줬다(조사 단계 실측). 제목보다 튀지 않도록 두 배지 모두 절제된 outline 스타일로 통일하고,
+   모집 상태(OPEN)만 primary color로 살짝 구분한다(텍스트 자체가 "모집중"/"모집마감"이라 색만으로 상태를
+   전달하지 않음). Bootstrap 전역 `.badge`는 건드리지 않고 Program List 전용 클래스로만 scope했다. */
+#program-list .program-list__type-badge,
+#program-list .program-list__status-badge {
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+}
+
+#program-list .program-list__status-badge.is-open {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
 }
 
 @media (max-width: 767.98px) {

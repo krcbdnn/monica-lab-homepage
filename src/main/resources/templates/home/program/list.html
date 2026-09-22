@@ -38,9 +38,17 @@
                 </span>
                 <span class="program-list__body">
                     <span class="program-list__title" th:text="${program.title()}"></span>
+                    <!-- P14-T4A: raw enum(COURSE/SPECIAL, OPEN/CLOSED)을 공개 화면에 그대로 노출하지 않고
+                         한글 표시명으로 매핑한다. domain enum/DB/API 값은 무변경(presentation layer에서만
+                         처리) - Home(#latest-programs)의 recruitStatus 표시(P13-T17)와 동일한 삼항 패턴을
+                         재사용한다. ProgramType/RecruitStatus는 각각 COURSE/SPECIAL, OPEN/CLOSED 두 값만
+                         존재하는 닫힌 enum이라(구현 전 재확인) 이 두 값 매핑만으로 충분하다. -->
                     <span class="program-list__meta">
-                        <span class="badge bg-secondary" th:text="${program.programType()}"></span>
-                        <span class="badge bg-info" th:text="${program.recruitStatus()}"></span>
+                        <span class="badge program-list__type-badge"
+                              th:text="${program.programType().name() == 'COURSE'} ? '수강' : '특강'"></span>
+                        <span class="badge program-list__status-badge"
+                              th:classappend="${program.recruitStatus().name() == 'OPEN'} ? ' is-open'"
+                              th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
                     </span>
                 </span>
             </a>
