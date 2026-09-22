@@ -304,6 +304,63 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(active.text()).isEqualTo("전체");
     }
 
+    // P14-T2A: legacy(/boards, boardType 없음)에서는 기존 7개 필터가 전부 그대로 노출돼야 한다
+    // (기존 URL/필터 호환성 유지).
+    @Test
+    void legacyContextExposesAllSevenFilterLinks() throws Exception {
+        String body = mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Elements links = Jsoup.parse(body).select("#board-type-filter .filter-nav__link");
+        assertThat(links.eachText()).containsExactly(
+                "전체", "공지사항", "갤러리", "자료실", "강의 후기", "수강 후기", "특강 후기");
+    }
+
+    // P14-T2A: 소식·자료 context(boardType=NOTICE/GALLERY/ARCHIVE)는 공지사항/갤러리/자료실 3개만
+    // 노출하고, "전체"와 강의 후기 계열 필터는 노출하지 않는다.
+    @Test
+    void newsContextExposesOnlyNoticeGalleryArchiveFilters() throws Exception {
+        String body = mockMvc.perform(get("/boards").param("boardType", "GALLERY"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Elements links = Jsoup.parse(body).select("#board-type-filter .filter-nav__link");
+        assertThat(links.eachText()).containsExactly("공지사항", "갤러리", "자료실");
+    }
+
+    // P14-T2A: 강의 후기 context(boardType=REVIEW)는 전체/수강 후기/특강 후기 3개만 노출하고,
+    // 공지사항/갤러리/자료실 필터는 노출하지 않는다. programType이 없으면 "전체"가 active다.
+    @Test
+    void reviewContextExposesOnlyAllCourseSpecialFiltersAndAllLabelIsActiveWithoutProgramType() throws Exception {
+        String body = mockMvc.perform(get("/boards").param("boardType", "REVIEW"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements links = document.select("#board-type-filter .filter-nav__link");
+        assertThat(links.eachText()).containsExactly("전체", "수강 후기", "특강 후기");
+
+        Elements active = document.select("#board-type-filter .filter-nav__link.is-active");
+        assertThat(active).hasSize(1);
+        assertThat(active.text()).isEqualTo("전체");
+        // keyword가 null이면 Thymeleaf @{}가 파라미터를 생략하지 않고 빈 값(key=)으로 렌더링한다
+        // (home/board/list.html 기존 주석과 동일한 실측 동작).
+        assertThat(active.attr("href")).isEqualTo("/boards?boardType=REVIEW&keyword=");
+    }
+
+    // 강의 후기 context에서 programType=COURSE면 "수강 후기"가 active이고 "전체"는 active가 아니다.
+    @Test
+    void reviewContextWithCourseProgramTypeMarksCourseReviewActiveNotAll() throws Exception {
+        String body = mockMvc.perform(get("/boards").param("boardType", "REVIEW").param("programType", "COURSE"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Elements active = Jsoup.parse(body).select("#board-type-filter .filter-nav__link.is-active");
+        assertThat(active).hasSize(1);
+        assertThat(active.text()).isEqualTo("수강 후기");
+    }
+
     @Test
     void listRendersBoardTypeTitleAndCreatedAtInsideTheItemLink() throws Exception {
         Long id = boardRepository.saveAndFlush(Board.builder()

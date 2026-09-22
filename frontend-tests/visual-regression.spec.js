@@ -179,21 +179,21 @@ test.describe('모바일 햄버거 메뉴', () => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#site-nav')).toBeVisible();
 
-    // P13-T33: "강의 후기"가 BOARD_LIST top-level LEAF로 전환되어(더 이상 GROUP이 아님), HOME(정적
-    // 링크) + 2개 GROUP trigger(최종 IA: 연구소 소개/수강 신청)만 모바일 accordion에 노출된다.
-    // 강의 후기/공지사항/갤러리/자료실은 전부 top-level LEAF라 GROUP trigger가 아닌 일반 링크로
-    // 함께 렌더링되므로 이 locator(그룹 trigger만 대상) 개수에는 포함되지 않는다.
+    // P14-T2A: "소식·자료"/"강의 후기"가 다시 GROUP이 되어, HOME(정적 링크) + 4개 GROUP trigger
+    // (연구소 소개/수강 신청/소식·자료/강의 후기)가 모바일 accordion에 노출된다. 공지사항/갤러리/
+    // 자료실/전체(강의 후기 REVIEW)는 더 이상 top-level 링크가 아니라 각 GROUP의 submenu child다.
     // 전체메뉴(mega menu) 트리거는 모바일에서 숨겨진다(hamburger accordion과 동일 정보가 중복되는 것을 피함).
     await expect(page.locator('#quick-menu > li:first-child > a[href="/"]')).toBeVisible();
     const groupTriggers = page.locator(
       '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
-    await expect(groupTriggers).toHaveCount(2);
+    await expect(groupTriggers).toHaveCount(4);
     await expect(groupTriggers.nth(0)).toHaveText('연구소 소개');
     await expect(groupTriggers.nth(1)).toHaveText('수강 신청');
-    // 강의 후기는 이제 GROUP trigger가 아니라 일반 top-level 링크다.
-    const reviewLeafLink = page.locator('#quick-menu > li.site-nav__item:not(.has-submenu) > a', {
-      hasText: '강의 후기',
-    });
+    await expect(groupTriggers.nth(2)).toHaveText('소식·자료');
+    await expect(groupTriggers.nth(3)).toHaveText('강의 후기');
+    // 강의 후기는 더 이상 top-level 링크가 아니라 GROUP의 submenu child("전체")다.
+    const reviewLeafLink = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) .site-nav__submenu a', { hasText: '전체' });
     await expect(reviewLeafLink).toHaveAttribute('href', '/boards?boardType=REVIEW');
     await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
 
@@ -226,11 +226,11 @@ test.describe('모바일 햄버거 메뉴', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.locator('#site-nav')).toBeVisible();
-    // P13-T33: 데스크톱 폭으로 전환되면 2개 GROUP trigger(연구소 소개/수강 신청)에 더해 전체메뉴
-    // (mega menu) 트리거도 다시 노출된다("강의 후기"는 더 이상 GROUP이 아니므로 포함되지 않음).
+    // P14-T2A: 데스크톱 폭으로 전환되면 4개 GROUP trigger(연구소 소개/수강 신청/소식·자료/강의 후기)에
+    // 더해 전체메뉴(mega menu) 트리거도 다시 노출된다.
     const groupTriggers = page.locator(
       '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
-    await expect(groupTriggers).toHaveCount(2);
+    await expect(groupTriggers).toHaveCount(4);
     await expect(page.locator('[data-menu-id="all"]')).toBeVisible();
   });
 });
@@ -1259,14 +1259,17 @@ test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', ()
     await expect(page.locator('#board-type-filter .filter-nav__link.is-active')).toHaveText('전체');
   });
 
-  // P13-T16: #board-type-filter에 "강의 후기"(REVIEW) 필터 추가. active/query parameter 계약은
+  // P13-T16: #board-type-filter에 REVIEW 필터 추가. active/query parameter 계약은
   // 위 "공지사항" 케이스와 동일하게 유지된다.
-  test('"강의 후기" 필터가 active일 때 다른 필터보다 굵게 표시된다', async ({ page }) => {
+  // P14-T2A: /boards?boardType=REVIEW는 이제 "강의 후기 context" 화면이라(§board list context 분리),
+  // programType 없이 전체 REVIEW를 가리키는 필터의 라벨이 "강의 후기"(legacy 전용 라벨)가 아니라
+  // "전체"다 - href/query semantics(REVIEW+programType 없음)는 그대로다.
+  test('"전체"(REVIEW) 필터가 active일 때 다른 필터보다 굵게 표시된다', async ({ page }) => {
     await page.goto('/boards?boardType=REVIEW');
 
     const active = page.locator('#board-type-filter .filter-nav__link.is-active');
     const inactive = page.locator('#board-type-filter .filter-nav__link:not(.is-active)').first();
-    await expect(active).toHaveText('강의 후기');
+    await expect(active).toHaveText('전체');
 
     const activeWeight = Number(await active.evaluate((el) => getComputedStyle(el).fontWeight));
     const inactiveWeight = Number(await inactive.evaluate((el) => getComputedStyle(el).fontWeight));
@@ -2779,17 +2782,20 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
   // P13-T30D(Task C): 최종 IA로 전환된 뒤의 "수강 신청" GROUP dropdown 콘텐츠와, 게시판 GROUP에서
   // 승격된 공지사항/갤러리/자료실 top-level LEAF를 함께 검증한다(대표 hover/click 상호작용 자체는
   // 위 P13-T30B 테스트에서 이미 확인했으므로 여기서는 콘텐츠/href 정확성에 집중한다).
-  // P13-T33: "강의 후기"는 더 이상 GROUP dropdown이 아니라 단일 top-level LEAF다(발주처 요구 -
-  // 강의 후기는 하나의 게시판이며 공개 navigation에는 "강의 후기" 하나만 존재해야 한다). 클릭 시
-  // /boards?boardType=REVIEW로 바로 이동하고, 그 게시판 내부의 전체/수강 후기/특강 후기 필터는
-  // home/board/list.html의 #board-type-filter가 그대로 담당한다(이 describe 블록 범위 밖).
-  test('Desktop 1440: "수강 신청" GROUP dropdown 콘텐츠가 정확하고, 강의 후기/공지사항/갤러리/자료실은 top-level LEAF로 노출된다', async ({ page }) => {
+  // P14-T2A: "강의 후기"는 다시 GROUP dropdown이다(발주처 요구가 최신으로 변경됨 - P13-T33 당시
+  // 결정을 이번에 다시 뒤집었다. P13-T33 자체는 당시 요구사항 기준으로 올바른 작업이었다). 전체는
+  // /boards?boardType=REVIEW(기존 REVIEW+NULL 포함 semantics 그대로), 수강/특강 후기는 각각
+  // programType 쿼리를 더한다. 공지사항/갤러리/자료실은 top-level LEAF가 아니라 "소식·자료" GROUP의
+  // 자식이다.
+  test('Desktop 1440: "수강 신청"/"소식·자료"/"강의 후기" GROUP dropdown 콘텐츠가 정확하다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
-    const courseGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
-      hasText: '수강 신청',
+    const groupItem = (label) => page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: label,
     });
+
+    const courseGroupItem = groupItem('수강 신청');
     await courseGroupItem.locator('.site-nav__trigger').hover();
     const courseLinks = courseGroupItem.locator('.site-nav__submenu a');
     await expect(courseLinks).toHaveCount(2);
@@ -2798,27 +2804,42 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
       '/programs?programType=SPECIAL',
     ]);
     expect(await courseLinks.allTextContents()).toEqual(['수강 신청', '특강 신청']);
+    await page.mouse.move(5, 500);
 
-    // 강의 후기/공지사항/갤러리/자료실은 GROUP의 자식이 아니라 #quick-menu 바로 아래의 top-level
-    // LEAF다. "강의 후기" 항목 자체는 <button>(GROUP trigger)이 아니라 <a>(일반 링크)여야 하고,
-    // submenu(드롭다운)가 전혀 없어야 한다(수강 후기/특강 후기 child menu가 남아있지 않음을 증명).
+    const newsGroupItem = groupItem('소식·자료');
+    await newsGroupItem.locator('.site-nav__trigger').hover();
+    const newsLinks = newsGroupItem.locator('.site-nav__submenu a');
+    await expect(newsLinks).toHaveCount(3);
+    expect(await newsLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
+    ]);
+    expect(await newsLinks.allTextContents()).toEqual(['공지사항', '갤러리', '자료실']);
+    await page.mouse.move(5, 500);
+
+    const reviewGroupItem = groupItem('강의 후기');
+    await reviewGroupItem.locator('.site-nav__trigger').hover();
+    const reviewLinks = reviewGroupItem.locator('.site-nav__submenu a');
+    await expect(reviewLinks).toHaveCount(3);
+    expect(await reviewLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=REVIEW', '/boards?boardType=REVIEW&programType=COURSE',
+      '/boards?boardType=REVIEW&programType=SPECIAL',
+    ]);
+    expect(await reviewLinks.allTextContents()).toEqual(['전체', '수강 후기', '특강 후기']);
+
+    // top-level에는 더 이상 공지사항/갤러리/자료실/강의 후기 LEAF가 없다(전부 GROUP 자식으로 이동).
     const topLevelLeaf = (label) => page.locator('#quick-menu > li.site-nav__item:not(.has-submenu) > a', {
       hasText: label,
     });
-    const reviewLeaf = topLevelLeaf('강의 후기');
-    await expect(reviewLeaf).toHaveAttribute('href', '/boards?boardType=REVIEW');
-    // 전체메뉴(mega menu) 트리거도 .has-submenu이고 그 내부 컬럼에 "강의 후기" 텍스트를 포함하므로
-    // (mega menu heading), [data-menu-id="all"]은 명시적으로 제외해야 오탐이 없다(실측으로 확인).
-    await expect(page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', { hasText: '강의 후기' })).toHaveCount(0);
-    await expect(topLevelLeaf('공지사항')).toHaveAttribute('href', '/boards?boardType=NOTICE');
-    await expect(topLevelLeaf('갤러리')).toHaveAttribute('href', '/boards?boardType=GALLERY');
-    await expect(topLevelLeaf('자료실')).toHaveAttribute('href', '/boards?boardType=ARCHIVE');
+    await expect(topLevelLeaf('공지사항')).toHaveCount(0);
+    await expect(topLevelLeaf('갤러리')).toHaveCount(0);
+    await expect(topLevelLeaf('자료실')).toHaveCount(0);
+    await expect(topLevelLeaf('강의 후기')).toHaveCount(0);
   });
 
-  // P13-T30D(Task C, 후속): top-level 항목의 실제 DOM 순서(dropdown이 있는 GROUP 3개를 먼저 묶고,
-  // dropdown 없는 LEAF 3개를 전체메뉴 바로 왼쪽에 배치)를 확인한다. typography/spacing/layout(Task A2)은
+  // P14-T2A: top-level 항목의 실제 DOM 순서 - dropdown이 있는 GROUP 4개(연구소 소개/수강 신청/
+  // 소식·자료/강의 후기)를 먼저 묶고, 전체메뉴가 마지막이다. typography/spacing/layout(Task A2)은
   // 이 테스트 범위가 아니다 - 순서만 검증한다.
-  test('Desktop 1440: top-level Header 항목이 HOME/연구소 소개/수강 신청/강의 후기/공지사항/갤러리/자료실/전체메뉴 순서로 배치된다', async ({ page }) => {
+  test('Desktop 1440: top-level Header 항목이 HOME/연구소 소개/수강 신청/소식·자료/강의 후기/전체메뉴 순서로 배치된다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
@@ -2829,7 +2850,7 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     }));
 
     expect(topLevelLabels).toEqual([
-      'HOME', '연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실', '전체메뉴',
+      'HOME', '연구소 소개', '수강 신청', '소식·자료', '강의 후기', '전체메뉴',
     ]);
   });
 
@@ -2841,7 +2862,10 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
   // 게시판), 컬럼 순서는 dropdown GROUP 2개(연구소 소개/수강 신청) 먼저, 그다음 top-level LEAF 4개
   // (강의 후기/공지사항/갤러리/자료실)로 바뀐다. "강의 후기" 컬럼도 이제 공지사항/갤러리/자료실과
   // 동일하게 헤딩 자체가 단일 링크이고 하위 목록(수강 후기/특강 후기)이 없어야 한다.
-  test('Desktop 1440: 전체메뉴(mega menu)는 최종 IA(GROUP 2 + top-level LEAF 4, 새 순서)를 6개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
+  // P14-T2A: "소식·자료"/"강의 후기"가 top-level LEAF에서 GROUP으로 바뀌어 mega 컬럼이 6개(GROUP
+  // 2 + LEAF 4)에서 4개(GROUP 4)로 줄고, 모든 컬럼이 "헤딩 + child 목록" 형태가 된다(더 이상
+  // "헤딩 자체가 링크인 LEAF 컬럼"은 없다).
+  test('Desktop 1440: 전체메뉴(mega menu)는 최종 IA(GROUP 4)를 4개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
@@ -2854,11 +2878,11 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(megaMenu).toBeVisible();
 
     const columns = megaMenu.locator('.site-nav__megamenu-column');
-    await expect(columns).toHaveCount(6);
+    await expect(columns).toHaveCount(4);
     const headings = await columns.locator('.site-nav__megamenu-heading').allTextContents();
-    expect(headings).toEqual(['연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실']);
+    expect(headings).toEqual(['연구소 소개', '수강 신청', '소식·자료', '강의 후기']);
 
-    // 연구소 소개 컬럼은 인사말을 제외한 3개 하위 링크만 갖는다.
+    // 연구소 소개 컬럼은 인사말을 제외한 3개 하위 링크만 갖는다(무변경).
     const aboutColumn = columns.filter({ hasText: '연구소 소개' }).first();
     const aboutLinks = aboutColumn.locator('a');
     await expect(aboutLinks).toHaveCount(3);
@@ -2866,25 +2890,33 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
       '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
     ]);
 
-    // LEAF 컬럼(강의 후기/공지사항/갤러리/자료실)의 헤딩 자체가 목적지 링크이고 하위 목록은 없다
-    // (<a>가 헤딩 1개뿐) - "강의 후기" 컬럼에 수강 후기/특강 후기 child link가 없음을 명시적으로 증명한다.
-    const reviewColumn = columns.filter({ hasText: '강의 후기' });
-    await expect(reviewColumn.locator('a')).toHaveCount(1);
-    await expect(reviewColumn.locator('a')).toHaveAttribute('href', '/boards?boardType=REVIEW');
+    // 소식·자료 컬럼: 공지사항/갤러리/자료실 3개 child, "전체" 없음.
+    const newsColumn = columns.filter({ hasText: '소식·자료' });
+    const newsLinks = newsColumn.locator('a');
+    await expect(newsLinks).toHaveCount(3);
+    expect(await newsLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
+    ]);
 
-    const noticeColumn = columns.filter({ hasText: '공지사항' });
-    await expect(noticeColumn.locator('a')).toHaveCount(1);
-    await expect(noticeColumn.locator('a')).toHaveAttribute('href', '/boards?boardType=NOTICE');
+    // 강의 후기 컬럼: 전체/수강 후기/특강 후기 3개 child.
+    const reviewColumn = columns.filter({ hasText: '강의 후기' });
+    const reviewLinks = reviewColumn.locator('a');
+    await expect(reviewLinks).toHaveCount(3);
+    expect(await reviewLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=REVIEW', '/boards?boardType=REVIEW&programType=COURSE',
+      '/boards?boardType=REVIEW&programType=SPECIAL',
+    ]);
 
     const allLinks = megaMenu.locator('a');
-    // GROUP 2개(연구소소개 3 + 수강신청 2 = 5개 하위 링크) + LEAF 4개(각 헤딩 자체가 링크) = 9개.
-    await expect(allLinks).toHaveCount(9);
+    // GROUP 4개(연구소소개 3 + 수강신청 2 + 소식·자료 3 + 강의후기 3) = 11개.
+    await expect(allLinks).toHaveCount(11);
     const hrefs = await allLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
     expect(hrefs).toEqual([
       '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
       '/programs?programType=COURSE', '/programs?programType=SPECIAL',
-      '/boards?boardType=REVIEW',
       '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
+      '/boards?boardType=REVIEW', '/boards?boardType=REVIEW&programType=COURSE',
+      '/boards?boardType=REVIEW&programType=SPECIAL',
     ]);
 
     // viewport 이탈 없음
@@ -2987,10 +3019,11 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
     await expect(page.locator('#site-nav')).toBeVisible();
     await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
 
-    // P13-T33: "강의 후기"가 top-level LEAF로 전환되어 GROUP trigger는 2개(연구소 소개/수강 신청)뿐이다.
+    // P14-T2A: "소식·자료"/"강의 후기"가 다시 GROUP이 되어 GROUP trigger는 4개
+    // (연구소 소개/수강 신청/소식·자료/강의 후기)다.
     const groupTriggers = page.locator(
       '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
-    await expect(groupTriggers).toHaveCount(2);
+    await expect(groupTriggers).toHaveCount(4);
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -3013,7 +3046,7 @@ test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
         const link = li.querySelector(':scope > a');
         return (trigger || link).textContent.trim();
       }));
-    expect(topLevelLabels).toEqual(['HOME', '연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실']);
+    expect(topLevelLabels).toEqual(['HOME', '연구소 소개', '수강 신청', '소식·자료', '강의 후기']);
 
     const aboutTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
       hasText: '연구소 소개',
@@ -3106,7 +3139,7 @@ test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래�
 
   test.describe('Desktop 구간 - 900 / 901 / 1024 / 1366 / 1440', () => {
     for (const width of [900, 901, 1024, 1366, 1440]) {
-      test(`${width}px: 최종 IA 8개가 한 줄로, label 줄바꿈/겹침 없이 배치된다`, async ({ page }) => {
+      test(`${width}px: 최종 IA 6개가 한 줄로, label 줄바꿈/겹침 없이 배치된다`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto('/');
 
@@ -3114,14 +3147,16 @@ test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래�
         await expect(page.locator('#site-nav')).toBeVisible();
 
         const items = await readTopLevelItems(page);
+        // P14-T2A: 공지사항/갤러리/자료실/강의 후기가 top-level LEAF에서 GROUP(소식·자료/강의 후기)
+        // 자식으로 옮겨져 기본 top-level 개수가 8→6이 됐다.
         expect(items.map((i) => i.label)).toEqual([
-          'HOME', '연구소 소개', '수강 신청', '강의 후기', '공지사항', '갤러리', '자료실', '전체메뉴',
+          'HOME', '연구소 소개', '수강 신청', '소식·자료', '강의 후기', '전체메뉴',
         ]);
 
-        // 한 줄 배치(§5 - flex-wrap은 8개 기본 IA를 여기서 우겨넣는 용도가 아니라 순수 degradation
+        // 한 줄 배치(§5 - flex-wrap은 기본 IA를 여기서 우겨넣는 용도가 아니라 순수 degradation
         // 안전장치이므로, 정상 기본 상태에서는 반드시 1줄이어야 한다).
         const rows = rowsOf(items);
-        expect(rows.length, `${width}px에서 기본 IA 8개는 1줄로 배치돼야 한다`).toBe(1);
+        expect(rows.length, `${width}px에서 기본 IA 6개는 1줄로 배치돼야 한다`).toBe(1);
 
         // label이 중간에 줄바꿈되지 않는다(연구소 소개처럼 공백 포함 라벨도 한 덩어리로 유지).
         for (const it of items) expect(it.whiteSpace).toBe('nowrap');
@@ -3254,10 +3289,14 @@ test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래�
     }
   });
 
-  test.describe('>8 top-level Menu synthetic - wrap degradation (실 IA E2E를 대체하지 않음, 보조 검증)', () => {
+  test.describe('>6 top-level Menu synthetic - wrap degradation (실 IA E2E를 대체하지 않음, 보조 검증)', () => {
     // 관리자가 top-level LEAF Menu를 추가로 만든 상황을 DOM 복제로 시뮬레이션한다. 실 DB/Menu API를
     // 전혀 건드리지 않고 순수 CSS 레이아웃 규칙(flex-wrap degradation)만 검증하는 것이 목적이므로,
     // admin 로그인/실제 Menu 생성이 필요한 P13-T30B 패턴 대신 DOM 조작을 쓴다.
+    // P14-T2A: 기본 top-level 개수가 8(연구소 소개/수강 신청 GROUP + 강의 후기/공지사항/갤러리/자료실
+    // LEAF 4개)에서 6(연구소 소개/수강 신청/소식·자료/강의 후기 GROUP 4개, LEAF 없음)으로 줄었다.
+    const BASE_TOP_LEVEL_COUNT = 6;
+
     async function addSyntheticTopLevelItems(page, count) {
       await page.evaluate((n) => {
         const ul = document.querySelector('#quick-menu');
@@ -3272,19 +3311,21 @@ test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래�
     }
 
     for (const extraCount of [2, 6]) {
-      test(`top-level 총 ${8 + extraCount}개일 때 900px/1440px에서 겹침·overflow 없이 wrap되고 전체메뉴는 계속 접근 가능하다`, async ({ page }) => {
+      test(`top-level 총 ${BASE_TOP_LEVEL_COUNT + extraCount}개일 때 900px/1440px에서 겹침·overflow 없이 wrap되고 전체메뉴는 계속 접근 가능하다`, async ({ page }) => {
         for (const width of [900, 1440]) {
           await page.setViewportSize({ width, height: 900 });
           await page.goto('/');
           await addSyntheticTopLevelItems(page, extraCount);
 
           const items = await readTopLevelItems(page);
-          expect(items.length).toBe(8 + extraCount);
-          expect(maxOverlap(items), `${width}px, ${8 + extraCount}개 item에서 겹침이 없어야 한다`).toBeLessThanOrEqual(0);
+          expect(items.length).toBe(BASE_TOP_LEVEL_COUNT + extraCount);
+          expect(maxOverlap(items), `${width}px, ${BASE_TOP_LEVEL_COUNT + extraCount}개 item에서 겹침이 없어야 한다`)
+            .toBeLessThanOrEqual(0);
 
           const overflow = await page.evaluate(
             () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-          expect(overflow, `${width}px, ${8 + extraCount}개 item에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+          expect(overflow, `${width}px, ${BASE_TOP_LEVEL_COUNT + extraCount}개 item에서 가로 overflow가 없어야 한다`)
+            .toBeLessThanOrEqual(0);
 
           const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
           await expect(megaTrigger, '전체메뉴 트리거는 item이 늘어나도 계속 노출/접근 가능해야 한다').toBeVisible();
@@ -3360,8 +3401,14 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
     await expect(page.locator('body')).toContainText(specialTitle);
   });
 
-  test('강의 후기 필터에서 공지사항으로 전환하면 이전 programType 쿼리가 남지 않는다', async ({ page }) => {
-    await page.goto('/boards?boardType=REVIEW&programType=COURSE');
+  // P14-T2A: boardType=REVIEW는 이제 "강의 후기 context"라 그 필터 nav에는 더 이상 "공지사항" 링크가
+  // 없다(§board list context 분리 - 소식·자료 계열과 공존하지 않음). 원래 의도(필터를 전환할 때 이전
+  // 필터의 programType 같은 stale query가 새 링크에 섞여 들어가지 않는다)는 legacy(/boards, boardType
+  // 없음) 화면에서 그대로 검증한다 - legacy는 7개 필터가 모두 한 화면에 공존하므로, URL에 남아있는
+  // stale programType(예: 뒤로가기/직접 URL 편집으로 남을 수 있는 값)이 legacy의 "공지사항" 링크
+  // (애초에 programType 파라미터를 싣지 않는 href)를 눌렀을 때 결과 URL에 섞여 들어가지 않아야 한다.
+  test('legacy 목록에서 stale programType 쿼리가 있어도 공지사항 필터 클릭 결과에는 남지 않는다', async ({ page }) => {
+    await page.goto('/boards?programType=COURSE');
     await page.locator('#board-type-filter a', { hasText: '공지사항' }).click();
 
     await expect(page).toHaveURL(/\/boards\?boardType=NOTICE/);
@@ -3426,8 +3473,8 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
 });
 
 // P13-T30E(Task B): Admin Menu UI Polish 최소 E2E. 신규 Menu row를 만들지 않고, 이미 seed되어 있는
-// 최종 IA(연구소 소개/수강 신청 GROUP + 강의 후기/공지사항/갤러리/자료실 top-level LEAF - P13-T30D
-// Task C/A2/P13-T33가 이미 이 구조 자체를 전수 검증했다)를 그대로 검증 대상으로 삼아, Task B가 바꾼
+// 최종 IA(연구소 소개/수강 신청/소식·자료/강의 후기 GROUP + 각 GROUP의 child - P13-T30D Task C/A2/
+// P13-T33/P14-T2A가 이미 이 구조 자체를 전수 검증했다)를 그대로 검증 대상으로 삼아, Task B가 바꾼
 // "표현"(들여쓰기 class/badge/target 라벨/datalist)만 확인한다. Bootstrap 실제 RGB 색상이나 pixel
 // 값은 검증하지 않고 class 존재/텍스트만 본다.
 test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
@@ -3473,21 +3520,28 @@ test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
     await expect(greetingCells.nth(3)).toHaveText('인사말');
     await expect(greetingCells.nth(5).locator('.badge')).toHaveText('숨김');
 
-    // top-level LEAF 행("공지사항", BOARD_LIST): 자식 class 없음, 대상은 "공지사항", 공개 badge.
+    // P14-T2A: "공지사항"은 더 이상 top-level LEAF가 아니라 "소식·자료" GROUP의 child다.
     const noticeRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '공지사항' }) }).first();
-    await expect(noticeRow).not.toHaveClass(/admin-menu-row--child/);
+    await expect(noticeRow).toHaveClass(/admin-menu-row--child/);
     await expect(noticeRow.locator('.badge', { hasText: '게시판' })).toBeVisible();
     const noticeCells = noticeRow.locator('td');
     await expect(noticeCells.nth(3)).toHaveText('공지사항');
     await expect(noticeCells.nth(5).locator('.badge')).toHaveText('공개');
 
-    // P13-T33: "강의 후기" 자체도 top-level LEAF(BOARD_LIST/REVIEW, targetSubvalue 없음)로 전환되어
-    // 다른 top-level LEAF와 동일한 패턴을 따른다 - 자식 class 없음, 대상은 "강의 후기"(subvalue가
-    // 없으므로 괄호 없음).
-    const reviewLeafRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '강의 후기' }) }).first();
-    await expect(reviewLeafRow).not.toHaveClass(/admin-menu-row--child/);
-    await expect(reviewLeafRow.locator('.badge', { hasText: '게시판' })).toBeVisible();
-    await expect(reviewLeafRow.locator('td').nth(3)).toHaveText('강의 후기');
+    // P14-T2A: "강의 후기"는 다시 top-level GROUP이다(P13-T33이 LEAF로 되돌렸던 것을 최신 요구사항에
+    // 따라 다시 GROUP으로 전환) - 자식 class 없음, 유형 badge "그룹", 대상은 '-'.
+    const reviewGroupRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '강의 후기' }) }).first();
+    await expect(reviewGroupRow).not.toHaveClass(/admin-menu-row--child/);
+    await expect(reviewGroupRow.locator('.badge', { hasText: '그룹' })).toBeVisible();
+    await expect(reviewGroupRow.locator('td').nth(3)).toHaveText('-');
+
+    // 그 자식 "전체"(BOARD_LIST/REVIEW, targetSubvalue 없음): child class, 대상 컬럼은 (row 자신의
+    // label "전체"가 아니라) target formatter가 만드는 BoardType 한글 라벨 "강의 후기"다(subvalue가
+    // 없으므로 괄호 없음 - "강의 후기(수강)" 같은 조합 표시와의 차이는 아래 formatter 테스트가 검증).
+    const allReviewRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '전체' }) }).first();
+    await expect(allReviewRow).toHaveClass(/admin-menu-row--child/);
+    await expect(allReviewRow.locator('.badge', { hasText: '게시판' })).toBeVisible();
+    await expect(allReviewRow.locator('td').nth(3)).toHaveText('강의 후기');
   });
 
   // P13-T33: BOARD_LIST+REVIEW+targetSubvalue 조합의 "강의 후기(수강)" 표시는 seed row가 아니라
@@ -3810,11 +3864,15 @@ test.describe('P13-T35: Header/Footer 반응형 최종 QA', () => {
 // LEAF)를 그대로 쓰고 합성 Menu는 만들지 않는다. 정확한 hex/px 값보다 "상태 전후 비교"로 검증한다
 // (P13-T30B의 baseFontWeight capture-then-compare 패턴 재사용).
 test.describe('P13-T36: Header/Menu Visual Polish', () => {
-  test('Desktop 1440: top-level LEAF hover 시 배경/색상이 기본 상태와 달라진다(font-weight는 무변경)', async ({ page }) => {
+  // P14-T2A: 이전에는 top-level LEAF(공지사항 등)가 실제로 존재해 그것으로 검증했지만, 새 IA에서는
+  // top-level이 전부 GROUP이라 유일하게 남은 top-level LEAF는 정적 HOME 링크뿐이다. is-active 상태의
+  // 배경/색이 hover와 겹치지 않도록(P14-T2 current 계약: 배경 없음) HOME이 active가 아닌 다른 페이지
+  // (/pages/INTRODUCTION)에서 검증한다.
+  test('Desktop 1440: top-level LEAF(HOME) hover 시 배경/색상이 기본 상태와 달라진다(font-weight는 무변경)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/');
+    await page.goto('/pages/INTRODUCTION');
 
-    const leaf = page.locator('#quick-menu > li > a', { hasText: '공지사항' });
+    const leaf = page.locator('#quick-menu > li > a', { hasText: 'HOME' });
     const base = await leaf.evaluate((el) => {
       const s = getComputedStyle(el);
       return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
@@ -3891,10 +3949,13 @@ test.describe('P13-T36: Header/Menu Visual Polish', () => {
 
   test('Desktop 1440: keyboard focus-visible 상태가 hover 상태와 동일한 배경/색상을 제공한다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/');
+    // P14-T2A: 유일하게 남은 top-level LEAF는 HOME이다. is-active 상태에서는 hover도 focus도 동일한
+    // tint를 주므로(§위 테스트와 동일 이유) 비교 자체는 active 여부와 무관하게 유효하지만, 다른
+    // 테스트와 일관되게 HOME이 active가 아닌 페이지에서 검증한다.
+    await page.goto('/pages/INTRODUCTION');
 
     // top-level LEAF
-    const leaf = page.locator('#quick-menu > li > a', { hasText: '공지사항' });
+    const leaf = page.locator('#quick-menu > li > a', { hasText: 'HOME' });
     await leaf.hover();
     await page.waitForTimeout(350); // transition(150ms) 완료 대기
     const leafHover = await leaf.evaluate((el) => {
@@ -3980,7 +4041,8 @@ test.describe('P13-T36: Header/Menu Visual Polish', () => {
     await page.goto('/');
     await page.locator('#nav-toggle').click();
 
-    const leaf = page.locator('#quick-menu > li > a', { hasText: '공지사항' });
+    // P14-T2A: top-level LEAF는 HOME뿐이다(나머지는 전부 GROUP).
+    const leaf = page.locator('#quick-menu > li > a', { hasText: 'HOME' });
     const leafBox = await leaf.boundingBox();
     expect(leafBox.height, 'top-level 항목의 터치 영역이 충분히 확보되어야 한다').toBeGreaterThanOrEqual(32);
 
@@ -4075,8 +4137,12 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
   });
 
   const homeLeaf = (page) => page.locator('#quick-menu > li.site-nav__item:first-child > a');
-  const topLeaf = (page, label) => page.locator('#quick-menu > li.site-nav__item:not(.has-submenu) > a', { hasText: label });
   const groupItem = (page, label) => page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', { hasText: label });
+  // P14-T2A: 공지사항/갤러리/자료실/전체(강의 후기)는 더 이상 top-level LEAF가 아니라 GROUP(소식·자료/
+  // 강의 후기)의 submenu child다. class/attribute는 submenu가 열려있지 않아도(display:none이어도)
+  // DOM에는 그대로 존재하므로 hover 없이도 검증 가능하다(기존 PAGE/PROGRAM_LIST 테스트와 동일 전제).
+  const childLeaf = (page, groupLabel, childLabel) =>
+    groupItem(page, groupLabel).locator('.site-nav__submenu a', { hasText: childLabel });
 
   test('/ 에서 HOME만 active이고 다른 항목은 active가 아니다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -4084,8 +4150,8 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
 
     await expect(homeLeaf(page)).toHaveClass(/is-active/);
     await expect(homeLeaf(page)).toHaveAttribute('aria-current', 'page');
-    await expect(topLeaf(page, '공지사항')).not.toHaveClass(/is-active/);
-    await expect(topLeaf(page, '강의 후기')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '공지사항')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).not.toHaveClass(/is-active/);
   });
 
   test('PAGE: /pages/INTRODUCTION, /pages/HISTORY 각각 해당 child만 active + 부모 GROUP has-active-child', async ({ page }) => {
@@ -4108,25 +4174,37 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
       .toHaveClass(/is-active/);
   });
 
-  test('BOARD_LIST: NOTICE/GALLERY/ARCHIVE/REVIEW 각각 active, noise query 무시, boardType 없으면 active 없음', async ({ page }) => {
+  // P14-T2A: 공지사항/갤러리/자료실은 "소식·자료" GROUP의 child, REVIEW(programType 없음)는
+  // "강의 후기" GROUP의 "전체" child다. 각 child leaf의 is-active/aria-current와 함께, 부모 GROUP의
+  // has-active-child도 함께 확인한다.
+  test('BOARD_LIST: NOTICE/GALLERY/ARCHIVE 각각 active(소식·자료 GROUP has-active-child), REVIEW는 전체 active(강의 후기 GROUP has-active-child), noise query 무시, boardType 없으면 active 없음', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
+
+    const newsGroup = groupItem(page, '소식·자료');
+    const reviewGroup = groupItem(page, '강의 후기');
 
     for (const label of ['공지사항', '갤러리', '자료실']) {
       const typeMap = { 공지사항: 'NOTICE', 갤러리: 'GALLERY', 자료실: 'ARCHIVE' };
       await page.goto(`/boards?boardType=${typeMap[label]}`);
-      await expect(topLeaf(page, label)).toHaveClass(/is-active/);
-      await expect(topLeaf(page, label)).toHaveAttribute('aria-current', 'page');
+      const leaf = childLeaf(page, '소식·자료', label);
+      await expect(leaf).toHaveClass(/is-active/);
+      await expect(leaf).toHaveAttribute('aria-current', 'page');
+      await expect(newsGroup).toHaveClass(/has-active-child/);
     }
 
     // noise query(page/keyword/size/pageJump) 무시 확인
     await page.goto('/boards?boardType=REVIEW&page=2&keyword=test&size=10');
-    await expect(topLeaf(page, '강의 후기')).toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).toHaveClass(/is-active/);
+    await expect(reviewGroup).toHaveClass(/has-active-child/);
 
-    // boardType 없는 /boards → 어떤 header leaf도 active 아님(대응 항목 없음, P13-T33)
+    // boardType 없는 /boards → 어떤 header child leaf/GROUP도 active 아님(대응 항목 없음, P13-T33 원칙 유지)
     await page.goto('/boards');
-    for (const label of ['공지사항', '갤러리', '자료실', '강의 후기']) {
-      await expect(topLeaf(page, label)).not.toHaveClass(/is-active/);
-    }
+    await expect(childLeaf(page, '소식·자료', '공지사항')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '갤러리')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '자료실')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).not.toHaveClass(/is-active/);
+    await expect(newsGroup).not.toHaveClass(/has-active-child/);
+    await expect(reviewGroup).not.toHaveClass(/has-active-child/);
   });
 
   test('Board 상세: 목록 경유(query 있음)와 직접 URL(query 없음) 둘 다 엔티티 기준으로 올바르게 active', async ({ page }) => {
@@ -4134,16 +4212,16 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
 
     // 목록에서 클릭한 것과 동일한 형태(query 포함)
     await page.goto(`/boards/${noticeBoardId}?boardType=NOTICE&keyword=&page=0`);
-    await expect(topLeaf(page, '공지사항')).toHaveClass(/is-active/);
-    await expect(topLeaf(page, '강의 후기')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '공지사항')).toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).not.toHaveClass(/is-active/);
 
     // 직접 URL 진입(query 전혀 없음) - board.boardType() ground truth로만 판정되어야 한다(핵심 회귀 지점)
     await page.goto(`/boards/${noticeBoardId}`);
-    await expect(topLeaf(page, '공지사항')).toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '공지사항')).toHaveClass(/is-active/);
 
     await page.goto(`/boards/${reviewBoardId}`);
-    await expect(topLeaf(page, '강의 후기')).toHaveClass(/is-active/);
-    await expect(topLeaf(page, '공지사항')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '공지사항')).not.toHaveClass(/is-active/);
   });
 
   test('PROGRAM_LIST: COURSE/SPECIAL 각각 active, programType 없으면 active 없음', async ({ page }) => {
@@ -4181,19 +4259,24 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
     await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).not.toHaveClass(/is-active/);
   });
 
+  // P14-T2A: "강의 후기"가 GROUP이 되어(더 이상 헤딩 자체가 단일 링크인 LEAF 컬럼이 아님) mega의
+  // 활성 표시 대상이 "전체" child link로 바뀐다. GROUP heading(<p>)은 leaf active(is-active)가 아니라
+  // has-active-child만 갖는다(기존 "연구소 소개" GROUP heading과 동일한 정책).
   test('Desktop mega menu: 개별 dropdown과 동일하게 active leaf에 is-active + aria-current가 부여된다(양쪽 사본 모두)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/boards?boardType=REVIEW');
 
-    const primaryLeaf = topLeaf(page, '강의 후기');
+    const primaryLeaf = childLeaf(page, '강의 후기', '전체');
     await expect(primaryLeaf).toHaveClass(/is-active/);
     await expect(primaryLeaf).toHaveAttribute('aria-current', 'page');
 
     const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
     await megaTrigger.hover();
-    const megaHeading = page.locator('.site-nav__megamenu-heading', { hasText: '강의 후기' });
-    await expect(megaHeading).toHaveClass(/is-active/);
-    await expect(megaHeading).toHaveAttribute('aria-current', 'page');
+    const megaColumn = page.locator('.site-nav__megamenu-column', { hasText: '강의 후기' });
+    const megaChildLink = megaColumn.locator('ul a', { hasText: '전체' });
+    await expect(megaChildLink).toHaveClass(/is-active/);
+    await expect(megaChildLink).toHaveAttribute('aria-current', 'page');
+    await expect(megaColumn.locator('p.site-nav__megamenu-heading')).toHaveClass(/has-active-child/);
 
     // GROUP has-active-child도 mega menu 컬럼 heading(<p>)에 동일하게 표시된다.
     await page.goto('/pages/HISTORY');
@@ -4207,8 +4290,11 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
     await page.goto(`/boards/${noticeBoardId}`);
 
     await page.locator('#nav-toggle').click();
-    await expect(topLeaf(page, '공지사항')).toHaveClass(/is-active/);
-    await expect(topLeaf(page, '공지사항')).toHaveAttribute('aria-current', 'page');
+    const newsGroup = groupItem(page, '소식·자료');
+    await expect(newsGroup).toHaveClass(/has-active-child/);
+    const noticeLeaf = childLeaf(page, '소식·자료', '공지사항');
+    await expect(noticeLeaf).toHaveClass(/is-active/);
+    await expect(noticeLeaf).toHaveAttribute('aria-current', 'page');
 
     // active child를 가진 GROUP(닫힘 상태)도 표시된다.
     await page.goto('/pages/HISTORY');
@@ -4227,7 +4313,7 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/boards?boardType=NOTICE');
 
-    await expect(topLeaf(page, '공지사항')).toHaveAttribute('aria-current', 'page');
+    await expect(childLeaf(page, '소식·자료', '공지사항')).toHaveAttribute('aria-current', 'page');
 
     // 기존 GROUP 키보드 계약(Tab 도달 → Enter로 열기 → Escape로 닫힘)이 active 도입 후에도 그대로 동작.
     const groupTrigger = groupItem(page, '연구소 소개').locator('.site-nav__trigger');

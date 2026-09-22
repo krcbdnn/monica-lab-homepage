@@ -397,6 +397,28 @@ Menu 테이블은 `HOME`/`ABOUT`/`OUR PROGRAMS`/`Blog` 같은 미확정 가안 �
 - `home.css`의 `.site-nav__megamenu`는 헤더의 가장 오른쪽 항목이라는 특성상 기존 `.site-nav__submenu`의 `left:0`(오른쪽으로 확장) 대신 `right:0; left:auto`(왼쪽으로 확장)를 사용해 1024/1440px에서 뷰포트 밖으로 나가지 않도록 한다. 모바일에서는 hamburger accordion이 이미 동일한 정보를 전부 보여주므로 `[data-menu-id="all"]`을 `display:none`으로 숨겨 중복 노출을 피한다.
 - **향후 원칙**: V5는 Menu 도메인이 아직 어떤 프로덕션 추적 브랜치에도 배포되지 않아 관리자 커스터마이징이 존재할 수 없었던 시점의 1회성 IA 교체다. 이 시점 이후로는 관리자가 CRUD로 수정한 메뉴 데이터를 향후 migration이 DELETE 후 재생성(destructive reset)하는 방식으로 다루지 않는다.
 
+### IA 갱신 이력: P13-T33 → P14-T2A
+
+위 최종 IA는 V8 시점(`연구소 소개`/`수강 신청`/`강의 후기` GROUP 3개, `강의 후기` GROUP은 수강 후기/특강 후기 child 2개) 기준 서술이다. 이후 두 차례 발주처 요구사항 변경을 거쳐 실제 최신 구조는 다음과 같다. **과거 결정은 삭제하지 않고 이력으로 남긴다** - 각 시점의 결정은 그 시점 요구사항 기준으로 올바른 작업이었다.
+
+- **P13-T33(V10)**: 발주처 요구사항 재확인 결과 "강의 후기는 하나의 게시판이며 공개 navigation에는 top-level LEAF 하나만 존재해야 한다"는 것이 확인되어, V8이 만든 "강의 후기" GROUP(수강 후기/특강 후기 child)을 단일 top-level LEAF(`BOARD_LIST`/`REVIEW`, `target_subvalue` 없음)로 되돌렸다.
+- **P14-T2A(V12)**: 발주처 요구사항이 다시 최신으로 변경되어, V10의 결정을 다시 GROUP 구조로 전환했다. 최종(V12 이후) 공개 IA는 다음과 같다.
+
+  ```
+  HOME (정적)
+  연구소 소개 (GROUP) - 인사말(비노출)/연구소 소개/연혁/오시는 길   ← 무변경
+  수강 신청 (GROUP)   - 수강 신청/특강 신청                        ← 무변경(label 유지)
+  소식·자료 (GROUP)   - 공지사항/갤러리/자료실                     ← 신규 GROUP, 기존 top-level LEAF 3개를 자식으로 이동
+  강의 후기 (GROUP)   - 전체/수강 후기/특강 후기                   ← 기존 top-level LEAF를 GROUP으로 재전환(같은 id 재사용) + 자식 3개 신규
+  전체메뉴 (정적)
+  ```
+
+  - "소식·자료"에는 "전체" 항목을 두지 않는다(공지사항/갤러리/자료실 3개만).
+  - "강의 후기 > 전체"의 href는 `/boards?boardType=REVIEW`(programType 없음)로, 기존 REVIEW+programType 없음(미분류) 후기를 포함하는 semantics를 그대로 유지한다. "수강 후기"/"특강 후기"만 모으는 새 query는 만들지 않았다.
+  - Menu row 개수는 12 → 16(신규 4행: 소식·자료 GROUP + 강의 후기 자식 3개). `MenuService`/`HeaderActiveResolver`/`HeaderMenuControllerAdvice` 등 Java main code는 무변경 - 기존 범용 GROUP/BOARD_LIST 매칭 로직이 그대로 새 구조를 처리한다.
+  - 공개 `home/board/list.html`은 Controller가 이미 넘기는 `boardType`/`programType` model 속성만으로 title/filter-nav를 legacy(`/boards`, 7개 필터)/소식·자료(3개)/강의 후기(3개) 세 context로 Thymeleaf 조건 분기한다(새 route/Controller 없음). 상세는 `docs/TASK.md`의 P14-T2A 항목을 참고한다.
+  - V12도 V8/V9와 동일하게 DELETE를 쓰지 않는다(V10은 예외적으로 정밀 DELETE 2건을 사용했으나 V12는 다시 순수 guarded INSERT/UPDATE 원칙으로 돌아간다).
+
 ---
 
 ## HomePinnedContent
