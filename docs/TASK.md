@@ -1387,7 +1387,7 @@ T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는�
 
 ### Phase 14 Task 구조
 
-`P14-T0 → P14-T1 → P14-T2 → P14-T3 → P14-T3A`, `P14-T1 → P14-T4A → P14-T4B`, `P14-T1,T4B → P14-T5`, `P14-T2~T5,T3A → P14-T6A/T6B → P14-T7`. 모든 Task의 공통 DoD: `./gradlew build` 통과, Playwright 기존 테스트 무회귀(정당한 계약 갱신 제외), 관리자 화면/DB/Java domain 변경 없음, `docker-compose.local-test.yml`(untracked 유지).
+`P14-T0 → P14-T1 → P14-T2 → P14-T3 → P14-T3A → P14-T3B`, `P14-T1 → P14-T4A → P14-T4B`, `P14-T1,T4B → P14-T5`, `P14-T2~T5,T3B → P14-T6A/T6B → P14-T7`. 모든 Task의 공통 DoD: `./gradlew build` 통과, Playwright 기존 테스트 무회귀(정당한 계약 갱신 제외), 관리자 화면/DB/Java domain 변경 없음, `docker-compose.local-test.yml`(untracked 유지).
 
 ### P14-T0. 공개 홈페이지 디자인 계약 확정
 - 의존성: P13-T42, Phase 14 디자인 감사(READ-ONLY) 승인
@@ -1521,6 +1521,25 @@ T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는�
   - **Program/Board regression smoke**: `/programs`(썸네일 112×80, 한글 배지), `/boards?boardType=GALLERY`(카드 160px) 전부 T4A/T4B 값 그대로, overflow 0, console error 0.
   - **테스트**: `./gradlew cleanTest test build` BUILD SUCCESSFUL(JUnit **577개**, failures 0, errors 0, skipped 0 - 기존 576 + 신규 1). Node(`node --test`) **355개** 전부 pass(무관, JS 무변경). Playwright 전체(`admin-console-errors`/`public-console-errors`/`visual-regression`, `PLAYWRIGHT_BASE_URL=http://localhost:8088`) **243 executed / 243 passed / 0 failed / 0 skipped**.
   - **Docker**: `docker compose -f docker-compose.yml -f docker-compose.local-test.yml up -d --build app`으로 `app` 서비스만 재빌드(최초 `--build`가 이미지는 새로 만들었지만 컨테이너를 교체하지 않는 것을 발견해 `--force-recreate`로 재실행). `db`/`nginx`/`mariadb-local`과 `docker-compose.local-test.yml`(untracked)은 무변경. Banner QA는 정상 관리자 API로 생성 후 즉시 DELETE, Pinned QA는 기존 항목의 `visible` 플래그를 껐다가 정확히 원상복구 - DB 영구 변경/데이터 삭제 없음.
+
+### P14-T3B. Home Card/Thumbnail Content Differentiation
+- 의존성: P14-T3A
+- 산출물(예상): `home/index.html`(Program `programType` label 매핑), `static/css/home.css`(Pinned/Review/Gallery card 차별화), `HomeControllerTest`(신규 label 검증), 본 문서.
+- 작업 내용: 조사(READ-ONLY) 결과 Pinned/Review/Gallery가 `.gallery-card`를 완전히 동일하게 공유해(Board GALLERY/REVIEW `#board-grid`까지 공유) "이미지+제목 카드"로 반복되어 보이던 문제를, T0 A-8("콘텐츠 성격별 비율 유지, 전체 통일 금지")과 T3/T3A/T4A/T4B 계약을 깨지 않는 범위에서 콘텐츠별로 차별화한다.
+- 변경 금지: 전역 `.gallery-grid`/`.gallery-card`/`.gallery-card__link`/`.gallery-card__thumb`/`.program-card`/`.program-cards` 값, `#board-grid`(T4B)/`#program-list`(T4A) 규칙, T3A section surface, "전체보기" 복원, 새 breakpoint, card width/grid 컬럼 계산, masonry/carousel, Pinned featured-첫카드/BOARD·PROGRAM 배지, Java main/DTO/Service/Repository/DB/Flyway/JS.
+- 위험: `.gallery-card` 공유 규칙을 잘못 건드려 Board 회귀, object-fit 변경이 A-8 원칙과 문자 그대로 충돌(Review 한정 명시적 예외 승인).
+- 검증: `HomeControllerTest`(신규 포함), Playwright 전체, Board `#board-grid`/Program `#program-list` regression smoke, 4개 대표 viewport Browser QA.
+- DoD: Pinned/Program/Review/Gallery가 시각적으로 구분되되 공통 design system(typography/color/radius/focus) 안에서 통일감 유지, 전역 selector 무수정, 기존 테스트 무변경 통과(정당한 신규 테스트 제외), Java/JS/DB 변경 없음.
+- 구현 결과(P14-T3B, 최종): 사용자 확정 계약대로 4개 영역을 전부 **Home section ID 스코프**(`#home-pinned`/`#latest-programs`/`#latest-reviews`/`#latest-gallery`)로만 구현했다. 전역 `.gallery-grid`/`.gallery-card`/`.gallery-card__link`/`.gallery-card__thumb`/`.program-card`/`.program-cards`는 diff 0(순수 추가만, 기존 규칙 한 줄도 수정하지 않음).
+  - **Pinned**: `#home-pinned .gallery-card__title`에 `font-weight:700`/`font-size:1rem`만 추가(CSS 1규칙, DOM 무변경, 2-line clamp/200px 폭/1:1 비율/기존 T3 hover-focus-border 전부 무변경). featured 첫 카드, BOARD/PROGRAM 배지는 추가하지 않았다(사용자 확정).
+  - **Program**: `home/index.html`의 `.program-card__type` 삼항을 `${program.programType().name() == 'COURSE'} ? 'COURSE' : 'SPECIAL CLASS'`로 변경(사용자가 이번 Task에서 확정한 영문 UI display label, T4A와 동일한 presentation-layer 원칙). domain enum/DB/API/DTO 무변경. 4:3 비율/object-fit:cover/status 배지/border는 전부 무변경.
+  - **Review**: `#latest-reviews .gallery-card__thumb img { object-fit: contain; }` 한 줄로 원본 이미지 전체가 보이게 했다(wrapper의 1:1 aspect-ratio는 무변경이라 grid 폭/컬럼 계산에 영향 없음). `.gallery-card__thumb`가 이미 갖고 있던 `background:var(--color-surface)`가 letterbox 여백을 자연스러운 액자처럼 보이게 해 별도 배경 선언이 불필요했다. A-8의 "object-fit 유지" 문구와 문자 그대로 충돌함을 조사 단계에서 확인했고, `#latest-reviews` 한정 명시적 예외로 사용자 승인을 받았다(Gallery/Board/Pinned의 object-fit은 무변경).
+  - **Gallery**: `#latest-gallery .gallery-card__thumb { aspect-ratio: 4/3; }`로 Home Gallery만 정사각→landscape 전환(Board `#board-grid`는 전역 규칙 무수정이라 영향 없음, 실측으로 재확인). object-fit은 cover 유지.
+  - **Review/Gallery hover·focus-visible**: `#home-pinned`/`#board-grid`가 이미 쓰던 것과 동일한 시각 언어(테두리 1px + hover/focus-visible 시 `--color-primary`)를 `#latest-reviews`/`#latest-gallery .gallery-card__link`에 이식했다(두 section 모두 기존에는 카드 레벨 hover/focus-visible이 전혀 없었음 - 조사 단계에서 확인된 기존 공백을 이번에 메웠다). title에 `padding:0 var(--space-1) var(--space-1)`(Pinned와 동일 값)도 함께 추가해 테두리 안쪽에서 제목이 눌리지 않게 했다.
+  - **Notice**: 완전 무변경.
+  - **테스트**: `HomeControllerTest`에 `latestProgramsShowsProgramTypeAsExplicitEnglishDisplayLabelInsteadOfRawEnumName` 신규 추가("SPECIAL CLASS"가 "SPECIAL"을 부분 문자열로 포함해 `doesNotContain`으로는 raw 노출을 증명할 수 없으므로 `containsExactlyInAnyOrder`로 두 배지 전체 텍스트를 정확히 검증). 기존 테스트 전부 무변경 통과. `./gradlew cleanTest test build` BUILD SUCCESSFUL(JUnit **578개**, 기존 577 + 신규 1, failures/errors/skipped 0). Node **355개** 전부 pass(JS 무변경). Playwright 전체 **243 executed / 243 passed / 0 failed / 0 skipped**.
+  - **실측(Docker 8088, Browser QA, 4개 대표 viewport 1440/900/899/390)**: 전부 `overflow=0`, `console error=0`. Pinned title `font-weight:700`/`16px` 확인. Program `programType1`이 "SPECIAL CLASS"로 렌더링 확인. Review thumb `object-fit:contain` 확인(158×158, border 포함), Gallery thumb 158×119(비율 1.33≈4:3) 확인. Review/Gallery 카드 focus-visible 시 `border-color: rgb(31,58,95)`(`--color-primary`) 확인(0.15s transition 정착 대기 후 측정). **Board `#board-grid`(GALLERY/REVIEW 필터 둘 다) 실측 결과 1:1/cover/무테두리로 완전히 무변경** - Home 변경이 전혀 전파되지 않음을 확인. Program List(`#program-list`) 112×80 썸네일/한글 배지도 무변경. Pinned 0/1/2/5+ 상태를 관리자 API(visibility 토글 + 임시 pin 생성 후 즉시 삭제, 최종 원본 데이터로 완전 복원 확인)로 비파괴 실측해 전부 정렬 유지·overflow 0·console error 0 확인. Review/Gallery 두 section 모두 기존 placeholder(썸네일 없음) 박스가 새 비율(1:1/4:3)을 그대로 반영해 정상 동작함을 확인. 전체 페이지 스크린샷(1440) 육안 검토로 Gallery가 landscape, Review가 square+테두리로 시각적으로 명확히 구분됨을 확인.
+  - **Docker**: `docker compose -f docker-compose.yml -f docker-compose.local-test.yml up -d --build --force-recreate app`으로 `app` 서비스만 재빌드(T3A에서 학습한 대로 처음부터 `--force-recreate` 사용). `db`/`nginx`/`mariadb-local`과 `docker-compose.local-test.yml`(untracked)은 무변경.
 
 ### P14-T4A. Program List Visual Refinement
 - 의존성: P14-T1 (T3와 병렬 가능)
