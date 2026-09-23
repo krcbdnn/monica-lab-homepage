@@ -890,15 +890,17 @@ test.describe('P13-T34: Footer 사업자 정보', () => {
     await expect(page.locator('.site-footer__reg-no')).toHaveText('사업자등록번호: 220-10-28936');
   });
 
-  // 사업자 정보 추가로 인해 기존 Footer navigation(label/href/순서)이 조금이라도 바뀌지 않았는지
-  // 4개 링크를 한 번에 재확인한다(기존 P13-T17 describe의 개별 테스트는 링크 1~2개씩만 다룸).
-  test('기존 Footer navigation 4개 링크의 label/href/순서가 무변경이다', async ({ page }) => {
+  // P14-T2B: P14-T2A가 Header top-level IA를 "연구소 소개/수강 신청/소식·자료/강의 후기"로 바꾼 뒤에도
+  // Footer가 이전 IA(프로그램/게시판)로 남아 있던 불일치를 동기화했다. 이 테스트는 P13-T34 당시
+  // "이 Task에서는 Footer를 안 건드렸다"는 무변경 확인용이었으므로, 이번 IA Sync에서는 새 확정값으로
+  // 정당하게 갱신한다(4-link flat 구조/순서 자체는 계속 검증).
+  test('Footer navigation 4개 링크가 최신 Header IA와 동일한 label/href/순서로 표시된다', async ({ page }) => {
     await page.goto('/');
     const navLinks = page.locator('.site-footer__nav a');
     await expect(navLinks).toHaveCount(4);
-    expect(await navLinks.allTextContents()).toEqual(['연구소 소개', '프로그램', '강의 후기', '게시판']);
+    expect(await navLinks.allTextContents()).toEqual(['연구소 소개', '수강 신청', '소식·자료', '강의 후기']);
     expect(await navLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
-      '/pages/INTRODUCTION', '/programs', '/boards?boardType=REVIEW', '/boards',
+      '/pages/INTRODUCTION', '/programs?programType=COURSE', '/boards?boardType=NOTICE', '/boards?boardType=REVIEW',
     ]);
   });
 

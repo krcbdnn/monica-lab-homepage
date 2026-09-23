@@ -4,11 +4,20 @@
 <footer th:fragment="footer" id="site-footer">
     <div class="site-footer__inner">
         <p class="site-footer__brand">모니카영어교육연구소</p>
+        <!-- P14-T2B: P14-T2A가 Header top-level IA를 "연구소 소개/수강 신청/소식·자료/강의 후기"로
+             바꾼 뒤에도 Footer는 이전 IA(프로그램/게시판)로 남아 있던 것을 동기화한다. Footer는
+             DB/menu 기반이 아닌 hard-coded 4-link flat 구조를 그대로 유지하고 label/href/순서만
+             Header와 맞춘다(하위 메뉴 확장 없음). "수강 신청"/"소식·자료"는 Header의 동일 라벨 GROUP이
+             갖는 "라벨과 같은 이름의 자식"(수강 신청) 또는 "sort_order가 가장 앞선 자식"(소식·자료 GROUP의
+             첫 자식인 공지사항) href를 그대로 재사용해 "연구소 소개"(GROUP과 동일 라벨의 자식 href 재사용)
+             "강의 후기"(GROUP의 첫 자식인 "전체"와 이미 동일 href)와 동일한 원칙을 4개 링크 전부에
+             일관되게 적용한다. "강의 후기"와 동일하게 th:href="@{}"로 query string을 빌드해 수동
+             URL 조합 실수를 피한다. -->
         <nav class="site-footer__nav" aria-label="바로가기 메뉴">
             <a href="/pages/INTRODUCTION">연구소 소개</a>
-            <a href="/programs">프로그램</a>
+            <a th:href="@{/programs(programType='COURSE')}">수강 신청</a>
+            <a th:href="@{/boards(boardType='NOTICE')}">소식·자료</a>
             <a th:href="@{/boards(boardType='REVIEW')}">강의 후기</a>
-            <a href="/boards">게시판</a>
         </nav>
         <address class="site-footer__business">
             <p class="site-footer__address">주소: 성남시 분당구 황새울로 200번길 28, 1104-07호</p>

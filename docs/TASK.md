@@ -1387,7 +1387,7 @@ T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는�
 
 ### Phase 14 Task 구조
 
-`P14-T0 → P14-T1 → P14-T2 → P14-T3 → P14-T3A → P14-T3B`, `P14-T1 → P14-T4A → P14-T4B`, `P14-T1,T4B → P14-T5`, `P14-T2~T5,T3B → P14-T6A/T6B → P14-T7`. 모든 Task의 공통 DoD: `./gradlew build` 통과, Playwright 기존 테스트 무회귀(정당한 계약 갱신 제외), 관리자 화면/DB/Java domain 변경 없음, `docker-compose.local-test.yml`(untracked 유지).
+`P14-T0 → P14-T1 → P14-T2 → P14-T2A → P14-T2B`, `P14-T0 → P14-T1 → P14-T2 → P14-T3 → P14-T3A → P14-T3B`, `P14-T1 → P14-T4A → P14-T4B`, `P14-T1,T4B → P14-T5`, `P14-T2B,T3B → P14-T6A/T6B → P14-T7`. 모든 Task의 공통 DoD: `./gradlew build` 통과, Playwright 기존 테스트 무회귀(정당한 계약 갱신 제외), 관리자 화면/DB/Java domain 변경 없음, `docker-compose.local-test.yml`(untracked 유지).
 
 ### P14-T0. 공개 홈페이지 디자인 계약 확정
 - 의존성: P13-T42, Phase 14 디자인 감사(READ-ONLY) 승인
@@ -1480,6 +1480,19 @@ T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는�
   - **테스트 갱신 상세**: `MenuIaMigrationTest`(행 수 12→16, id-range 신규 4개, top-level 4-GROUP, 강의 후기/소식·자료 children 검증으로 전면 재작성, V12 DELETE 없음 신규 테스트, V12 forward migration 성공 신규 테스트), `BoardViewControllerTest`(기존 2개 active 테스트는 context 무관하게 그대로 통과 - 무변경, context별 filter 노출 신규 테스트 4개 추가), `frontend-tests/visual-regression.spec.js`(mega 6→4컬럼, top-level 8→6 배열·매직넘버, "top-level LEAF" 대표 예시를 공지사항→HOME으로 교체 2건[is-active 배경 회귀 방지 위해 비활성 페이지에서 검증], T37 active describe의 `topLeaf` 헬퍼를 GROUP-child 조회용 `childLeaf`로 교체 및 관련 단언 전면 갱신, admin menu 목록 "대상" 컬럼 기대값 갱신[BOARD_LIST+REVIEW formatter가 row 자신의 label이 아니라 BoardType 한글 라벨을 보여준다는 기존 동작을 재확인], REVIEW 필터 활성 라벨 "강의 후기"→"전체", "강의 후기→공지사항 전환" 테스트는 legacy 화면 기준으로 재작성해 원래 의도인 stale programType 제거 검증을 보존). 삭제하거나 약화한 assertion은 없다.
   - **테스트 결과**: `./gradlew cleanTest test build` BUILD SUCCESSFUL(JUnit 567 tests, failures 0, errors 0, skipped 0). Playwright 전체(`PLAYWRIGHT_BASE_URL=http://localhost:8088`, 관리자 환경변수 설정) **243 executed / 243 passed / 0 failed / 0 skipped**.
   - **Docker**: 로컬 검증을 위해 `docker compose -f docker-compose.yml -f docker-compose.local-test.yml up -d --build app`로 `app` 서비스만 재빌드/재생성했다(V12를 기존 `db-1` DB에 Flyway가 forward 적용, DB 볼륨/데이터 삭제나 초기화 없음). `db`/`nginx`/`mariadb-local` 컨테이너와 `docker-compose.local-test.yml`(untracked)은 건드리지 않았다.
+
+### P14-T2B. Footer IA Sync
+- 의존성: P14-T2A
+- 산출물: `home/layout/footer.html`, `frontend-tests/visual-regression.spec.js`, 본 문서.
+- 작업 내용: P14-T2A가 Header top-level IA를 `연구소 소개/수강 신청/소식·자료/강의 후기`로 바꾼 뒤에도 Footer(`.site-footer__nav`)가 이전 IA(`연구소 소개/프로그램/강의 후기/게시판`)로 남아 있던 불일치를 동기화한다. Footer는 DB/menu 기반이 아닌 기존 hard-coded 4-link flat 구조를 그대로 유지하고, label/href/순서만 최신 Header IA와 맞춘다. 최종: `연구소 소개`(`/pages/INTRODUCTION`, 무변경) → `수강 신청`(`/programs?programType=COURSE`, 신규) → `소식·자료`(`/boards?boardType=NOTICE`, 신규) → `강의 후기`(`/boards?boardType=REVIEW`, 무변경). "수강 신청"/"소식·자료"의 href는 "연구소 소개"(GROUP과 동일 라벨의 자식 href 재사용)/"강의 후기"(GROUP의 첫 자식 "전체"와 이미 동일 href)가 이미 따르던 것과 같은 원칙("GROUP과 동일 라벨의 자식이 있으면 그 href, 없으면 sort_order가 가장 앞선 자식의 href")을 4개 링크 전부에 일관되게 적용해 결정했다(수강 신청 GROUP의 동일 라벨 자식 `/programs?programType=COURSE`, 소식·자료 GROUP의 첫 자식인 공지사항 `/boards?boardType=NOTICE`).
+- 변경 금지: 하위 메뉴/사이트맵형 Footer 확장, DB/menu 기반 동적 Footer 전환, 기존 Footer DOM class/시각 디자인(`static/css/home.css` 무변경), Java main/DTO/Service/Controller, DB/Flyway, JS, Header/menu 구현(`header.html`/`nav-toggle.js`/`nav-submenu.js`), P14-T2 Footer visual hierarchy(2단 grid-area 배치 등).
+- 위험: `frontend-tests/visual-regression.spec.js`의 4-링크 label/href 하드락 assertion(P13-T34, 당시 "이 Task 대상 아님" 무변경 확인용) 갱신 필요, Thymeleaf `@{}` URL 빌더의 실제 렌더 결과가 기대와 다를 가능성.
+- 검증: 관련 Playwright(Footer/연구소 소개/강의 후기/P13-T30C Header IA/P13-T35/P13-T37) 및 전체, `./gradlew build`, Node 전체(무관, JS 무변경 확인용), 실제 Docker 8088 렌더 확인.
+- DoD: Footer label이 현재 Header top-level IA와 정확히 일치, Footer 링크 목적지가 확정값과 일치, 4-link flat 구조 유지, 기존 Footer visual design/layout 무회귀, desktop/mobile 무회귀, Header IA 무회귀, 관련 Playwright 통과, 전체 테스트 통과, `docker-compose.local-test.yml` 미포함, scope 외 파일 변경 없음.
+- 구현 결과(P14-T2B, 최종): `home/layout/footer.html`의 `.site-footer__nav` 4개 `<a>`를 label/href/순서 전부 갱신했다. "연구소 소개"는 무변경(plain `href`), "강의 후기"는 무변경(기존 `th:href="@{/boards(boardType='REVIEW')}"` 그대로), 새로 추가된 "수강 신청"(`th:href="@{/programs(programType='COURSE')}"`)과 "소식·자료"(`th:href="@{/boards(boardType='NOTICE')}"`)는 "강의 후기"가 이미 쓰던 것과 동일한 Thymeleaf `@{}` URL 빌더 패턴을 재사용해 수동 문자열 조합 실수를 피했다. 실제 렌더 결과(Docker 8088)를 직접 확인해 `/programs?programType=COURSE`, `/boards?boardType=NOTICE`로 기대와 정확히 일치함을 확인했다. CSS/DOM class/Java/JS/DB 변경 없음("게시판" 링크 제거 후에도 여전히 4개 링크 유지).
+  - **테스트 갱신**: `frontend-tests/visual-regression.spec.js`의 `기존 Footer navigation 4개 링크의 label/href/순서가 무변경이다`(P13-T34, `['연구소 소개','프로그램','강의 후기','게시판']`/`['/pages/INTRODUCTION','/programs','/boards?boardType=REVIEW','/boards']` 하드락)를 `Footer navigation 4개 링크가 최신 Header IA와 동일한 label/href/순서로 표시된다`(`['연구소 소개','수강 신청','소식·자료','강의 후기']`/`['/pages/INTRODUCTION','/programs?programType=COURSE','/boards?boardType=NOTICE','/boards?boardType=REVIEW']`)로 정당하게 갱신했다. 이 테스트는 애초에 "P13-T34는 Footer를 안 건드렸다"는 무변경 확인용이었고 값 자체를 영구 계약으로 성역화한 것이 아니었다. 무변경으로 남긴 다른 Footer 관련 assertion("강의 후기"/"연구소 소개" href 개별 검증, 사업자 정보, domain self-link, overflow)은 전부 그대로 통과.
+  - **테스트 결과**: `./gradlew cleanTest test build` BUILD SUCCESSFUL(JUnit **578개**, 무변경, failures/errors/skipped 0). Node `--test` **355개** 전부 pass(무관). Playwright 전체(`PLAYWRIGHT_BASE_URL=http://localhost:8088`) **243 executed / 243 passed / 0 failed / 0 skipped**(Footer/Header IA 관련 35개 타겟 실행에서도 전부 pass 선확인).
+  - **Docker**: `docker compose -f docker-compose.yml -f docker-compose.local-test.yml up -d --build --force-recreate app`으로 `app` 서비스만 재빌드. `db`/`nginx`/`mariadb-local`과 `docker-compose.local-test.yml`(untracked)은 무변경, DB 데이터 변경 없음.
 
 ### P14-T3. Home Visual Redesign
 - 의존성: P14-T1, P14-T2
