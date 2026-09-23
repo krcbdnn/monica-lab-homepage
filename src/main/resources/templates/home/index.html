@@ -5,40 +5,53 @@
     <title>모니카영어교육연구소</title>
 </head>
 <body>
-<div id="index-content" class="container">
+<!-- P14-T3A: 5개 콘텐츠 section(주요 소식/최신 프로그램/강의 후기/공지사항/갤러리)의 배경이 viewport
+     좌우 끝까지 이어지는 full-width surface를 갖도록, #index-content 자체는 더 이상 .container가
+     아니라 순수 wrapper로 두고 각 section 내부에 새 <div class="container">를 배치한다(전역 .container
+     규칙 값은 무변경, 재사용만 함). #index-content id는 th:replace의 fragment selector(~{::#index-content})
+     라 class 변경과 무관하게 그대로 안전하다. Hero(#banners)/Popup(#popups)은 이번 full-width surface
+     대상에서 제외한다 - Hero는 기존 캐러셀/컨트롤 위치 계약을 그대로 지키기 위해 내부에만 동일한
+     .container를 둬 시각적으로 완전히 동일하게 유지하고(배경 없음), Popup은 position:fixed 오버레이라
+     container 폭과 애초에 무관하다. -->
+<div id="index-content">
 
-    <section id="banners" class="hero">
-        <div th:if="${!#lists.isEmpty(banners)}" class="hero__viewport" id="hero-viewport">
-            <div class="hero__slide" th:each="banner, iter : ${banners}"
-                 th:attr="hidden=${iter.first} ? null : 'hidden'">
-                <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}" class="hero__link">
-                    <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
-                         th:attr="fetchpriority=${iter.first} ? 'high' : null">
-                </a>
-                <div th:unless="${banner.linkUrl() != null}" class="hero__link">
-                    <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
-                         th:attr="fetchpriority=${iter.first} ? 'high' : null">
+    <!-- P14-T3A: 활성 배너가 0건이면 #banners section 자체를 DOM에 렌더링하지 않는다(빈 Hero 공간을
+         차지하지 않도록). 기존 .hero__empty(빈 배너 안내) fallback은 제거한다(도달 불가능한 죽은
+         마크업을 남기지 않기 위함). hero-carousel.js는 #hero-viewport/#hero-controls 부재 시 이미
+         안전하게 early return하므로(bootstrap() 참고) JS 변경은 없다. 배너가 1건 이상일 때의 내부
+         구조/기능/크기/비율은 전혀 변경하지 않았다 - .hero 내부에 .container를 하나 추가해 기존과
+         똑같은 폭을 유지할 뿐이다(.hero의 position:relative를 .hero .container로 옮겨 캐러셀 버튼의
+         절대 위치 기준점을 동일하게 유지한다). -->
+    <section id="banners" class="hero" th:if="${!#lists.isEmpty(banners)}">
+        <div class="container">
+            <div class="hero__viewport" id="hero-viewport">
+                <div class="hero__slide" th:each="banner, iter : ${banners}"
+                     th:attr="hidden=${iter.first} ? null : 'hidden'">
+                    <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}" class="hero__link">
+                        <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
+                             th:attr="fetchpriority=${iter.first} ? 'high' : null">
+                    </a>
+                    <div th:unless="${banner.linkUrl() != null}" class="hero__link">
+                        <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
+                             th:attr="fetchpriority=${iter.first} ? 'high' : null">
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div th:if="${#lists.size(banners) gt 1}" class="hero__controls" id="hero-controls">
-            <button type="button" class="hero__nav hero__nav--prev" id="hero-prev" aria-label="이전 배너">‹</button>
-            <button type="button" class="hero__nav hero__nav--next" id="hero-next" aria-label="다음 배너">›</button>
-            <div class="hero__bottom-bar">
-                <button type="button" class="hero__play-pause" id="hero-play-pause"
-                        aria-label="배너 자동 전환 일시정지">일시정지</button>
-                <div class="hero__indicators" id="hero-indicators" role="group" aria-label="배너 선택">
-                    <button type="button" class="hero__indicator" th:each="banner, iter : ${banners}"
-                            th:classappend="${iter.first} ? ' is-active'"
-                            th:attr="aria-label=${banner.title() + ' 배너로 이동'}, aria-current=${iter.first} ? 'true' : null"
-                            th:text="${iter.count}"></button>
+            <div th:if="${#lists.size(banners) gt 1}" class="hero__controls" id="hero-controls">
+                <button type="button" class="hero__nav hero__nav--prev" id="hero-prev" aria-label="이전 배너">‹</button>
+                <button type="button" class="hero__nav hero__nav--next" id="hero-next" aria-label="다음 배너">›</button>
+                <div class="hero__bottom-bar">
+                    <button type="button" class="hero__play-pause" id="hero-play-pause"
+                            aria-label="배너 자동 전환 일시정지">일시정지</button>
+                    <div class="hero__indicators" id="hero-indicators" role="group" aria-label="배너 선택">
+                        <button type="button" class="hero__indicator" th:each="banner, iter : ${banners}"
+                                th:classappend="${iter.first} ? ' is-active'"
+                                th:attr="aria-label=${banner.title() + ' 배너로 이동'}, aria-current=${iter.first} ? 'true' : null"
+                                th:text="${iter.count}"></button>
+                    </div>
                 </div>
             </div>
-        </div>
-
-        <div th:if="${#lists.isEmpty(banners)}" class="hero__empty">
-            <p>등록된 배너가 없습니다.</p>
         </div>
     </section>
 
@@ -59,102 +72,112 @@
     </section>
 
     <section id="home-pinned" class="section" th:if="${pinnedContents != null and !pinnedContents.isEmpty()}">
-        <h2 class="section-title">주요 소식</h2>
+        <div class="container">
+            <h2 class="section-title">주요 소식</h2>
 
-        <ul class="gallery-grid">
-            <li th:each="pinned : ${pinnedContents}" class="gallery-card">
-                <a th:href="${pinned.href()}" class="gallery-card__link">
-                    <div class="gallery-card__thumb">
-                        <img th:if="${pinned.thumbnail() != null}" th:src="${pinned.thumbnail()}"
-                             th:alt="${pinned.title()}" loading="lazy">
-                        <div th:unless="${pinned.thumbnail() != null}" class="gallery-card__thumb-placeholder"
-                             aria-hidden="true"></div>
-                    </div>
-                    <p class="gallery-card__title" th:text="${pinned.title()}"></p>
-                </a>
-            </li>
-        </ul>
+            <ul class="gallery-grid">
+                <li th:each="pinned : ${pinnedContents}" class="gallery-card">
+                    <a th:href="${pinned.href()}" class="gallery-card__link">
+                        <div class="gallery-card__thumb">
+                            <img th:if="${pinned.thumbnail() != null}" th:src="${pinned.thumbnail()}"
+                                 th:alt="${pinned.title()}" loading="lazy">
+                            <div th:unless="${pinned.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                        </div>
+                        <p class="gallery-card__title" th:text="${pinned.title()}"></p>
+                    </a>
+                </li>
+            </ul>
+        </div>
     </section>
 
     <section id="latest-programs" class="section">
-        <h2 class="section-title"><a th:href="@{/programs}" class="section-title__link">최신 프로그램</a></h2>
+        <div class="container">
+            <h2 class="section-title"><a th:href="@{/programs}" class="section-title__link">최신 프로그램</a></h2>
 
-        <div th:if="${!latestPrograms.isEmpty()}" class="program-cards">
-            <article th:each="program : ${latestPrograms}" class="program-card">
-                <a th:href="@{/programs/{id}(id=${program.id()})}" class="program-card__link">
-                    <div class="program-card__thumb">
-                        <img th:if="${program.thumbnail() != null}" th:src="${program.thumbnail()}"
-                             th:alt="${program.title()}" loading="lazy">
-                        <div th:unless="${program.thumbnail() != null}" class="program-card__thumb-placeholder"
-                             aria-hidden="true"></div>
-                        <span class="program-card__status"
-                              th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
-                    </div>
-                    <div class="program-card__body">
-                        <span class="program-card__type" th:text="${program.programType()}"></span>
-                        <h3 class="program-card__title" th:text="${program.title()}"></h3>
-                    </div>
-                </a>
-            </article>
+            <div th:if="${!latestPrograms.isEmpty()}" class="program-cards">
+                <article th:each="program : ${latestPrograms}" class="program-card">
+                    <a th:href="@{/programs/{id}(id=${program.id()})}" class="program-card__link">
+                        <div class="program-card__thumb">
+                            <img th:if="${program.thumbnail() != null}" th:src="${program.thumbnail()}"
+                                 th:alt="${program.title()}" loading="lazy">
+                            <div th:unless="${program.thumbnail() != null}" class="program-card__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                            <span class="program-card__status"
+                                  th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
+                        </div>
+                        <div class="program-card__body">
+                            <span class="program-card__type" th:text="${program.programType()}"></span>
+                            <h3 class="program-card__title" th:text="${program.title()}"></h3>
+                        </div>
+                    </a>
+                </article>
+            </div>
+
+            <p th:if="${latestPrograms.isEmpty()}" class="empty-state">등록된 프로그램이 없습니다.</p>
         </div>
-
-        <p th:if="${latestPrograms.isEmpty()}" class="empty-state">등록된 프로그램이 없습니다.</p>
     </section>
 
     <section id="latest-reviews" class="section">
-        <h2 class="section-title"><a th:href="@{/boards(boardType='REVIEW')}" class="section-title__link">강의 후기</a></h2>
+        <div class="container">
+            <h2 class="section-title"><a th:href="@{/boards(boardType='REVIEW')}" class="section-title__link">강의 후기</a></h2>
 
-        <ul th:if="${!latestReviews.isEmpty()}" class="gallery-grid">
-            <li th:each="review : ${latestReviews}" class="gallery-card">
-                <a th:href="@{/boards/{id}(id=${review.id()})}" class="gallery-card__link">
-                    <div class="gallery-card__thumb">
-                        <img th:if="${review.thumbnail() != null}" th:src="${review.thumbnail()}"
-                             th:alt="${review.title()}" loading="lazy">
-                        <div th:unless="${review.thumbnail() != null}" class="gallery-card__thumb-placeholder"
-                             aria-hidden="true"></div>
-                    </div>
-                    <p class="gallery-card__title" th:text="${review.title()}"></p>
-                </a>
-            </li>
-        </ul>
+            <ul th:if="${!latestReviews.isEmpty()}" class="gallery-grid">
+                <li th:each="review : ${latestReviews}" class="gallery-card">
+                    <a th:href="@{/boards/{id}(id=${review.id()})}" class="gallery-card__link">
+                        <div class="gallery-card__thumb">
+                            <img th:if="${review.thumbnail() != null}" th:src="${review.thumbnail()}"
+                                 th:alt="${review.title()}" loading="lazy">
+                            <div th:unless="${review.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                        </div>
+                        <p class="gallery-card__title" th:text="${review.title()}"></p>
+                    </a>
+                </li>
+            </ul>
 
-        <p th:if="${latestReviews.isEmpty()}" class="empty-state">등록된 강의 후기가 없습니다.</p>
+            <p th:if="${latestReviews.isEmpty()}" class="empty-state">등록된 강의 후기가 없습니다.</p>
+        </div>
     </section>
 
     <section id="latest-notices" class="section">
-        <h2 class="section-title"><a th:href="@{/boards(boardType='NOTICE')}" class="section-title__link">공지사항</a></h2>
+        <div class="container">
+            <h2 class="section-title"><a th:href="@{/boards(boardType='NOTICE')}" class="section-title__link">공지사항</a></h2>
 
-        <ul th:if="${!latestNotices.isEmpty()}" class="notice-list">
-            <li th:each="notice : ${latestNotices}" class="notice-list__item">
-                <a th:href="@{/boards/{id}(id=${notice.id()})}" class="notice-list__link">
-                    <span class="notice-list__title" th:text="${notice.title()}"></span>
-                    <time class="notice-list__date" th:datetime="${notice.createdAt()}"
-                          th:text="${#temporals.format(notice.createdAt(), 'yyyy.MM.dd')}"></time>
-                </a>
-            </li>
-        </ul>
+            <ul th:if="${!latestNotices.isEmpty()}" class="notice-list">
+                <li th:each="notice : ${latestNotices}" class="notice-list__item">
+                    <a th:href="@{/boards/{id}(id=${notice.id()})}" class="notice-list__link">
+                        <span class="notice-list__title" th:text="${notice.title()}"></span>
+                        <time class="notice-list__date" th:datetime="${notice.createdAt()}"
+                              th:text="${#temporals.format(notice.createdAt(), 'yyyy.MM.dd')}"></time>
+                    </a>
+                </li>
+            </ul>
 
-        <p th:if="${latestNotices.isEmpty()}" class="empty-state">등록된 공지사항이 없습니다.</p>
+            <p th:if="${latestNotices.isEmpty()}" class="empty-state">등록된 공지사항이 없습니다.</p>
+        </div>
     </section>
 
     <section id="latest-gallery" class="section">
-        <h2 class="section-title"><a th:href="@{/boards(boardType='GALLERY')}" class="section-title__link">갤러리</a></h2>
+        <div class="container">
+            <h2 class="section-title"><a th:href="@{/boards(boardType='GALLERY')}" class="section-title__link">갤러리</a></h2>
 
-        <ul th:if="${!latestGallery.isEmpty()}" class="gallery-grid">
-            <li th:each="gallery : ${latestGallery}" class="gallery-card">
-                <a th:href="@{/boards/{id}(id=${gallery.id()})}" class="gallery-card__link">
-                    <div class="gallery-card__thumb">
-                        <img th:if="${gallery.thumbnail() != null}" th:src="${gallery.thumbnail()}"
-                             th:alt="${gallery.title()}" loading="lazy">
-                        <div th:unless="${gallery.thumbnail() != null}" class="gallery-card__thumb-placeholder"
-                             aria-hidden="true"></div>
-                    </div>
-                    <p class="gallery-card__title" th:text="${gallery.title()}"></p>
-                </a>
-            </li>
-        </ul>
+            <ul th:if="${!latestGallery.isEmpty()}" class="gallery-grid">
+                <li th:each="gallery : ${latestGallery}" class="gallery-card">
+                    <a th:href="@{/boards/{id}(id=${gallery.id()})}" class="gallery-card__link">
+                        <div class="gallery-card__thumb">
+                            <img th:if="${gallery.thumbnail() != null}" th:src="${gallery.thumbnail()}"
+                                 th:alt="${gallery.title()}" loading="lazy">
+                            <div th:unless="${gallery.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                        </div>
+                        <p class="gallery-card__title" th:text="${gallery.title()}"></p>
+                    </a>
+                </li>
+            </ul>
 
-        <p th:if="${latestGallery.isEmpty()}" class="empty-state">등록된 갤러리가 없습니다.</p>
+            <p th:if="${latestGallery.isEmpty()}" class="empty-state">등록된 갤러리가 없습니다.</p>
+        </div>
     </section>
 
     <script th:src="@{/js/home/hero-carousel.js}"></script>

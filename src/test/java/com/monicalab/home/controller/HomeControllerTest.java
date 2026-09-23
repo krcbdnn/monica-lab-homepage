@@ -118,7 +118,9 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#banners")).isNotEmpty();
+        // P14-T3A: 이 테스트는 배너를 등록하지 않으므로(0건) #banners는 렌더링되지 않는다
+        // (heroIsNotRenderedWhenNoBannersExist가 이 계약을 직접 검증한다).
+        assertThat(document.select("#banners")).isEmpty();
         assertThat(document.select("#popups")).isNotEmpty();
         assertThat(document.select("#latest-reviews")).isNotEmpty();
         assertThat(document.select("#latest-notices")).isNotEmpty();
@@ -386,16 +388,40 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#banners .hero__indicator")).isEmpty();
     }
 
+    // P14-T3A: 활성 배너가 0건이면 빈 Hero 공간을 차지하지 않도록 #banners section 자체를 렌더링하지
+    // 않는다(과거 .hero__empty "등록된 배너가 없습니다." fallback 계약을 대체 - 텍스트 자체가 더 이상
+    // 존재하지 않아야 한다). hero-carousel.js는 #hero-viewport/#hero-controls 부재 시 이미 안전하게
+    // early return하므로 이 변경에 JS 대응은 필요 없다(별도 console error 회귀는 Playwright QA로 확인).
     @Test
-    void heroShowsEmptyStateWhenNoBannersExist() throws Exception {
+    void heroIsNotRenderedWhenNoBannersExist() throws Exception {
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#banners img")).isEmpty();
-        assertThat(document.select("#banners .hero__empty")).isNotEmpty();
+        assertThat(document.select("#banners")).isEmpty();
+        assertThat(document.select(".hero__empty")).isEmpty();
+        assertThat(document.text()).doesNotContain("등록된 배너가 없습니다");
+    }
+
+    // P14-T3A: 배너가 1건 이상 존재하면 #banners가 여전히 #index-content의 최상단 section으로
+    // 렌더링됨을 확인한다(homePinnedSectionIsRenderedImmediatelyAfterPopupsAndBeforeLatestPrograms는
+    // 반대로 배너 0건 상태의 순서만 검증하므로, "배너가 있을 때" 케이스를 별도로 보강한다).
+    @Test
+    void heroSectionIsFirstInTopLevelOrderWhenAtLeastOneBannerExists() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("순서 확인용 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements topLevelSections = document.select("#index-content > section");
+
+        assertThat(topLevelSections.eachAttr("id")).containsExactly(
+                "banners", "popups", "latest-programs", "latest-reviews", "latest-notices", "latest-gallery");
     }
 
     // #popup-overlay/.popup-modal은 SSR 시점부터 항상 hidden이어야 한다(P13-T10 계약: 서버는 1건으로
@@ -837,8 +863,11 @@ class HomeControllerTest extends AbstractIntegrationTest {
         Document document = Jsoup.parse(body);
         Elements topLevelSections = document.select("#index-content > section");
 
+        // P14-T3A: 이 테스트는 배너를 등록하지 않으므로(0건) #banners는 더 이상 렌더링되지 않는다
+        // (heroIsNotRenderedWhenNoBannersExist가 그 계약을 직접 검증하고,
+        // heroSectionIsFirstInTopLevelOrderWhenAtLeastOneBannerExists가 배너 존재 시 순서를 검증한다).
         assertThat(topLevelSections.eachAttr("id")).containsExactly(
-                "banners", "popups", "home-pinned", "latest-programs", "latest-reviews",
+                "popups", "home-pinned", "latest-programs", "latest-reviews",
                 "latest-notices", "latest-gallery");
     }
 
