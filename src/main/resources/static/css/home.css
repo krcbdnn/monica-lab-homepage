@@ -15,6 +15,23 @@
        8% 알파만 별도 이름으로 노출한다(Header hover/open 배경 전용). P14-T1: primary 변경에 맞춰
        rgb(31,58,95)로 함께 갱신(primary 값을 바꾸면 이 값도 같이 바꿔야 한다). */
     --color-primary-soft: rgba(31, 58, 95, 0.08);
+    /* P14-T3D: Editorial Education × restrained Visual Magazine의 유일한 신규 accent(muted
+       terracotta). 실측 WCAG 대비(상대휘도 계산): #C1652F on #ffffff = 4.06:1 - 일반 본문 크기
+       텍스트 AA(4.5:1) 기준에는 못 미치지만 large text/비텍스트 요소 AA(3:1)는 통과한다. 그래서
+       작은 텍스트(eyebrow 등)에는 #C1652F를 직접 쓰지 않고, 더 어두운 --color-accent-text
+       (#96491E, 계산상 6.43:1 - 일반 텍스트 AA 통과)를 쓴다. --color-accent 자체는 rule/underline/
+       hover indicator 같은 비텍스트 요소, 그리고 Program 순번처럼 크고 굵은 대형 텍스트에만 쓴다. */
+    --color-accent: #C1652F;
+    --color-accent-text: #96491E;
+    /* P14-T3D: Review dark section(배경 --color-primary) 안에서 쓰는 전용 변형. 위 --color-accent-text는
+       납작한 어두운 배경 위에서 대비가 1.79:1까지 떨어져(계산 확인) 거의 안 보이므로, 밝게 조정한
+       #E8A17B(navy 배경 대비 약 5.37:1, 일반 텍스트 AA 통과)를 dark 전용으로 별도 정의한다. muted
+       텍스트도 마찬가지로 밝은 배경 전용 --color-text-muted를 다크 섹션에 그대로 쓰면 대비가
+       부족해(다크 배경 대비 실측 시 2:1 미만) 밝은 회색-blue 계열(#c0c8d2, navy 대비 약 6.79:1)을
+       별도로 둔다. 헤딩/캡션의 주 텍스트는 이미 존재하는 --color-primary-contrast(#ffffff, navy 대비
+       11.48:1 - 기존 CSS 상단 주석 값과 일치)를 그대로 재사용해 토큰을 중복 정의하지 않는다. */
+    --color-accent-on-dark: #E8A17B;
+    --color-text-muted-on-dark: #c0c8d2;
     --space-1: 0.5rem;
     --space-2: 1rem;
     --space-3: 1.5rem;
@@ -57,7 +74,7 @@
 
 /* P14-T1: 본문/제목 base typography. 제목은 weight 700(h3만 600), line-height 1.3.
    Bootstrap의 h1~h6 기본(weight 500, 유동 font-size)을 로드 순서(home.css가 뒤)로 덮어쓴다.
-   component가 class로 자체 크기를 지정한 제목(.section-title, .program-card__title,
+   component가 class로 자체 크기를 지정한 제목(.section-title, .program-row__title,
    .popup-modal__title 등)은 class 특이도가 더 높아 그대로 유지된다. */
 h1, h2, h3, h4, h5, h6 {
     font-weight: 700;
@@ -819,11 +836,59 @@ html {
     padding: var(--space-4) 0;
 }
 
+/* P14-T3D: 모든 section이 동일한 --space-4(40px)였던 획일적 리듬을 깬다. 새 spacing 토큰을 만들지
+   않고 기존 --space-3/4/5(24/40/64px)만 재사용해 magic number 없이 2개 modifier만 추가한다.
+   Program/Gallery(사진 중심, 가장 넓은 breathing room) = relaxed(64px), Notice(텍스트 중심,
+   섹션 사이 "숨 쉬는 공간") = compact(24px), Pinned/Review는 modifier 없이 기존 기본값(40px)을
+   그대로 유지해 "중간" 리듬이 된다 - 이렇게 3단계(24/40/64)만으로 획일성을 해소한다. */
+.section--relaxed {
+    padding: var(--space-5) 0;
+}
+
+.section--compact {
+    padding: var(--space-3) 0;
+}
+
+/* P14-T3D: Review 전용 dark full-width surface. --color-primary는 이미 Header/링크가 쓰는 기존
+   토큰이라 새 색상 추가 없이 재사용한다(대비 계산은 위 :root 토큰 주석 참고). */
+.section--dark {
+    background: var(--color-primary);
+}
+
 .section-title {
     margin: 0 0 var(--space-3);
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--color-text);
+}
+
+/* P14-T3D: 영문 eyebrow(FEATURED/LATEST PROGRAM/STORIES/NEWS/GALLERY) - 순수 supporting label이라
+   heading이 아닌 <p>로 두고 h2 위계에 관여하지 않는다. accent는 작은 텍스트라 --color-accent가
+   아니라 --color-accent-text(AA 통과 확인)를 쓴다. */
+.section-eyebrow {
+    margin: 0 0 var(--space-1);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-accent-text);
+}
+
+/* P14-T3D: Review(.section--dark) 안에서는 밝은 배경 전용 색 대신 dark-safe 변형을 쓴다(대비 계산은
+   :root 주석 참고) - .section-eyebrow/.section-title/.empty-state 공용 규칙을 다시 쓰지 않고 색만
+   덮어쓴다. */
+.section--dark .section-eyebrow {
+    color: var(--color-accent-on-dark);
+}
+
+.section--dark .section-title,
+.section--dark .section-title__link {
+    color: var(--color-primary-contrast);
+}
+
+.section--dark .empty-state {
+    border-color: rgba(255, 255, 255, 0.24);
+    color: var(--color-text-muted-on-dark);
 }
 
 /* P13-T12: 메인 섹션 제목을 목록 페이지로 이동하는 링크로 사용한다. 기존 디자인(색상/굵기)은
@@ -863,12 +928,10 @@ html {
     background: var(--color-primary-soft);
 }
 
-/* P14-T3A: 강의 후기/갤러리는 둘 다 "이미지 중심 소셜 프루프성" 콘텐츠라 같은 warm 톤으로 묶어
-   콘텐츠 성격에 따른 grouping을 만든다(최신 프로그램/공지사항은 반대로 --color-bg 기본값 그대로 둬
-   "핵심 상품/공식 공지"라는 성격을 유지한다 - 3개 톤을 기계적으로 순환시키지 않고 의미 단위로만
-   배정). --color-surface는 이미 #home-pinned 이전(T3)부터 쓰이던 유일한 대체 surface token이라
-   새 색상 추가 없이 재사용한다. */
-#latest-reviews,
+/* P14-T3A가 강의 후기/갤러리를 같은 warm surface로 묶었던 grouping은 P14-T3D에서 강의 후기가
+   deep navy full-width dark section(.section--dark, 아래 참고)으로 완전히 달라지며 더 이상
+   적용되지 않는다 - #latest-reviews를 이 규칙에서 제거하고 갤러리만 남긴다(#latest-reviews의
+   배경은 이제 ID 규칙이 아니라 .section--dark class가 담당 - index.html에서 이미 부여). */
 #latest-gallery {
     background: var(--color-surface);
 }
@@ -1061,161 +1124,136 @@ html {
 /* P14-T3A: .hero__empty("등록된 배너가 없습니다.") 마크업 자체를 제거했다(배너 0건이면 #banners
    section 전체가 렌더링되지 않음) - 도달 불가능해진 규칙이라 함께 제거한다. */
 
-/* Program 카드.
-   P14-T1은 auto-fill(minmax(220px,1fr))로 "아이템이 적어도 카드가 과도하게 커지는" P13 회귀
-   (auto-fit이었을 때 ≈636px)를 막았다. 그런데 auto-fill은 실제 아이템 수와 무관하게 들어갈 수 있는
-   트랙을 전부 만들고 빈 트랙도 자리를 차지하므로, 아이템이 적으면(메인은 최신 3건 고정) 오른쪽에
-   불필요하게 큰 빈 트랙이 남는다(1440px 실측: 2건일 때 우측 748px). 단 이 문제는 "실제로 여러 컬럼이
-   들어갈 수 있는" 폭에서만 발생한다 - 375~430px(모바일)는 원래도 1컬럼뿐이라 빈 트랙 자체가 없고,
-   auto-fill의 1fr이 카드를 컨테이너 폭 가득(약 343~398px) 채우는 것이 의도된 모습이다(auto-fit로
-   바꾸면 오히려 카드가 220px 고정폭 섬처럼 작아지고 좌우로 큰 여백만 남아 더 어색해진다 - 비파괴
-   실측으로 확인). 그래서 768px 미만은 기존 auto-fill(minmax(220px,1fr))을 그대로 두고, 768px 이상
-   (실제 3~4컬럼이 들어가는 폭)에서만 auto-fit + 고정 225px(빈 트랙을 접어 없애고 폭을 220px 하한 대비
-   살짝만 키움) + justify-content:center로 바꿔 남는 공간을 우측이 아니라 좌우로 고르게 분산시킨다.
-   (minmax(220px, 280px)처럼 상한을 fr이 아닌 더 큰 정의된 길이로 주는 방식도 시도했으나, auto-fit의
-   컬럼 개수 계산이 "상한이 고정 길이면 하한이 아니라 상한 기준"이라는 CSS Grid 스펙 규칙 때문에 좁은
-   폭에서 기존보다 컬럼 수가 줄어드는 회귀가 나타나 폐기했다 - 아래 225px는 768~1440px 전 구간에서
-   기존 컬럼 수(3/3/3/3/4/4/4)가 정확히 보존됨을 비파괴 실측으로 확인한 값이다.) */
-.program-cards {
+/* P14-T3D: uniform card grid(.program-cards/.program-card*, P13-T2~P14-T3C)를 editorial alternating
+   row로 교체한다. repo 전체 재검색(grep -rln "program-card" src/ frontend-tests/)으로 사용처가
+   home.css/index.html/visual-regression.spec.js 3곳뿐임을(Home 전용, 다른 template/JS 미사용)
+   재확인한 뒤 구 규칙을 전부 제거했다 - dead CSS를 남기지 않는다(P14-T3A가 도달 불가능해진
+   .hero__empty를 제거한 것과 동일한 원칙). 새 구조는 어떤 shared class와도 겹치지 않으므로
+   ID 스코프 없이 최상위 클래스로 정의해도 안전하다(Program 카드류는 애초에 Home 1곳에서만 쓰였고,
+   지금은 이름 자체가 program-row로 바뀌어 다른 template과 충돌할 여지가 더더욱 없다).
+   DOM은 매 item마다 [number][thumb][body] 순서로 고정이고(HomeController/DTO 무변경), desktop
+   좌우 교대는 CSS Grid named area 배정만으로 만든다 - 홀수 번째 row는 "number thumb body",
+   짝수 번째는 "number body thumb"로 area만 바꿔 thumb/body가 시각적으로 자리를 바꾼다(number
+   컬럼은 항상 같은 위치, DOM 재정렬 없음). */
+.program-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.program-row {
+    border-top: 1px solid var(--color-border);
+    padding-top: var(--space-3);
+}
+
+.program-row__link {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    justify-content: start;
+    grid-template-columns: 3rem repeat(2, 1fr);
+    grid-template-areas: "number thumb body";
+    align-items: center;
     gap: var(--space-3);
-}
-
-@media (min-width: 768px) {
-    .program-cards {
-        grid-template-columns: repeat(auto-fit, 225px);
-        justify-content: center;
-    }
-}
-
-/* P14-T3: border를 살짝 진하게(hover/focus-visible에서 primary로) 해 "수강/특강 신청으로 이어지는"
-   섹션이라는 CTA 성격을 카드 border/제목 weight만으로 강화한다. 이미지 비율(4:3)과 배지 문구/색은
-   무변경(raw COURSE/SPECIAL 표시는 T4A/T4B 범위라 손대지 않음). */
-.program-card {
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--color-bg);
-    transition: border-color 0.15s ease;
-}
-
-.program-card:hover,
-.program-card:focus-within {
-    border-color: var(--color-primary);
-}
-
-.program-card__link {
-    display: block;
     color: inherit;
     text-decoration: none;
 }
 
-.program-card__thumb {
+.program-row:nth-child(even) .program-row__link {
+    grid-template-areas: "number body thumb";
+}
+
+/* 순번은 실제 반복 순서를 보여주는 순수 장식(aria-hidden, index.html 참고) - "01/02/03"이 Program
+   row의 silhouette 자체를 만든다. 큰 굵은 텍스트라 --color-accent(large-text AA 기준 통과)를
+   직접 쓴다(작은 텍스트 전용 --color-accent-text와 구분). */
+.program-row__number {
+    grid-area: number;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--color-accent);
+}
+
+.program-row__thumb {
+    grid-area: thumb;
     position: relative;
     aspect-ratio: 4 / 3;
     background: var(--color-surface);
+    overflow: hidden;
 }
 
-.program-card__thumb img {
+.program-row__thumb img {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-.program-card__thumb-placeholder {
+.program-row__thumb-placeholder {
     width: 100%;
     height: 100%;
     background: var(--color-surface);
 }
 
-.program-card__status {
-    position: absolute;
-    top: var(--space-1);
-    right: var(--space-1);
-    padding: 0.25rem 0.625rem;
-    border-radius: 999px;
-    background: var(--color-primary);
-    color: var(--color-primary-contrast);
-    font-size: 0.75rem;
-    font-weight: 600;
+.program-row__body {
+    grid-area: body;
+    min-width: 0;
 }
 
-.program-card__body {
-    padding: var(--space-2);
-}
-
-.program-card__type {
+.program-row__type {
     display: block;
     margin-bottom: 0.25rem;
     color: var(--color-text-muted);
     font-size: 0.8125rem;
 }
 
-.program-card__title {
-    margin: 0;
-    font-size: 1.0625rem;
+.program-row__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--color-text);
+    overflow-wrap: break-word;
 }
 
-/* P14-T3C: "최신 프로그램"을 image-top 카드에서 수평 정보 카드(image-left + type/title/status)로
-   바꿔 Pinned/Review/Gallery의 세로 grid-of-cards와 실루엣을 구분한다. 전역 `.program-cards`/
-   `.program-card*` base 규칙은 값을 바꾸지 않고(사용처가 현재 Home 하나뿐임을 grep으로 확인했지만,
-   T4A/T4B와 동일하게 "공유 가능성이 있는 selector는 override로 처리"하는 프로젝트 원칙을 그대로
-   따른다), `#latest-programs`로 스코프한 override만 추가한다. 실측(1440/1200/1024/901/900/899/
-   768/390/375 컨텐츠 폭 1168/1168/992/869/868/867/736/358/343px 기준 계산): 고정 380px + 기존
-   gap(--space-3=24px)으로 auto-fit하면 899~1440px 전 구간에서 정확히 2열(2*380+24=784 ≤ 최소
-   867px)이 유지되고 1440에서도 3열로 늘지 않는다(3*380+48=1188 > 1168). 768px는 컨텐츠 736px라
-   2열(784)이 안 들어가 1열로 자연 전환(새 breakpoint 아님, 기존 768px 재사용, auto-fit 산술 결과 -
-   "768~847px는 1열 중앙 정렬"이라는 sparse 상태로, T3/T3A가 이미 검증한 auto-fit+center 패턴 그대로).
-   <768px(모바일)의 minmax 하한만 220px→280px로 올려 좁아진 thumb(140px 고정)에도 텍스트가
-   비좁지 않게 한다. */
-#latest-programs .program-cards {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+/* P14-T3D: status 배지를 T3C의 solid pill(navy 배경 채움)에서 T4A(Program List, #program-list
+   .program-list__status-badge)가 이미 검증한 절제된 언어로 교체한다 - surface+border+muted 텍스트,
+   OPEN일 때만 primary로 강조(텍스트 자체가 "모집중"/"모집마감"이라 색만으로 상태를 전달하지
+   않는다). 새 배지 스타일을 만들지 않고 기존 시각 언어를 재사용해 "시각적으로 과도한 배지"가
+   되지 않게 한다. */
+.program-row__status {
+    display: inline-block;
+    padding: 0.25rem 0.625rem;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
 }
 
-@media (min-width: 768px) {
-    #latest-programs .program-cards {
-        grid-template-columns: repeat(auto-fit, 380px);
-    }
+.program-row__status.is-open {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
 }
 
-/* 768px 이상: 카드 내부를 수평(이미지 왼쪽 140px 고정 + 오른쪽 type/title/status)으로 전환한다.
-   140px는 실측(375px 모바일 텍스트 영역 계산 결과 세로 폴백이 필요하다고 판단한) 근거와 별개로,
-   데스크톱/태블릿 카드 폭(380px)에서 240px의 텍스트 영역을 확보하는 값이다. status 배지는 기존과
-   동일하게 thumb 기준 absolute라 좁아진 thumb 안에서도 겹침 없이 우상단에 그대로 위치한다. */
-#latest-programs .program-card__link {
-    display: flex;
-    align-items: flex-start;
-    /* stretch(flex 기본값)를 쓰지 않는다 - thumb의 aspect-ratio:4/3(base 규칙)이 body 높이에 맞춰
-       늘어나며 깨지는 것을 막고, thumb 자체의 width(140px)+aspect-ratio로만 높이가 결정되게 한다. */
-}
-
-#latest-programs .program-card__thumb {
-    flex: 0 0 140px;
-}
-
-#latest-programs .program-card__body {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-/* <768px: 오른쪽 텍스트 영역이 약 202px로 좁아져(358px 컨텐츠 - 140px thumb - gap) 프로그램명이
-   자주 3줄 이상 필요해질 수 있음을 실측 계산으로 확인해, 모바일에서는 T3B 이전과 동일한 image-top
-   세로 카드로 명시적으로 되돌린다("무조건 가로 유지"를 전제하지 않고 실측 근거로 세로 폴백을 선택). */
+/* <768px: number+thumb+body 3-column grid는 텍스트 공간이 좁아(T3C가 이미 실측한 202px 근거와
+   동일한 이유) 세로 stack으로 전환한다. 순서는 image → number(+category) → title(요청서 그대로).
+   좌우 교대(nth-child(even))는 desktop 전용 개념이라 모바일에서는 명시적으로 제거한다. */
 @media (max-width: 767.98px) {
-    #latest-programs .program-card__link {
-        flex-direction: column;
+    .program-row__link {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "thumb"
+            "number"
+            "body";
+        gap: var(--space-2);
     }
 
-    #latest-programs .program-card__thumb {
-        flex: none;
-        width: 100%;
+    .program-row:nth-child(even) .program-row__link {
+        grid-template-areas:
+            "thumb"
+            "number"
+            "body";
+    }
+
+    .program-row__number {
+        font-size: 1.5rem;
     }
 }
 
@@ -1274,6 +1312,46 @@ html {
     font-size: var(--fs-meta);
 }
 
+/* P14-T3D(correction): Notice는 card화하지 않는다 - 위 .notice-list*(DOM/class)는 완전히 무변경.
+   최초 구현(2행 "eyebrow list"/"title list" + list가 두 행 span)은 CSS Grid의 암시적 auto 행
+   크기 분배 때문에 eyebrow 행이 list 높이만큼 부풀어 NEWS와 공지사항 사이가 눈에 띄게 벌어지는
+   실제 렌더링 결함이 있었다(index.html 주석 참고). eyebrow+h2를 `.notice-section__heading`
+   wrapper 하나로 묶어 "list와 행을 공유하지 않는 단일 grid item"으로 만들면, heading 블록은
+   list 높이와 완전히 무관하게 자기 콘텐츠 높이(eyebrow + 작은 gap + h2)로만 결정된다 - 1행
+   2열("heading list")에 align-items:start로 배치해 NEWS/공지사항이 list 첫 줄과 같은 높이에서
+   시작하되 서로는 붙어 하나의 title group으로 읽힌다. 전역 `.container`/`.section-title`/
+   `.section-eyebrow`는 건드리지 않고 이 section 스코프 안에서만 필요한 값을 얹는다. mobile은
+   이 media query 밖이라 기존과 동일하게 자연스러운 세로 흐름(heading block → list)을 그대로
+   유지한다(새 CSS 없이 DOM 순서만으로 성립). */
+@media (min-width: 768px) {
+    #latest-notices .container {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        grid-template-areas: "heading list";
+        column-gap: var(--space-4);
+        align-items: start;
+    }
+
+    #latest-notices .notice-section__heading {
+        grid-area: heading;
+    }
+
+    #latest-notices .notice-list,
+    #latest-notices .empty-state {
+        grid-area: list;
+    }
+}
+
+/* P14-T3D(correction): heading block 내부에서 NEWS(eyebrow)와 공지사항(h2)이 "하나의 title
+   group"으로 읽히려면 둘 사이 간격이 작아야 한다. `.section-eyebrow`의 기존 margin-bottom
+   (--space-1=8px)은 이미 작은 값이라 그대로 둔다. `.section-title`의 전역 기본 margin-bottom
+   (--space-3=24px, 다른 section에서는 카드/목록과의 간격으로 필요)은 Notice heading 안에서는
+   뒤에 오는 형제가 없어 불필요한 빈 공간만 만들므로, 전역 `.section-title`은 그대로 두고
+   이 section으로만 스코프해 0으로 되돌린다. */
+#latest-notices .notice-section__heading .section-title {
+    margin-bottom: 0;
+}
+
 /* Gallery: thumbnail 중심 grid. 캐러셀/슬라이더/JS 없음.
    .gallery-grid/.gallery-card*는 home/board/list.html(공개 게시판 GALLERY/REVIEW 목록,
    #board-grid.gallery-grid)과 공유하는 base class이므로, 이 기본 규칙 자체는 P14-T3에서
@@ -1288,21 +1366,10 @@ html {
     padding: 0;
 }
 
-/* P14-T3: Home의 "강의 후기"/"갤러리" section에서, Program과 같은 이유로 auto-fit + 고정 폭으로 바꿔
-   빈 트랙을 없애고 남는 공간을 좌우로 고르게 분산시킨다(#latest-programs와 동일 원리). id로 스코프해
-   Board GALLERY/REVIEW 목록(#board-grid)에는 적용되지 않는다. 이 두 section은 375px처럼 좁은 폭에서도
-   이미 원래 2컬럼 이상이 들어가던 thumbnail grid라 Program과 달리 전 viewport에 동일하게 적용해도
-   "빈 공간에 떠 있는 작은 카드"처럼 보이지 않는다(썸네일 그리드는 원래도 컴팩트한 크기가 자연스럽다).
-   기존 minmax 하한(160px, 즉 기존 auto-fill 결과 161~186px과 거의 동일)을 그대로 고정 폭으로 쓴다.
-   고정 폭(하한=상한)은 auto-fit 컬럼 개수 계산 공식이 기존과 동일해, 전 viewport(1440/1200/1024/901/
-   900/899/768/430/390/375)에서 강의 후기·갤러리의 기존 컬럼 수(2/2/2/4/5/5/5/5/6/6)가 1~20건 전부
-   정확히 보존됨을 비파괴 실측으로 확인했다. (주요 소식의 grid 전략은 P14-T3C에서 별도로 재설계했다 -
-   아래 참고.) */
-#latest-reviews .gallery-grid,
-#latest-gallery .gallery-grid {
-    grid-template-columns: repeat(auto-fit, 160px);
-    justify-content: center;
-}
+/* P14-T3D: 강의 후기/갤러리는 더 이상 공유 `.gallery-grid`를 쓰지 않는다(각각 `.review-strip`/
+   `.gallery-mosaic` 전용 component로 분리 - 아래 참고). 이 auto-fit 160px 고정폭 규칙은 두 section
+   모두에서 대상이 사라져 제거한다(Board `#board-grid`는 자신만의 별도 규칙을 그대로 유지하므로
+   영향 없음). */
 
 /* P14-T3C: "주요 소식"을 정사각 grid-of-cards에서 2-column 수평 editorial media card로 바꿔 Program/
    Review/Gallery와 실루엣을 구분한다(개수 무제한 계약을 지키면서 첫 카드 특별 취급 없이 모든 카드가
@@ -1413,72 +1480,164 @@ html {
     font-size: 1rem;
 }
 
-/* 강의 후기: 후기 썸네일은 admin이 올리는 범용 이미지(스크린샷/캡처 가능성 포함, 스키마상 강제된
-   비율 없음)라 cover로 자르면 중요한 내용이 잘릴 위험이 있다(A-8의 "object-fit 유지" 문구와 충돌함을
-   조사에서 확인·승인받음 - Review 한정 예외). wrapper의 1:1 aspect-ratio/grid 폭은 그대로 두고 img만
-   contain으로 바꿔 원본 전체가 보이게 한다. `.gallery-card__thumb`가 이미 `background:var(--color-surface)`
-   를 갖고 있어 letterbox 여백이 별도 선언 없이도 자연스러운 액자처럼 보인다. */
-#latest-reviews .gallery-card__thumb img {
-    object-fit: contain;
+/* P14-T3D: Home Review 전용 component(.review-strip*) - 공유 `.gallery-grid`/`.gallery-card*`
+   (Home Pinned + 공개 Board `#board-grid` GALLERY/REVIEW 목록과 공유)는 단 한 줄도 건드리지 않는다
+   (grep으로 재확인: #board-grid는 여전히 전역 `.gallery-card__thumb`(1:1)/`.gallery-card__link`
+   그대로라 무영향). section 배경이 deep navy(.section--dark)로 반전되므로 border/shadow 없이 사진
+   자체가 주인공이 되게 하고, placeholder도 밝은 --color-surface 대신 dark UI에 맞는 옅은 흰색
+   반투명(rgba)을 쓴다. focus-visible은 흰 outline(navy 배경 대비 11.48:1)으로 명확하게 표시한다. */
+.review-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, 220px);
+    justify-content: center;
+    gap: var(--space-3);
+    list-style: none;
+    margin: 0;
+    padding: 0;
 }
 
-/* P14-T3C: "강의 후기" 카드에 paper-frame(mat) 느낌을 더한다 - 링크 안쪽에 여백을 줘 사진이 카드
-   가장자리에서 살짝 띄워지고(mat), thumb 자체 radius도 한 단계 낮춰(--radius-sm) "종이에 마운트된
-   사진" 인상을 준다. 실제로 Gallery(가장자리까지 꽉 채운 4:3 landscape, mat 없음)와 실루엣이
-   구분되는 지점이 바로 이 mat 유무 + 정사각(160px) vs landscape(320px) 크기 차이다. Board REVIEW
-   목록(#board-grid)은 전역 `.gallery-card__link`/`.gallery-card__thumb` 무수정이라 영향 없음. */
-#latest-reviews .gallery-card__link {
-    padding: var(--space-1);
+@media (max-width: 767.98px) {
+    .review-strip {
+        grid-template-columns: repeat(2, 1fr);
+    }
 }
 
-#latest-reviews .gallery-card__thumb {
-    border-radius: var(--radius-sm);
-}
-
-/* #home-pinned/#board-grid와 동일한 시각 언어(테두리 + hover/focus-visible)를 이식한다. 전역
-   `.gallery-card__link`는 무수정이라 Board REVIEW 목록에는 영향이 없다. */
-#latest-reviews .gallery-card__link,
-#latest-gallery .gallery-card__link {
+.review-strip__link {
     display: block;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--color-bg);
-    transition: border-color 0.15s ease;
+    color: inherit;
+    text-decoration: none;
 }
 
-#latest-reviews .gallery-card__link:hover,
-#latest-reviews .gallery-card__link:focus-visible,
-#latest-gallery .gallery-card__link:hover,
-#latest-gallery .gallery-card__link:focus-visible {
-    border-color: var(--color-primary);
+.review-strip__link:focus-visible {
+    outline: 2px solid var(--color-primary-contrast);
+    outline-offset: 2px;
 }
 
-/* P14-T3C: "강의 후기"는 위에서 `#latest-reviews .gallery-card__link`에 전체 padding을 추가해
-   thumb/title이 이미 동일하게 inset되므로(paper-frame), title에 별도 padding을 또 얹으면 thumb보다
-   title만 이중으로 더 안쪽에 들어가 어긋나 보인다 - 그래서 Review는 이 규칙에서 제외했다(T3B 당시엔
-   link에 padding이 없어 title에만 별도 padding이 필요했지만 이제는 불필요). Gallery는 link에 padding이
-   없어(사진이 가장자리까지 닿는 photo-first 의도) 여전히 title만 별도로 inset해야 한다. */
-#latest-gallery .gallery-card__title {
-    padding: 0 var(--space-1) var(--space-1);
-}
-
-/* 갤러리: "사진첩"다운 인상을 위해 Home 갤러리에 한해서만 정사각(1:1)을 Program과 같은 4:3
-   landscape로 바꾼다(Board GALLERY `#board-grid`는 무영향 - 전역 `.gallery-card__thumb` 무수정).
-   object-fit은 cover 유지(사진은 crop 허용 범위가 넓어 후기와 달리 굳이 contain으로 바꿀 필요가 없다). */
-#latest-gallery .gallery-card__thumb {
+.review-strip__thumb {
+    position: relative;
     aspect-ratio: 4 / 3;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
 }
 
-/* P14-T3C: "사진이 주인공"인 photo-first 구성을 위해 Home 갤러리 카드 폭을 160px→320px로 키운다
-   (Review는 160px 그대로 유지 - 폭 차이 자체도 두 section을 구분하는 요소다). Board GALLERY
-   목록(#board-grid)은 여전히 전역 `.gallery-grid` 160px 그대로라 무영향(#latest-gallery로만 스코프).
-   실측(컨텐츠 폭 1168/992/869/868/867/736/358/343px 기준 계산, gap은 base .gallery-grid에서 상속한
-   --space-2=16px): 1440/1200은 3열(3*320+32=992 ≤ 1168, 4열은 4*320+48=1328 > 1168로 불가),
-   1024/901/900/899/768은 2열(2*320+16=656 ≤ 최소 736px), 390/375는 1열(320 ≤ 최소 343px, 23px
-   여유로 오버플로 없음) - 모든 구간에서 기존처럼 새 breakpoint 없이 auto-fit 산술만으로 자연 전환된다. */
-#latest-gallery .gallery-grid {
-    grid-template-columns: repeat(auto-fit, 320px);
+.review-strip__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: opacity 0.15s ease;
+}
+
+.review-strip__link:hover .review-strip__thumb img,
+.review-strip__link:focus-visible .review-strip__thumb img {
+    opacity: 0.85;
+}
+
+.review-strip__thumb-placeholder {
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.review-strip__caption {
+    margin: var(--space-1) 0 0;
+    font-size: 0.9375rem;
+    color: var(--color-primary-contrast);
+    overflow: hidden;
+    overflow-wrap: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.review-strip__link:hover .review-strip__caption,
+.review-strip__link:focus-visible .review-strip__caption {
+    text-decoration: underline;
+}
+
+/* P14-T3D: Home Gallery 전용 component(.gallery-mosaic*) - 공유 `.gallery-grid`/`.gallery-card*`
+   (공개 Board `#board-grid` GALLERY 목록과 공유)는 건드리지 않는다(grep으로 재확인). "1 large + N
+   small" 비대칭은 :first-child의 grid-column/row span + grid-auto-flow:dense의 auto-placement만으로
+   만든다(:has() 미사용, item 개수를 감지하는 조건부 마크업/JS 없음). 4열 grid에서 첫 item(=최신
+   item, th:each 순서 그대로)이 2x2를 차지하면 dense packing이 나머지 1x1 item을 남는 셀에 자동으로
+   채운다 - 5건이면 Figma가 의도한 "1 large(2x2) + 4 small"이 완성되고, 0/1/2/3/4건도 같은 규칙만으로
+   자연스럽게 축소된다(존재하지 않는 셀은 단순히 비워짐, layout이 붕괴하지 않는다). backend limit(5)은
+   무변경. caption은 사진 위 gradient scrim으로 항상 노출한다(hover 전용 정보 아님 - 접근성 요구사항). */
+.gallery-mosaic {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: 140px;
+    grid-auto-flow: dense;
+    gap: var(--space-2);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.gallery-mosaic__item:first-child {
+    grid-column: span 2;
+    grid-row: span 2;
+}
+
+@media (max-width: 767.98px) {
+    .gallery-mosaic {
+        grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: auto;
+    }
+
+    .gallery-mosaic__item:first-child {
+        grid-column: span 2;
+        grid-row: auto;
+    }
+
+    .gallery-mosaic__thumb {
+        height: auto;
+        aspect-ratio: 4 / 3;
+    }
+}
+
+.gallery-mosaic__link {
+    position: relative;
+    display: block;
+    height: 100%;
+    color: inherit;
+    text-decoration: none;
+}
+
+.gallery-mosaic__thumb {
+    height: 100%;
+    overflow: hidden;
+    background: var(--color-surface);
+}
+
+.gallery-mosaic__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.gallery-mosaic__thumb-placeholder {
+    width: 100%;
+    height: 100%;
+    background: var(--color-surface);
+}
+
+.gallery-mosaic__title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: var(--space-2) var(--space-1) var(--space-1);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    font-size: 0.8125rem;
+    overflow: hidden;
+    overflow-wrap: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 
 /* /programs, /boards: 순수 Bootstrap list-group이라 overflow-wrap이 없어 공백 없는 긴 제목이

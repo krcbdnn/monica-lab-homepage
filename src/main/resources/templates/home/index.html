@@ -71,8 +71,15 @@
         </div>
     </section>
 
+    <!-- P14-T3D: FEATURED eyebrow만 추가한다. 카드/grid 구조(.gallery-grid/.gallery-card*)는 P14-T3C
+         그대로 재사용 - Pinned는 이 Home에서 유일하게 "framed card" 성격을 계속 유지하는 section이다
+         (unlimited count 2-column/1-column 반응형 계약도 무변경). eyebrow는 순수 decorative/supporting
+         label이라 heading이 아닌 <p>로 두고 aria-hidden은 주지 않는다(시각적 신뢰감을 주는 실제 텍스트라
+         스크린리더로도 "FEATURED"가 자연스럽게 읽혀야 함 - Program/Gallery의 순번처럼 순수 장식용 숫자와는
+         다르다). -->
     <section id="home-pinned" class="section" th:if="${pinnedContents != null and !pinnedContents.isEmpty()}">
         <div class="container">
+            <p class="section-eyebrow">FEATURED</p>
             <h2 class="section-title">주요 소식</h2>
 
             <ul class="gallery-grid">
@@ -91,29 +98,43 @@
         </div>
     </section>
 
-    <section id="latest-programs" class="section">
+    <!-- P14-T3D: uniform card grid(.program-cards/.program-card*, P14-T3C)를 제거하고 editorial
+         alternating row로 전면 교체한다. DOM은 매 item마다 동일한 source order(번호-썸네일-본문)를
+         유지하고, desktop 좌우 교대는 CSS grid-template-areas만으로 구현한다(짝수 번째 row에서
+         thumb/body area를 서로 바꿔치기 - DOM 재정렬 없음, HomeController/DTO 무변경). 순번은
+         실제 반복 순서(programStat.count)를 그대로 쓴 실데이터이며 excerpt는 이번 Task 범위에서
+         명시적으로 제외한다(ProgramResponse.content는 CKEditor HTML이라 plain-text 발췌 유틸이
+         없으면 사용할 수 없고, 가짜 설명 문장도 넣지 않는다 - number+type+title+status만으로
+         편집형 위계를 완성한다). status 배지는 T4A(Program List)가 이미 검증한 "surface+border+
+         muted, OPEN일 때만 primary 강조" 절제된 언어를 그대로 재사용해 새 배지 스타일을 만들지
+         않는다. -->
+    <section id="latest-programs" class="section section--relaxed">
         <div class="container">
+            <p class="section-eyebrow">LATEST PROGRAM</p>
             <h2 class="section-title"><a th:href="@{/programs}" class="section-title__link">최신 프로그램</a></h2>
 
-            <div th:if="${!latestPrograms.isEmpty()}" class="program-cards">
-                <article th:each="program : ${latestPrograms}" class="program-card">
-                    <a th:href="@{/programs/{id}(id=${program.id()})}" class="program-card__link">
-                        <div class="program-card__thumb">
+            <div th:if="${!latestPrograms.isEmpty()}" class="program-rows">
+                <article th:each="program, programStat : ${latestPrograms}" class="program-row">
+                    <a th:href="@{/programs/{id}(id=${program.id()})}" class="program-row__link">
+                        <span class="program-row__number" aria-hidden="true"
+                              th:text="${#numbers.formatInteger(programStat.count, 2)}"></span>
+                        <div class="program-row__thumb">
                             <img th:if="${program.thumbnail() != null}" th:src="${program.thumbnail()}"
                                  th:alt="${program.title()}" loading="lazy">
-                            <div th:unless="${program.thumbnail() != null}" class="program-card__thumb-placeholder"
+                            <div th:unless="${program.thumbnail() != null}" class="program-row__thumb-placeholder"
                                  aria-hidden="true"></div>
-                            <span class="program-card__status"
-                                  th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
                         </div>
                         <!-- P14-T3B: raw enum(COURSE/SPECIAL)을 우연히 그대로 노출하지 않고, 이번 Task에서
                              확정하는 영문 UI display label로 명시적으로 매핑한다(COURSE -> "COURSE",
                              SPECIAL -> "SPECIAL CLASS"). domain enum/DB/API/DTO는 무변경 - T4A와 동일한
                              presentation-layer 삼항 원칙(view/template layer에서만 처리, Java helper 없음). -->
-                        <div class="program-card__body">
-                            <span class="program-card__type"
+                        <div class="program-row__body">
+                            <span class="program-row__type"
                                   th:text="${program.programType().name() == 'COURSE'} ? 'COURSE' : 'SPECIAL CLASS'"></span>
-                            <h3 class="program-card__title" th:text="${program.title()}"></h3>
+                            <h3 class="program-row__title" th:text="${program.title()}"></h3>
+                            <span class="program-row__status"
+                                  th:classappend="${program.recruitStatus().name() == 'OPEN'} ? ' is-open'"
+                                  th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
                         </div>
                     </a>
                 </article>
@@ -123,20 +144,28 @@
         </div>
     </section>
 
-    <section id="latest-reviews" class="section">
+    <!-- P14-T3D: Home Review 전용 component(.review-strip*)로 분리한다 - 공유 `.gallery-grid`/
+         `.gallery-card*`(Home Pinned + 공개 Board `#board-grid` GALLERY/REVIEW 목록과 공유)는 단 한
+         줄도 건드리지 않는다(#board-grid 회귀 원천 차단). 이 section 배경을 deep navy(--color-primary,
+         기존 헤더/링크가 이미 쓰는 토큰 재사용, 새 색상 추가 없음)로 반전하고, 사진이 주인공인
+         borderless photo strip으로 바꾼다. programType 라벨은 이번 Task에서 억지로 추가하지 않는다
+         (요청서: "표시가 필요하지 않으면 추가하지 않아도 된다" - 현재 뷰에 라벨 자체가 없던 상태를
+         유지). 가짜 caption 없음 - 실제 title만 사진 아래에 놓는다. -->
+    <section id="latest-reviews" class="section section--dark">
         <div class="container">
+            <p class="section-eyebrow">STORIES</p>
             <h2 class="section-title"><a th:href="@{/boards(boardType='REVIEW')}" class="section-title__link">강의 후기</a></h2>
 
-            <ul th:if="${!latestReviews.isEmpty()}" class="gallery-grid">
-                <li th:each="review : ${latestReviews}" class="gallery-card">
-                    <a th:href="@{/boards/{id}(id=${review.id()})}" class="gallery-card__link">
-                        <div class="gallery-card__thumb">
+            <ul th:if="${!latestReviews.isEmpty()}" class="review-strip">
+                <li th:each="review : ${latestReviews}" class="review-strip__item">
+                    <a th:href="@{/boards/{id}(id=${review.id()})}" class="review-strip__link">
+                        <div class="review-strip__thumb">
                             <img th:if="${review.thumbnail() != null}" th:src="${review.thumbnail()}"
                                  th:alt="${review.title()}" loading="lazy">
-                            <div th:unless="${review.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                            <div th:unless="${review.thumbnail() != null}" class="review-strip__thumb-placeholder"
                                  aria-hidden="true"></div>
                         </div>
-                        <p class="gallery-card__title" th:text="${review.title()}"></p>
+                        <p class="review-strip__caption" th:text="${review.title()}"></p>
                     </a>
                 </li>
             </ul>
@@ -145,9 +174,22 @@
         </div>
     </section>
 
-    <section id="latest-notices" class="section">
+    <!-- P14-T3D(correction): card화하지 않는다 - 기존 .notice-list DOM/class는 완전히 그대로 둔다.
+         최초 구현은 eyebrow/h2/list를 .container의 직계 자식 3개로 두고 grid-template-areas
+         2행("eyebrow list"/"title list")으로 배정했으나, list가 두 행에 걸쳐 span하는 item이라
+         CSS Grid의 암시적 auto 행 크기 분배가 "list가 필요로 하는 초과 높이"를 eyebrow 행에도
+         나눠 줘 eyebrow 행이 부풀고 그 아래 title이 아래로 밀려 "NEWS"와 "공지사항" 사이가
+         부자연스럽게 떨어지는 실제 렌더링 결함으로 이어졌다(Docker 실측으로 재현·확인). 근본 원인은
+         "list와 함께 여러 행을 공유하는 구조" 자체이므로, eyebrow+h2를 `.notice-section__heading`
+         하나의 wrapper로 묶어 "list와 스팬을 공유하지 않는 단일 grid item"으로 만든다 - 이제 heading
+         블록은 list의 높이와 무관하게 자기 콘텐츠 높이(eyebrow+작은 gap+h2)로만 결정되고, 1행
+         2열 grid("heading list")에서 align-items:start로 둘 다 첫 줄 상단에 나란히 시작한다. -->
+    <section id="latest-notices" class="section section--compact">
         <div class="container">
-            <h2 class="section-title"><a th:href="@{/boards(boardType='NOTICE')}" class="section-title__link">공지사항</a></h2>
+            <div class="notice-section__heading">
+                <p class="section-eyebrow">NEWS</p>
+                <h2 class="section-title"><a th:href="@{/boards(boardType='NOTICE')}" class="section-title__link">공지사항</a></h2>
+            </div>
 
             <ul th:if="${!latestNotices.isEmpty()}" class="notice-list">
                 <li th:each="notice : ${latestNotices}" class="notice-list__item">
@@ -163,20 +205,27 @@
         </div>
     </section>
 
-    <section id="latest-gallery" class="section">
+    <!-- P14-T3D: Home Gallery 전용 component(.gallery-mosaic*)로 분리한다 - 공유 `.gallery-grid`/
+         `.gallery-card*`(공개 Board `#board-grid` GALLERY 목록과 공유)는 건드리지 않는다. DOM은
+         th:each 순서 그대로(첫 item = 최신 item)이고, "1 large + N small" 비대칭은 CSS
+         `:first-child`의 grid-column/row span + grid-auto-flow:dense의 auto-placement만으로
+         만든다(:has() 미사용, item 개수를 감지해 layout mode 자체를 바꾸는 JS/조건부 마크업 없음 -
+         0/1/2/3/4/5건 전부 동일한 규칙으로 자연스럽게 채워지거나 비워짐, backend limit(5) 무변경). -->
+    <section id="latest-gallery" class="section section--relaxed">
         <div class="container">
+            <p class="section-eyebrow">GALLERY</p>
             <h2 class="section-title"><a th:href="@{/boards(boardType='GALLERY')}" class="section-title__link">갤러리</a></h2>
 
-            <ul th:if="${!latestGallery.isEmpty()}" class="gallery-grid">
-                <li th:each="gallery : ${latestGallery}" class="gallery-card">
-                    <a th:href="@{/boards/{id}(id=${gallery.id()})}" class="gallery-card__link">
-                        <div class="gallery-card__thumb">
+            <ul th:if="${!latestGallery.isEmpty()}" class="gallery-mosaic">
+                <li th:each="gallery : ${latestGallery}" class="gallery-mosaic__item">
+                    <a th:href="@{/boards/{id}(id=${gallery.id()})}" class="gallery-mosaic__link">
+                        <div class="gallery-mosaic__thumb">
                             <img th:if="${gallery.thumbnail() != null}" th:src="${gallery.thumbnail()}"
                                  th:alt="${gallery.title()}" loading="lazy">
-                            <div th:unless="${gallery.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                            <div th:unless="${gallery.thumbnail() != null}" class="gallery-mosaic__thumb-placeholder"
                                  aria-hidden="true"></div>
                         </div>
-                        <p class="gallery-card__title" th:text="${gallery.title()}"></p>
+                        <p class="gallery-mosaic__title" th:text="${gallery.title()}"></p>
                     </a>
                 </li>
             </ul>

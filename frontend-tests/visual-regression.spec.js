@@ -575,121 +575,92 @@ test.describe('긴 제목 오버플로우 회귀 검증', () => {
   });
 });
 
-// 반응형 조사에서 확인된 회귀 #2: 메인 Program/Gallery 카드 grid가 auto-fit이라, 실제 아이템 수보다
-// 들어갈 수 있는 컬럼 수가 많은 상태(메인은 각각 최신 3건/5건만 노출하는데 1440px에서는 5/7컬럼까지
-// 들어갈 폭)에서 남는 1fr 공간을 카드가 그대로 나눠 가져 비정상적으로 커졌다(실측 최대 636px).
-// (home.css에서 auto-fit -> auto-fill로 수정)
-// 이 상태는 메인이 항상 개수를 상한으로 자르기 때문에 현재 DB에 데이터가 몇 건이든 상시 재현되므로,
-// 전체 개수를 통제할 필요 없이 "고유 제목의 아이템 1건이 최소 존재"하도록만 만들면 충분하다.
+// 반응형 조사에서 확인된 회귀 #2(P13): 메인 Program/Gallery 카드 grid가 auto-fit이라, 실제 아이템
+// 수보다 들어갈 수 있는 컬럼 수가 많은 상태에서 남는 1fr 공간을 카드가 그대로 나눠 가져 비정상적으로
+// 커졌다. P14-T3C는 고정폭 auto-fit(380/320px)으로 이 회귀를 막았었다.
 //
-// P14-T3C 갱신: Program/Gallery 데스크톱(≥768px) grid를 auto-fill+minmax(_,1fr)에서
-// auto-fit(고정 380px/320px)로 바꿔 카드 폭 자체가 실루엣 차별화 계약이 됐다(Program 수평
-// 정보 카드, Gallery 사진 중심 grid). "아이템 1건일 때 남는 공간을 나눠 가져 비정상적으로
-// 커지는 회귀"는 고정폭 트랙이라 구조적으로 불가능해졌지만, 이 상한 체크 자체는 향후 실수로
-// minmax(_,1fr)가 다시 들어오는 회귀를 잡아내는 안전망으로 유지한다. 상한은 새 고정폭(380/320)
-// 대비 여유를 둔 값으로 갱신한다.
-const PROGRAM_CARD_MAX_WIDTH = 400;
-const GALLERY_CARD_MAX_WIDTH = 340;
+// P14-T3D 갱신: Program이 uniform card grid(.program-cards/.program-card, "폭이 있는 카드")에서
+// editorial alternating row(.program-rows/.program-row, "컨테이너 전체 폭을 쓰는 행")로 전면
+// 재구조화되면서 "카드 폭이 비정상적으로 커진다"는 개념 자체가 더 이상 성립하지 않는다(row는 애초에
+// 항상 전체 폭을 쓰도록 설계됨). Gallery도 auto-fit 고정폭에서 `repeat(4, 1fr)` 퍼센트 기반 grid로
+// 바뀌어 같은 이유로 이 회귀 클래스가 구조적으로 불가능해졌다(고정 px 트랙이 아니라 상대 비율이라
+// "남는 공간을 몰아서 가져가는" auto-fit 산술 자체가 개입하지 않음). 따라서 이 규제(상한 px 체크)는
+// 폐기하고, 새 구조가 실제로 지켜야 할 계약(Program 좌우 교대, Gallery 1-large+N-small 비대칭)을
+// 아래 새 describe에서 검증한다 - 테스트를 완화한 것이 아니라 더 이상 유효하지 않은 계약을 실제
+// 새 계약으로 교체한 것이다.
 
-test.describe('메인 카드 폭 회귀 검증', () => {
+// P14-T3D: Home Art Direction Redesign. 매크로 구성(실루엣) 계약을 검증한다 - 구현 디테일(정확한 px,
+// grid-template-columns/areas 문자열 등)이 아니라 "사용자가 실제로 보는 composition 계약"만
+// 최소한으로 고정한다. P14-T3C가 검증하던 Program/Gallery 계약은 DOM/class 자체가 바뀌어 그대로
+// 유지할 수 없으므로 새 구조에 맞게 selector를 교체했다(값을 완화한 것이 아니라 실제로 바뀐 계약을
+// 반영한 것 - Pinned는 DOM이 무변경이라 기존 assertion을 그대로 재사용한다).
+test.describe('P14-T3D: 메인 섹션 매크로 구성 계약', () => {
   test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
-  test.use({ viewport: { width: 1440, height: 900 } });
 
   let xsrfToken;
-  let programId;
-  let boardId;
-  let programTitle;
-  let boardTitle;
+  let programTitleA;
+  let programTitleB;
 
   test.beforeEach(async ({ context, baseURL, tracker }) => {
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
-
     const runId = Date.now();
-    programTitle = `카드 폭 회귀 확인용 프로그램 ${runId}`;
-    boardTitle = `카드 폭 회귀 확인용 갤러리 ${runId}`;
+    programTitleA = `T3D 구성 계약 확인용 프로그램 A ${runId}`;
+    programTitleB = `T3D 구성 계약 확인용 프로그램 B ${runId}`;
 
-    const programResponse = await context.request.post(`${baseURL}/api/admin/programs`, {
+    // "최신 프로그램"은 createdAt DESC 3건만 노출한다 - A를 먼저 만들어 더 오래되게, B를 나중에
+    // 만들어 더 최신이 되게 해서 B가 1번째(홀수 row, 이미지 왼쪽) A가 2번째(짝수 row, 이미지
+    // 오른쪽으로 교대)가 되는 순서를 보장한다.
+    const resA = await context.request.post(`${baseURL}/api/admin/programs`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
-      data: { programType: 'COURSE', title: programTitle, content: '카드 폭 확인', isPublic: true },
+      data: { programType: 'COURSE', title: programTitleA, content: 'T3D 구성 확인 A', isPublic: true },
     });
-    expect(programResponse.ok()).toBeTruthy();
-    programId = tracker.track('program', (await programResponse.json()).data.id);
+    expect(resA.ok()).toBeTruthy();
+    tracker.track('program', (await resA.json()).data.id);
 
-    const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
+    await sleep(1100);
+
+    const resB = await context.request.post(`${baseURL}/api/admin/programs`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
-      data: { boardType: 'GALLERY', title: boardTitle, isPublic: true },
+      data: { programType: 'COURSE', title: programTitleB, content: 'T3D 구성 확인 B', isPublic: true },
     });
-    expect(boardResponse.ok()).toBeTruthy();
-    boardId = tracker.track('board', (await boardResponse.json()).data.id);
+    expect(resB.ok()).toBeTruthy();
+    tracker.track('program', (await resB.json()).data.id);
   });
 
-  test('1440px에서 Program 카드가 minmax 하한 대비 과도하게 커지지 않는다', async ({ page }) => {
-    await page.goto('/');
-    const card = page.locator('.program-card').filter({ has: page.locator(`text=${programTitle}`) });
-    await expect(card).toBeVisible();
-    const box = await card.boundingBox();
-    expect(box.width).toBeLessThanOrEqual(PROGRAM_CARD_MAX_WIDTH);
-  });
-
-  test('1440px에서 Gallery 카드가 minmax 하한 대비 과도하게 커지지 않는다', async ({ page }) => {
-    await page.goto('/');
-    const card = page.locator('.gallery-card__link').filter({ has: page.locator(`text=${boardTitle}`) });
-    await expect(card).toBeVisible();
-    const thumb = card.locator('.gallery-card__thumb');
-    const box = await thumb.boundingBox();
-    expect(box.width).toBeLessThanOrEqual(GALLERY_CARD_MAX_WIDTH);
-  });
-});
-
-// P14-T3C: 메인 5개 섹션(주요 소식/최신 프로그램/강의 후기/공지사항/갤러리)이 카드 디테일이 아니라
-// 매크로 구성(실루엣)에서 서로 달라 보이게 만든 작업. 구현 디테일(정확한 px, grid-template-columns
-// 문자열 등)이 아니라 "사용자가 실제로 보는 composition 계약"만 최소한으로 고정한다 - 이 계약이
-// 깨지면 T3C가 의도한 시각적 차별화 자체가 무너진다는 뜻이므로 회귀로 간주해도 되는 지점들이다.
-test.describe('P14-T3C: 메인 섹션 매크로 구성 계약', () => {
-  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
-
-  let xsrfToken;
-  let programId;
-  let programTitle;
-
-  test.beforeEach(async ({ context, baseURL, tracker }) => {
-    await loginAsAdmin(context, baseURL);
-    xsrfToken = await getXsrfToken(context);
-    programTitle = `T3C 구성 계약 확인용 프로그램 ${Date.now()}`;
-
-    const programResponse = await context.request.post(`${baseURL}/api/admin/programs`, {
-      headers: { 'X-XSRF-TOKEN': xsrfToken },
-      data: { programType: 'COURSE', title: programTitle, content: 'T3C 구성 확인', isPublic: true },
-    });
-    expect(programResponse.ok()).toBeTruthy();
-    programId = tracker.track('program', (await programResponse.json()).data.id);
-  });
-
-  test('데스크톱(1440px)에서 "최신 프로그램" 카드는 이미지가 텍스트 왼쪽에 위치한다', async ({ page }) => {
+  test('데스크톱(1440px)에서 "최신 프로그램" 1번째(홀수) row는 이미지가 텍스트 왼쪽에 위치한다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    const card = page.locator('#latest-programs .program-card').filter({ has: page.locator(`text=${programTitle}`) });
-    await expect(card).toBeVisible();
-    const thumbBox = await card.locator('.program-card__thumb').boundingBox();
-    const bodyBox = await card.locator('.program-card__body').boundingBox();
+    const row = page.locator('#latest-programs .program-row').filter({ has: page.locator(`text=${programTitleB}`) });
+    await expect(row).toBeVisible();
+    const thumbBox = await row.locator('.program-row__thumb').boundingBox();
+    const bodyBox = await row.locator('.program-row__body').boundingBox();
     expect(thumbBox.x).toBeLessThan(bodyBox.x);
     // 좌우 배치일 때 이미지와 텍스트는 위아래로 겹치지 않고 같은 행에 나란히 있어야 한다.
     expect(Math.abs(thumbBox.y - bodyBox.y)).toBeLessThan(thumbBox.height);
   });
 
-  test('모바일(375px)에서 "최신 프로그램" 카드는 이미지가 텍스트 위에 위치한다', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 900 });
+  test('데스크톱(1440px)에서 "최신 프로그램" 2번째(짝수) row는 이미지가 텍스트 오른쪽으로 교대한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    const card = page.locator('#latest-programs .program-card').filter({ has: page.locator(`text=${programTitle}`) });
-    await expect(card).toBeVisible();
-    const thumbBox = await card.locator('.program-card__thumb').boundingBox();
-    const bodyBox = await card.locator('.program-card__body').boundingBox();
-    expect(thumbBox.y).toBeLessThan(bodyBox.y);
-    expect(thumbBox.width).toBeGreaterThanOrEqual(bodyBox.width - 1);
+    const row = page.locator('#latest-programs .program-row').filter({ has: page.locator(`text=${programTitleA}`) });
+    await expect(row).toBeVisible();
+    const thumbBox = await row.locator('.program-row__thumb').boundingBox();
+    const bodyBox = await row.locator('.program-row__body').boundingBox();
+    expect(thumbBox.x).toBeGreaterThan(bodyBox.x);
   });
 
-  test('데스크톱(1440px)에서 "주요 소식"은 2열 구성이다', async ({ page }) => {
+  test('모바일(375px)에서 "최신 프로그램" row는 홀/짝과 무관하게 이미지가 텍스트 위에 위치한다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto('/');
+    const row = page.locator('#latest-programs .program-row').filter({ has: page.locator(`text=${programTitleB}`) });
+    await expect(row).toBeVisible();
+    const thumbBox = await row.locator('.program-row__thumb').boundingBox();
+    const bodyBox = await row.locator('.program-row__body').boundingBox();
+    expect(thumbBox.y).toBeLessThan(bodyBox.y);
+  });
+
+  test('데스크톱(1440px)에서 "주요 소식"은 2열 구성이다(P14-T3C 계약 재사용, Pinned DOM 무변경)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
     const pinnedSection = page.locator('#home-pinned');
@@ -704,13 +675,104 @@ test.describe('P14-T3C: 메인 섹션 매크로 구성 계약', () => {
     expect(box1.x).toBeGreaterThan(box0.x);
   });
 
-  test('"갤러리" 카드는 세로형이 아닌 가로형(4:3) 비율을 유지한다', async ({ page }) => {
+  test('"강의 후기" section은 deep navy 배경의 dark section이다', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    const thumb = page.locator('#latest-gallery .gallery-card__thumb').first();
-    await expect(thumb).toBeVisible();
-    const box = await thumb.boundingBox();
-    expect(box.width).toBeGreaterThan(box.height);
+    const section = page.locator('#latest-reviews');
+    await expect(section).toBeVisible();
+    const bg = await section.evaluate((el) => getComputedStyle(el).backgroundColor);
+    // --color-primary(#1f3a5f) = rgb(31, 58, 95). 정확한 hex 대신 rgb 채널로 비교해 계산식이
+    // 아니라 실제 렌더 결과를 확인한다.
+    expect(bg).toBe('rgb(31, 58, 95)');
+  });
+
+  test('데스크톱(1440px)에서 "공지사항"은 좌측 identity/우측 list의 2열 구성이다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const titleBox = await page.locator('#latest-notices .section-title').boundingBox();
+    const listBox = await page.locator('#latest-notices .notice-list, #latest-notices .empty-state').first().boundingBox();
+    // 2열이라면 list가 title과 같은 높이 대역에서 title 오른쪽에 위치해야 한다(세로로 쌓이지 않음).
+    expect(listBox.x).toBeGreaterThan(titleBox.x + titleBox.width);
+  });
+
+  test('모바일(375px)에서 "공지사항"은 identity가 list 위에 세로로 쌓인다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto('/');
+    const titleBox = await page.locator('#latest-notices .section-title').boundingBox();
+    const listBox = await page.locator('#latest-notices .notice-list, #latest-notices .empty-state').first().boundingBox();
+    expect(listBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+  });
+});
+
+// P14-T3D: Gallery "1 large + N small" 비대칭 mosaic 계약. :has() 없이 :first-child span +
+// grid-auto-flow:dense auto-placement만으로 구현했으므로, 실제로 첫 item이 더 크게 렌더되는지와
+// sparse(1~2건) 상태에서 layout이 무너지지 않는지를 실측으로 검증한다.
+test.describe('P14-T3D: "갤러리" 비대칭 mosaic', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  const createdBoardIds = [];
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    createdBoardIds.length = 0;
+  });
+
+  async function createGalleryBoard(context, baseURL, title, thumbnail) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'GALLERY', title, thumbnail, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test('첫 item(최신)이 두 번째 item보다 시각적으로 크다(1 large + N small)', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const idOld = await createGalleryBoard(context, baseURL, `T3D 모자이크 확인 구 ${runId}`, '/api/files/900901');
+    tracker.track('board', idOld);
+    await sleep(1100);
+    const idNew = await createGalleryBoard(context, baseURL, `T3D 모자이크 확인 신 ${runId}`, '/api/files/900902');
+    tracker.track('board', idNew);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const items = page.locator('#latest-gallery .gallery-mosaic__item');
+    await expect(items.first()).toBeVisible();
+    const firstBox = await items.nth(0).boundingBox();
+    const secondBox = await items.nth(1).boundingBox();
+    const firstArea = firstBox.width * firstBox.height;
+    const secondArea = secondBox.width * secondBox.height;
+    expect(firstArea).toBeGreaterThan(secondArea);
+  });
+
+  test('item이 1건뿐이어도 lead가 자연스럽게 보이고 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    // 갤러리는 개수 제한이 없는 Pinned와 달리 항상 최신 5건까지만 노출되므로, "1건 상태"를 통제된
+    // 방식으로 재현하려면 기존 데이터를 건드리지 않고는 불가능하다(삭제 금지 원칙). 대신 신규 1건을
+    // 추가해 "최소 1건 이상 보장" 상태에서 lead(:first-child)와 전체 mosaic이 깨지지 않는지만
+        // 확인한다(0/1/2/3/4/5건 전체 조합의 완전한 재현은 QA 단계의 비파괴 admin API 실측으로 이미
+    // 별도 수행함 - 최종 보고 참고).
+    const id = await createGalleryBoard(context, baseURL, `T3D 단일 item 확인 ${Date.now()}`, '/api/files/900903');
+    tracker.track('board', id);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const items = page.locator('#latest-gallery .gallery-mosaic__item');
+    await expect(items.first()).toBeVisible();
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+  });
+
+  test('375px에서 갤러리 mosaic에 가로 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    const id = await createGalleryBoard(context, baseURL, `T3D 모바일 overflow 확인 ${Date.now()}`, '/api/files/900904');
+    tracker.track('board', id);
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-gallery .gallery-mosaic__item').first()).toBeVisible();
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
   });
 });
 
