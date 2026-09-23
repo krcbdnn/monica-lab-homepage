@@ -105,12 +105,22 @@
         <li class="list-group-item" th:each="board : ${boards.content}">
             <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, programType=${programType}, keyword=${keyword}, page=${boards.page})}"
                class="board-list__link">
+                <!-- P14-T4B: raw enum(NOTICE/GALLERY/ARCHIVE/REVIEW)을 공개 화면에 그대로 노출하지 않고
+                     한글 표시명으로 매핑한다(domain enum/DB/API/DTO 무변경, Java helper 추가 없음).
+                     BoardType은 4값이라 위 h:html 태그의 pageTitle과 동일한 방식(하나의 ${} 안에서 SpEL
+                     삼항을 중첩)으로 전부 처리한다. 기존 Bootstrap badge bg-secondary(사이트 token과 무관한
+                     회색, T4A의 bg-secondary/bg-info와 동일한 문제)는 제거하고 Program List
+                     type-badge/status-badge와 같은 절제된 token 스타일로 대체한다(전역 .badge 무수정,
+                     #board-list로만 scope). -->
                 <span class="board-list__row">
-                    <span class="badge bg-secondary board-list__type" th:text="${board.boardType()}"></span>
+                    <span class="badge board-list__type"
+                          th:text="${board.boardType().name() == 'NOTICE' ? '공지사항' : (board.boardType().name() == 'GALLERY' ? '갤러리' : (board.boardType().name() == 'ARCHIVE' ? '자료실' : '강의 후기'))}"></span>
                     <span class="board-list__title" th:text="${board.title()}"></span>
                 </span>
+                <!-- P14-T4B: 작성일시 표기를 Home(#latest-notices)과 동일한 'yyyy.MM.dd'로 통일한다
+                     (createdAt 데이터/DTO/Java/DB 무변경, Thymeleaf 표시 포맷만 변경). -->
                 <time class="board-list__date" th:datetime="${board.createdAt()}"
-                      th:text="${#temporals.format(board.createdAt(), 'yyyy-MM-dd HH:mm')}"></time>
+                      th:text="${#temporals.format(board.createdAt(), 'yyyy.MM.dd')}"></time>
             </a>
         </li>
         <li class="list-group-item text-muted" th:if="${boards.content.isEmpty()}">등록된 게시글이 없습니다.</li>

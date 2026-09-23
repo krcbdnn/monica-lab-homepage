@@ -376,12 +376,42 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
         assertThat(document.select("#board-list > li.list-group-item > a.board-list__link")).hasSize(1);
-        assertThat(document.select(".board-list__type").text()).isEqualTo("NOTICE");
+        // P14-T4B: raw enum(NOTICE)이 아니라 한글 표시명(공지사항)으로 노출된다(domain enum/DB 값 자체는
+        // 무변경 - presentation layer에서만 매핑). BoardType 4값 전체 mapping은 아래
+        // listShowsKoreanLabelsForAllFourBoardTypesInsteadOfRawEnumNames가 검증한다.
+        assertThat(document.select(".board-list__type").text()).isEqualTo("공지사항");
         assertThat(document.select(".board-list__title").text()).isEqualTo("운영 안내");
-        assertThat(document.select(".board-list__date").text()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}");
+        // P14-T4B: 작성일시 표기를 Home(#latest-notices)과 동일한 'yyyy.MM.dd'로 통일했다(시간 없음).
+        assertThat(document.select(".board-list__date").text()).matches("\\d{4}\\.\\d{2}\\.\\d{2}");
         // P13-T28: 상세 링크에 목록 복귀 상태(boardType/keyword/page)가 쿼리 파라미터로 함께
         // 실리므로 정확히 "/boards/{id}"가 아니라 그 값으로 시작하는지만 확인한다.
         assertThat(document.select(".board-list__link").attr("href")).startsWith("/boards/" + id);
+    }
+
+    // P14-T4B: BoardType 4값(NOTICE/GALLERY/ARCHIVE/REVIEW) 모두 raw enum이 아니라 한글 표시명으로
+    // 노출되는지 확인한다. GALLERY/REVIEW로 필터링하면 #board-grid로 전환되어 배지 자체가 렌더링되지
+    // 않으므로(P13-T27), 4값이 전부 #board-list 배지로 나타나는 legacy(boardType 파라미터 없음) 목록으로
+    // 검증한다(legacy 목록은 boardType과 무관하게 모든 글이 #board-list 텍스트 목록에 섞여 나온다).
+    @Test
+    void listShowsKoreanLabelsForAllFourBoardTypesInsteadOfRawEnumNames() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지 한글 확인").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("갤러리 한글 확인").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.ARCHIVE).title("자료실 한글 확인").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("강의 후기 한글 확인").isPublic(true).build());
+
+        String body = mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String typeText = document.select("#board-list .board-list__type").text();
+
+        assertThat(typeText).contains("공지사항", "갤러리", "자료실", "강의 후기");
+        assertThat(typeText).doesNotContain("NOTICE", "GALLERY", "ARCHIVE", "REVIEW");
     }
 
     // P13-T27: GALLERY/REVIEW는 이미지 중심 게시판 타입이라 메인 페이지(#latest-gallery/#latest-reviews)와
