@@ -106,8 +106,13 @@
                             <span class="program-card__status"
                                   th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
                         </div>
+                        <!-- P14-T3B: raw enum(COURSE/SPECIAL)을 우연히 그대로 노출하지 않고, 이번 Task에서
+                             확정하는 영문 UI display label로 명시적으로 매핑한다(COURSE -> "COURSE",
+                             SPECIAL -> "SPECIAL CLASS"). domain enum/DB/API/DTO는 무변경 - T4A와 동일한
+                             presentation-layer 삼항 원칙(view/template layer에서만 처리, Java helper 없음). -->
                         <div class="program-card__body">
-                            <span class="program-card__type" th:text="${program.programType()}"></span>
+                            <span class="program-card__type"
+                                  th:text="${program.programType().name() == 'COURSE'} ? 'COURSE' : 'SPECIAL CLASS'"></span>
                             <h3 class="program-card__title" th:text="${program.title()}"></h3>
                         </div>
                     </a>

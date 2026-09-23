@@ -266,6 +266,31 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(statusBadges.text()).doesNotContain("OPEN", "CLOSED");
     }
 
+    // P14-T3B: raw enum(COURSE/SPECIAL)을 우연히 그대로 노출하지 않고, 이번 Task에서 확정한 영문 UI
+    // display label로 명시적으로 매핑한다(COURSE -> "COURSE", SPECIAL -> "SPECIAL CLASS"). domain
+    // enum/DB/API/DTO는 무변경(view-layer 삼항, T4A와 동일 원칙). "SPECIAL CLASS"가 "SPECIAL"을 부분
+    // 문자열로 포함하므로 doesNotContain으로는 raw 노출 여부를 증명할 수 없어, 각 배지의 전체 텍스트를
+    // isEqualTo 수준(containsExactlyInAnyOrder)으로 확인해 raw "SPECIAL" 단독 노출이 없음을 증명한다.
+    @Test
+    void latestProgramsShowsProgramTypeAsExplicitEnglishDisplayLabelInsteadOfRawEnumName() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("정규 강좌").content("내용")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.SPECIAL).title("특강").content("내용")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements typeBadges = document.select("#latest-programs .program-card__type");
+
+        assertThat(typeBadges).hasSize(2);
+        assertThat(typeBadges.eachText()).containsExactlyInAnyOrder("COURSE", "SPECIAL CLASS");
+    }
+
     @Test
     void latestProgramsShowsEmptyStateWhenNoProgramsExist() throws Exception {
         String body = mockMvc.perform(get("/"))

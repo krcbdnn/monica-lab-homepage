@@ -1295,6 +1295,63 @@ html {
     -webkit-box-orient: vertical;
 }
 
+/* P14-T3B: Home의 주요 소식/최신 프로그램/강의 후기/갤러리가 전부 "이미지+제목 카드"로 비슷하게
+   보이는 반복감을 콘텐츠 성격별로 완화한다. 조사 결과 Pinned/Review/Gallery가 `.gallery-card` base를
+   완전히 동일하게 공유하고(Board GALLERY/REVIEW `#board-grid`까지 공유), Review/Gallery는 카드 레벨
+   hover/focus-visible이 전혀 없었다. 전역 `.gallery-grid`/`.gallery-card`/`.gallery-card__link`/
+   `.gallery-card__thumb` 값은 전혀 건드리지 않고(Board 회귀 원천 차단), `#home-pinned`/`#board-grid`가
+   이미 쓰던 것과 동일한 언어(테두리 + hover/focus-visible)를 `#latest-reviews`/`#latest-gallery`에도
+   이식한다. grid/card 폭 계산(auto-fit 고정폭)은 전혀 건드리지 않는다. */
+
+/* 주요 소식: T3 hover/focus/border/200px 폭/1:1 비율/2-line clamp 전부 무변경. title만 다른 3개
+   section(0.9375rem/400)보다 한 단계 강조해 "관리자가 고른 콘텐츠"라는 위계를 준다(featured 첫 카드나
+   BOARD/PROGRAM 배지는 사용하지 않음 - 개수가 가변적인 기능과 맞지 않고 인지 부담만 늘린다는 조사
+   결론에 따름). CSS-only, DOM 무변경. */
+#home-pinned .gallery-card__title {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+/* 강의 후기: 후기 썸네일은 admin이 올리는 범용 이미지(스크린샷/캡처 가능성 포함, 스키마상 강제된
+   비율 없음)라 cover로 자르면 중요한 내용이 잘릴 위험이 있다(A-8의 "object-fit 유지" 문구와 충돌함을
+   조사에서 확인·승인받음 - Review 한정 예외). wrapper의 1:1 aspect-ratio/grid 폭은 그대로 두고 img만
+   contain으로 바꿔 원본 전체가 보이게 한다. `.gallery-card__thumb`가 이미 `background:var(--color-surface)`
+   를 갖고 있어 letterbox 여백이 별도 선언 없이도 자연스러운 액자처럼 보인다. */
+#latest-reviews .gallery-card__thumb img {
+    object-fit: contain;
+}
+
+/* #home-pinned/#board-grid와 동일한 시각 언어(테두리 + hover/focus-visible)를 이식한다. 전역
+   `.gallery-card__link`는 무수정이라 Board REVIEW 목록에는 영향이 없다. */
+#latest-reviews .gallery-card__link,
+#latest-gallery .gallery-card__link {
+    display: block;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--color-bg);
+    transition: border-color 0.15s ease;
+}
+
+#latest-reviews .gallery-card__link:hover,
+#latest-reviews .gallery-card__link:focus-visible,
+#latest-gallery .gallery-card__link:hover,
+#latest-gallery .gallery-card__link:focus-visible {
+    border-color: var(--color-primary);
+}
+
+#latest-reviews .gallery-card__title,
+#latest-gallery .gallery-card__title {
+    padding: 0 var(--space-1) var(--space-1);
+}
+
+/* 갤러리: "사진첩"다운 인상을 위해 Home 갤러리에 한해서만 정사각(1:1)을 Program과 같은 4:3
+   landscape로 바꾼다(Board GALLERY `#board-grid`는 무영향 - 전역 `.gallery-card__thumb` 무수정).
+   object-fit은 cover 유지(사진은 crop 허용 범위가 넓어 후기와 달리 굳이 contain으로 바꿀 필요가 없다). */
+#latest-gallery .gallery-card__thumb {
+    aspect-ratio: 4 / 3;
+}
+
 /* /programs, /boards: 순수 Bootstrap list-group이라 overflow-wrap이 없어 공백 없는 긴 제목이
    페이지 전체를 가로로 밀어낸다. 해당 리스트 링크에만 최소 범위로 줄바꿈을 허용한다. */
 #program-list a,
