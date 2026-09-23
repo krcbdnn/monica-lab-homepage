@@ -581,15 +581,19 @@ test.describe('긴 제목 오버플로우 회귀 검증', () => {
 // (home.css에서 auto-fit -> auto-fill로 수정)
 // 이 상태는 메인이 항상 개수를 상한으로 자르기 때문에 현재 DB에 데이터가 몇 건이든 상시 재현되므로,
 // 전체 개수를 통제할 필요 없이 "고유 제목의 아이템 1건이 최소 존재"하도록만 만들면 충분하다.
+//
+// P14-T3C 갱신: Program/Gallery 데스크톱(≥768px) grid를 auto-fill+minmax(_,1fr)에서
+// auto-fit(고정 380px/320px)로 바꿔 카드 폭 자체가 실루엣 차별화 계약이 됐다(Program 수평
+// 정보 카드, Gallery 사진 중심 grid). "아이템 1건일 때 남는 공간을 나눠 가져 비정상적으로
+// 커지는 회귀"는 고정폭 트랙이라 구조적으로 불가능해졌지만, 이 상한 체크 자체는 향후 실수로
+// minmax(_,1fr)가 다시 들어오는 회귀를 잡아내는 안전망으로 유지한다. 상한은 새 고정폭(380/320)
+// 대비 여유를 둔 값으로 갱신한다.
+const PROGRAM_CARD_MAX_WIDTH = 400;
+const GALLERY_CARD_MAX_WIDTH = 340;
+
 test.describe('메인 카드 폭 회귀 검증', () => {
   test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
   test.use({ viewport: { width: 1440, height: 900 } });
-
-  // CSS가 선언한 minmax() 하한(Program 220px, Gallery 160px) 대비 여유를 둔 상한.
-  // auto-fill 적용 후 1440px 실측 예상치(Program ≈245px, Gallery ≈188px)보다는 넉넉하고,
-  // auto-fit이었을 때의 회귀치(Program 636px)보다는 훨씬 작아 회귀를 확실히 잡아낸다.
-  const PROGRAM_CARD_MAX_WIDTH = 320;
-  const GALLERY_CARD_MAX_WIDTH = 240;
 
   let xsrfToken;
   let programId;
@@ -635,6 +639,78 @@ test.describe('메인 카드 폭 회귀 검증', () => {
     const thumb = card.locator('.gallery-card__thumb');
     const box = await thumb.boundingBox();
     expect(box.width).toBeLessThanOrEqual(GALLERY_CARD_MAX_WIDTH);
+  });
+});
+
+// P14-T3C: 메인 5개 섹션(주요 소식/최신 프로그램/강의 후기/공지사항/갤러리)이 카드 디테일이 아니라
+// 매크로 구성(실루엣)에서 서로 달라 보이게 만든 작업. 구현 디테일(정확한 px, grid-template-columns
+// 문자열 등)이 아니라 "사용자가 실제로 보는 composition 계약"만 최소한으로 고정한다 - 이 계약이
+// 깨지면 T3C가 의도한 시각적 차별화 자체가 무너진다는 뜻이므로 회귀로 간주해도 되는 지점들이다.
+test.describe('P14-T3C: 메인 섹션 매크로 구성 계약', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let programId;
+  let programTitle;
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    programTitle = `T3C 구성 계약 확인용 프로그램 ${Date.now()}`;
+
+    const programResponse = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'COURSE', title: programTitle, content: 'T3C 구성 확인', isPublic: true },
+    });
+    expect(programResponse.ok()).toBeTruthy();
+    programId = tracker.track('program', (await programResponse.json()).data.id);
+  });
+
+  test('데스크톱(1440px)에서 "최신 프로그램" 카드는 이미지가 텍스트 왼쪽에 위치한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const card = page.locator('#latest-programs .program-card').filter({ has: page.locator(`text=${programTitle}`) });
+    await expect(card).toBeVisible();
+    const thumbBox = await card.locator('.program-card__thumb').boundingBox();
+    const bodyBox = await card.locator('.program-card__body').boundingBox();
+    expect(thumbBox.x).toBeLessThan(bodyBox.x);
+    // 좌우 배치일 때 이미지와 텍스트는 위아래로 겹치지 않고 같은 행에 나란히 있어야 한다.
+    expect(Math.abs(thumbBox.y - bodyBox.y)).toBeLessThan(thumbBox.height);
+  });
+
+  test('모바일(375px)에서 "최신 프로그램" 카드는 이미지가 텍스트 위에 위치한다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto('/');
+    const card = page.locator('#latest-programs .program-card').filter({ has: page.locator(`text=${programTitle}`) });
+    await expect(card).toBeVisible();
+    const thumbBox = await card.locator('.program-card__thumb').boundingBox();
+    const bodyBox = await card.locator('.program-card__body').boundingBox();
+    expect(thumbBox.y).toBeLessThan(bodyBox.y);
+    expect(thumbBox.width).toBeGreaterThanOrEqual(bodyBox.width - 1);
+  });
+
+  test('데스크톱(1440px)에서 "주요 소식"은 2열 구성이다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const pinnedSection = page.locator('#home-pinned');
+    test.skip(!(await pinnedSection.count()), '고정된 주요 소식이 없어 섹션 자체가 렌더링되지 않음');
+    const cards = pinnedSection.locator('.gallery-card');
+    const count = await cards.count();
+    test.skip(count < 2, '주요 소식이 2건 미만이라 열 수를 확인할 수 없음');
+    const box0 = await cards.nth(0).boundingBox();
+    const box1 = await cards.nth(1).boundingBox();
+    // 2열이라면 두 번째 카드는 첫 번째 카드의 오른쪽(같은 행)에 위치해야 한다.
+    expect(Math.abs(box0.y - box1.y)).toBeLessThan(box0.height);
+    expect(box1.x).toBeGreaterThan(box0.x);
+  });
+
+  test('"갤러리" 카드는 세로형이 아닌 가로형(4:3) 비율을 유지한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const thumb = page.locator('#latest-gallery .gallery-card__thumb').first();
+    await expect(thumb).toBeVisible();
+    const box = await thumb.boundingBox();
+    expect(box.width).toBeGreaterThan(box.height);
   });
 });
 

@@ -876,7 +876,6 @@ html {
 /* Pinned 카드 자체는 공유 .gallery-card/.gallery-grid 기본 규칙을 그대로 쓰되, #home-pinned로
    스코프한 규칙만 얹어 테두리를 준다(공유 base class는 무수정 - Board GALLERY/REVIEW 목록 무회귀). */
 #home-pinned .gallery-card__link {
-    display: block;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     overflow: hidden;
@@ -889,8 +888,34 @@ html {
     border-color: var(--color-primary);
 }
 
+/* P14-T3C: "주요 소식"을 image-top 카드에서 [96px 1:1 image] + [title] 수평 compact editorial card로
+   바꾼다. Program(140px 4:3 image + type/title/status)보다 이미지가 작고 텍스트 요소도 title 하나뿐이라
+   "간결한 뉴스 카드"라는 역할 차이가 드러난다. thumb이 링크 padding 안쪽에 들어가(Program은 thumb이
+   카드 가장자리에 닿는 것과 반대로) "작은 사진이 살짝 액자처럼 놓인" 느낌도 추가로 차별화 요소가 된다. */
+#home-pinned .gallery-card__link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2);
+}
+
+#home-pinned .gallery-card__thumb {
+    flex-shrink: 0;
+    width: 120px;
+    height: 120px;
+}
+
 #home-pinned .gallery-card__title {
-    padding: 0 var(--space-1) var(--space-1);
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+}
+
+@media (max-width: 767.98px) {
+    #home-pinned .gallery-card__thumb {
+        width: 72px;
+        height: 72px;
+    }
 }
 
 /* Hero. P14-T3A: Hero는 이번 full-width surface 대상에서 제외한다(배경 없음, 기존과 동일하게
@@ -1135,6 +1160,65 @@ html {
     color: var(--color-text);
 }
 
+/* P14-T3C: "최신 프로그램"을 image-top 카드에서 수평 정보 카드(image-left + type/title/status)로
+   바꿔 Pinned/Review/Gallery의 세로 grid-of-cards와 실루엣을 구분한다. 전역 `.program-cards`/
+   `.program-card*` base 규칙은 값을 바꾸지 않고(사용처가 현재 Home 하나뿐임을 grep으로 확인했지만,
+   T4A/T4B와 동일하게 "공유 가능성이 있는 selector는 override로 처리"하는 프로젝트 원칙을 그대로
+   따른다), `#latest-programs`로 스코프한 override만 추가한다. 실측(1440/1200/1024/901/900/899/
+   768/390/375 컨텐츠 폭 1168/1168/992/869/868/867/736/358/343px 기준 계산): 고정 380px + 기존
+   gap(--space-3=24px)으로 auto-fit하면 899~1440px 전 구간에서 정확히 2열(2*380+24=784 ≤ 최소
+   867px)이 유지되고 1440에서도 3열로 늘지 않는다(3*380+48=1188 > 1168). 768px는 컨텐츠 736px라
+   2열(784)이 안 들어가 1열로 자연 전환(새 breakpoint 아님, 기존 768px 재사용, auto-fit 산술 결과 -
+   "768~847px는 1열 중앙 정렬"이라는 sparse 상태로, T3/T3A가 이미 검증한 auto-fit+center 패턴 그대로).
+   <768px(모바일)의 minmax 하한만 220px→280px로 올려 좁아진 thumb(140px 고정)에도 텍스트가
+   비좁지 않게 한다. */
+#latest-programs .program-cards {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+@media (min-width: 768px) {
+    #latest-programs .program-cards {
+        grid-template-columns: repeat(auto-fit, 380px);
+    }
+}
+
+/* 768px 이상: 카드 내부를 수평(이미지 왼쪽 140px 고정 + 오른쪽 type/title/status)으로 전환한다.
+   140px는 실측(375px 모바일 텍스트 영역 계산 결과 세로 폴백이 필요하다고 판단한) 근거와 별개로,
+   데스크톱/태블릿 카드 폭(380px)에서 240px의 텍스트 영역을 확보하는 값이다. status 배지는 기존과
+   동일하게 thumb 기준 absolute라 좁아진 thumb 안에서도 겹침 없이 우상단에 그대로 위치한다. */
+#latest-programs .program-card__link {
+    display: flex;
+    align-items: flex-start;
+    /* stretch(flex 기본값)를 쓰지 않는다 - thumb의 aspect-ratio:4/3(base 규칙)이 body 높이에 맞춰
+       늘어나며 깨지는 것을 막고, thumb 자체의 width(140px)+aspect-ratio로만 높이가 결정되게 한다. */
+}
+
+#latest-programs .program-card__thumb {
+    flex: 0 0 140px;
+}
+
+#latest-programs .program-card__body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* <768px: 오른쪽 텍스트 영역이 약 202px로 좁아져(358px 컨텐츠 - 140px thumb - gap) 프로그램명이
+   자주 3줄 이상 필요해질 수 있음을 실측 계산으로 확인해, 모바일에서는 T3B 이전과 동일한 image-top
+   세로 카드로 명시적으로 되돌린다("무조건 가로 유지"를 전제하지 않고 실측 근거로 세로 폴백을 선택). */
+@media (max-width: 767.98px) {
+    #latest-programs .program-card__link {
+        flex-direction: column;
+    }
+
+    #latest-programs .program-card__thumb {
+        flex: none;
+        width: 100%;
+    }
+}
+
 /* P13-T3: 메인 Notice/Gallery.
    #latest-programs(.program-cards 등 P13-T2 선택자)는 건드리지 않고, 같은 --color-*/--space-*/--radius 토큰만 재사용한다. */
 
@@ -1204,25 +1288,42 @@ html {
     padding: 0;
 }
 
-/* P14-T3: Home의 "주요 소식"/"강의 후기"/"갤러리" 3개 section에서만, Program과 같은 이유로 auto-fit +
-   고정 폭으로 바꿔 빈 트랙을 없애고 남는 공간을 좌우로 고르게 분산시킨다(#latest-programs와 동일 원리).
-   id로 스코프해 Board GALLERY/REVIEW 목록(#board-grid)에는 적용되지 않는다. 이 두 section은 375px처럼
-   좁은 폭에서도 이미 원래 2컬럼 이상이 들어가던 thumbnail grid라 Program과 달리 전 viewport에 동일하게
-   적용해도 "빈 공간에 떠 있는 작은 카드"처럼 보이지 않는다(썸네일 그리드는 원래도 컴팩트한 크기가 자연스럽다).
-   강의 후기/갤러리는 기존 minmax 하한(160px, 즉 기존 auto-fill 결과 161~186px과 거의 동일)을 그대로 고정
-   폭으로 쓰고, "주요 소식"은 관리자가 고른 콘텐츠임을 드러내기 위해 한 단계 큰 200px을 쓴다(featured
-   card/캐러셀/카운트 제한 없이 카드 크기만으로 절제된 강조). 고정 폭(하한=상한)은 auto-fit 컬럼 개수
-   계산 공식이 기존과 동일해, 전 viewport(1440/1200/1024/901/900/899/768/430/390/375)에서 강의 후기·
-   갤러리의 기존 컬럼 수(2/2/2/4/5/5/5/5/6/6)가 1~20건 전부 정확히 보존됨을 비파괴 실측으로 확인했다. */
-#home-pinned .gallery-grid {
-    grid-template-columns: repeat(auto-fit, 200px);
-    justify-content: center;
-}
-
+/* P14-T3: Home의 "강의 후기"/"갤러리" section에서, Program과 같은 이유로 auto-fit + 고정 폭으로 바꿔
+   빈 트랙을 없애고 남는 공간을 좌우로 고르게 분산시킨다(#latest-programs와 동일 원리). id로 스코프해
+   Board GALLERY/REVIEW 목록(#board-grid)에는 적용되지 않는다. 이 두 section은 375px처럼 좁은 폭에서도
+   이미 원래 2컬럼 이상이 들어가던 thumbnail grid라 Program과 달리 전 viewport에 동일하게 적용해도
+   "빈 공간에 떠 있는 작은 카드"처럼 보이지 않는다(썸네일 그리드는 원래도 컴팩트한 크기가 자연스럽다).
+   기존 minmax 하한(160px, 즉 기존 auto-fill 결과 161~186px과 거의 동일)을 그대로 고정 폭으로 쓴다.
+   고정 폭(하한=상한)은 auto-fit 컬럼 개수 계산 공식이 기존과 동일해, 전 viewport(1440/1200/1024/901/
+   900/899/768/430/390/375)에서 강의 후기·갤러리의 기존 컬럼 수(2/2/2/4/5/5/5/5/6/6)가 1~20건 전부
+   정확히 보존됨을 비파괴 실측으로 확인했다. (주요 소식의 grid 전략은 P14-T3C에서 별도로 재설계했다 -
+   아래 참고.) */
 #latest-reviews .gallery-grid,
 #latest-gallery .gallery-grid {
     grid-template-columns: repeat(auto-fit, 160px);
     justify-content: center;
+}
+
+/* P14-T3C: "주요 소식"을 정사각 grid-of-cards에서 2-column 수평 editorial media card로 바꿔 Program/
+   Review/Gallery와 실루엣을 구분한다(개수 무제한 계약을 지키면서 첫 카드 특별 취급 없이 모든 카드가
+   동일 hierarchy). 실측(컨텐츠 폭 1168/992/869/868/867/736/358/343px 기준 계산): 고정 390px + 기존
+   gap(--space-2=16px, base .gallery-grid에서 상속)으로 auto-fit하면 899~1440px 전 구간이 정확히 2열
+   (2*390+16=796 ≤ 최소 867px)로 고정되고 1440에서도 3열로 늘지 않는다(3*390+32=1202 > 1168) -
+   "1개일 때도 과도하게 늘어나지 않고 항상 2열 그리드 기준으로 배치"라는 요구를 만족한다. 768px는
+   컨텐츠 736px라 2열(796)이 안 들어가 1열로 자연 전환(새 breakpoint 아님, Program과 동일한 지점에서
+   같은 이유로 1열 dead zone이 생기는 것도 두 수평 카드 section이 같은 원리를 공유함을 보여준다).
+   <768px(모바일)은 고정 390px 자체가 mobile 컨텐츠 폭(358/343px)보다 넓어 auto-fit이 오히려 오버플로를
+   만들므로(390 > 358), 모바일 전용으로 `1fr` 단일 컬럼(컨테이너 폭에 정확히 맞춰 늘어나므로 오버플로
+   불가능)으로 명시적으로 분기한다. */
+#home-pinned .gallery-grid {
+    grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+    #home-pinned .gallery-grid {
+        grid-template-columns: repeat(auto-fit, 390px);
+        justify-content: center;
+    }
 }
 
 /* P14-T4B: Board GALLERY/REVIEW(#board-grid)도 항목이 1~3개뿐일 때 desktop에서 auto-fill이 남긴 빈
@@ -1303,10 +1404,10 @@ html {
    이미 쓰던 것과 동일한 언어(테두리 + hover/focus-visible)를 `#latest-reviews`/`#latest-gallery`에도
    이식한다. grid/card 폭 계산(auto-fit 고정폭)은 전혀 건드리지 않는다. */
 
-/* 주요 소식: T3 hover/focus/border/200px 폭/1:1 비율/2-line clamp 전부 무변경. title만 다른 3개
-   section(0.9375rem/400)보다 한 단계 강조해 "관리자가 고른 콘텐츠"라는 위계를 준다(featured 첫 카드나
-   BOARD/PROGRAM 배지는 사용하지 않음 - 개수가 가변적인 기능과 맞지 않고 인지 부담만 늘린다는 조사
-   결론에 따름). CSS-only, DOM 무변경. */
+/* 주요 소식: T3 hover/focus/border/1:1 비율/2-line clamp 전부 무변경(grid 폭 전략만 P14-T3C가
+   재설계했다 - 위 #home-pinned .gallery-grid 참고). title만 다른 section(0.9375rem/400)보다 한 단계
+   강조해 "관리자가 고른 콘텐츠"라는 위계를 준다(featured 첫 카드나 BOARD/PROGRAM 배지는 사용하지 않음 -
+   개수가 가변적인 기능과 맞지 않고 인지 부담만 늘린다는 조사 결론에 따름). DOM 무변경. */
 #home-pinned .gallery-card__title {
     font-weight: 700;
     font-size: 1rem;
@@ -1319,6 +1420,19 @@ html {
    를 갖고 있어 letterbox 여백이 별도 선언 없이도 자연스러운 액자처럼 보인다. */
 #latest-reviews .gallery-card__thumb img {
     object-fit: contain;
+}
+
+/* P14-T3C: "강의 후기" 카드에 paper-frame(mat) 느낌을 더한다 - 링크 안쪽에 여백을 줘 사진이 카드
+   가장자리에서 살짝 띄워지고(mat), thumb 자체 radius도 한 단계 낮춰(--radius-sm) "종이에 마운트된
+   사진" 인상을 준다. 실제로 Gallery(가장자리까지 꽉 채운 4:3 landscape, mat 없음)와 실루엣이
+   구분되는 지점이 바로 이 mat 유무 + 정사각(160px) vs landscape(320px) 크기 차이다. Board REVIEW
+   목록(#board-grid)은 전역 `.gallery-card__link`/`.gallery-card__thumb` 무수정이라 영향 없음. */
+#latest-reviews .gallery-card__link {
+    padding: var(--space-1);
+}
+
+#latest-reviews .gallery-card__thumb {
+    border-radius: var(--radius-sm);
 }
 
 /* #home-pinned/#board-grid와 동일한 시각 언어(테두리 + hover/focus-visible)를 이식한다. 전역
@@ -1340,7 +1454,11 @@ html {
     border-color: var(--color-primary);
 }
 
-#latest-reviews .gallery-card__title,
+/* P14-T3C: "강의 후기"는 위에서 `#latest-reviews .gallery-card__link`에 전체 padding을 추가해
+   thumb/title이 이미 동일하게 inset되므로(paper-frame), title에 별도 padding을 또 얹으면 thumb보다
+   title만 이중으로 더 안쪽에 들어가 어긋나 보인다 - 그래서 Review는 이 규칙에서 제외했다(T3B 당시엔
+   link에 padding이 없어 title에만 별도 padding이 필요했지만 이제는 불필요). Gallery는 link에 padding이
+   없어(사진이 가장자리까지 닿는 photo-first 의도) 여전히 title만 별도로 inset해야 한다. */
 #latest-gallery .gallery-card__title {
     padding: 0 var(--space-1) var(--space-1);
 }
@@ -1350,6 +1468,17 @@ html {
    object-fit은 cover 유지(사진은 crop 허용 범위가 넓어 후기와 달리 굳이 contain으로 바꿀 필요가 없다). */
 #latest-gallery .gallery-card__thumb {
     aspect-ratio: 4 / 3;
+}
+
+/* P14-T3C: "사진이 주인공"인 photo-first 구성을 위해 Home 갤러리 카드 폭을 160px→320px로 키운다
+   (Review는 160px 그대로 유지 - 폭 차이 자체도 두 section을 구분하는 요소다). Board GALLERY
+   목록(#board-grid)은 여전히 전역 `.gallery-grid` 160px 그대로라 무영향(#latest-gallery로만 스코프).
+   실측(컨텐츠 폭 1168/992/869/868/867/736/358/343px 기준 계산, gap은 base .gallery-grid에서 상속한
+   --space-2=16px): 1440/1200은 3열(3*320+32=992 ≤ 1168, 4열은 4*320+48=1328 > 1168로 불가),
+   1024/901/900/899/768은 2열(2*320+16=656 ≤ 최소 736px), 390/375는 1열(320 ≤ 최소 343px, 23px
+   여유로 오버플로 없음) - 모든 구간에서 기존처럼 새 breakpoint 없이 auto-fit 산술만으로 자연 전환된다. */
+#latest-gallery .gallery-grid {
+    grid-template-columns: repeat(auto-fit, 320px);
 }
 
 /* /programs, /boards: 순수 Bootstrap list-group이라 overflow-wrap이 없어 공백 없는 긴 제목이
