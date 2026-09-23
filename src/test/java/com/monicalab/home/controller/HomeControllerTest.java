@@ -207,8 +207,8 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#latest-notices .notice-list__link").text()).contains("최신 공지 제목");
         assertThat(document.select("#latest-notices .notice-list__link").attr("href"))
                 .isEqualTo("/boards/" + notice.getId());
-        assertThat(document.select("#latest-gallery .gallery-card__link").text()).contains("최신 갤러리 제목");
-        assertThat(document.select("#latest-gallery .gallery-card__link").attr("href"))
+        assertThat(document.select("#latest-gallery .gallery-mosaic__link").text()).contains("최신 갤러리 제목");
+        assertThat(document.select("#latest-gallery .gallery-mosaic__link").attr("href"))
                 .isEqualTo("/boards/" + gallery.getId());
     }
 
@@ -225,7 +225,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
-        Elements cards = document.select("#latest-programs .program-card");
+        Elements cards = document.select("#latest-programs .program-row");
 
         assertThat(cards).hasSize(3);
         String cardsText = cards.text();
@@ -242,7 +242,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
-        assertThat(document.select("#latest-programs .program-card__link").attr("href"))
+        assertThat(document.select("#latest-programs .program-row__link").attr("href"))
                 .isEqualTo("/programs/" + id);
     }
 
@@ -260,7 +260,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
-        Elements statusBadges = document.select("#latest-programs .program-card__status");
+        Elements statusBadges = document.select("#latest-programs .program-row__status");
 
         assertThat(statusBadges.text()).contains("모집중", "모집마감");
         assertThat(statusBadges.text()).doesNotContain("OPEN", "CLOSED");
@@ -285,7 +285,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
-        Elements typeBadges = document.select("#latest-programs .program-card__type");
+        Elements typeBadges = document.select("#latest-programs .program-row__type");
 
         assertThat(typeBadges).hasSize(2);
         assertThat(typeBadges.eachText()).containsExactlyInAnyOrder("COURSE", "SPECIAL CLASS");
@@ -299,7 +299,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#latest-programs .program-card")).isEmpty();
+        assertThat(document.select("#latest-programs .program-row")).isEmpty();
         assertThat(document.select("#latest-programs .empty-state")).isNotEmpty();
     }
 
@@ -592,11 +592,11 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#latest-gallery .gallery-card__thumb img").attr("src"))
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb img").attr("src"))
                 .isEqualTo("/api/files/2");
-        assertThat(document.select("#latest-gallery .gallery-card__thumb img").attr("loading")).isEqualTo("lazy");
-        assertThat(document.select("#latest-gallery .gallery-card__title").text()).isEqualTo("갤러리 목록 확인용 제목");
-        assertThat(document.select("#latest-gallery .gallery-card__link").attr("href"))
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#latest-gallery .gallery-mosaic__title").text()).isEqualTo("갤러리 목록 확인용 제목");
+        assertThat(document.select("#latest-gallery .gallery-mosaic__link").attr("href"))
                 .isEqualTo("/boards/" + gallery.getId());
     }
 
@@ -612,8 +612,8 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#latest-gallery .gallery-card__thumb-placeholder")).isNotEmpty();
-        assertThat(document.select("#latest-gallery .gallery-card__thumb img")).isEmpty();
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb img")).isEmpty();
     }
 
     @Test
@@ -624,7 +624,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#latest-gallery .gallery-grid")).isEmpty();
+        assertThat(document.select("#latest-gallery .gallery-mosaic")).isEmpty();
         assertThat(document.select("#latest-gallery .empty-state")).isNotEmpty();
     }
 
@@ -654,7 +654,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
-        Elements cards = document.select("#latest-reviews .gallery-card");
+        Elements cards = document.select("#latest-reviews .review-strip__item");
 
         assertThat(cards).hasSize(3);
         String cardsText = cards.text();
@@ -675,11 +675,11 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#latest-reviews .gallery-card__thumb img").attr("src"))
+        assertThat(document.select("#latest-reviews .review-strip__thumb img").attr("src"))
                 .isEqualTo("/api/files/3");
-        assertThat(document.select("#latest-reviews .gallery-card__thumb img").attr("loading")).isEqualTo("lazy");
-        assertThat(document.select("#latest-reviews .gallery-card__title").text()).isEqualTo("강의 후기 목록 확인용 제목");
-        assertThat(document.select("#latest-reviews .gallery-card__link").attr("href"))
+        assertThat(document.select("#latest-reviews .review-strip__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#latest-reviews .review-strip__caption").text()).isEqualTo("강의 후기 목록 확인용 제목");
+        assertThat(document.select("#latest-reviews .review-strip__link").attr("href"))
                 .isEqualTo("/boards/" + review.getId());
     }
 
@@ -695,8 +695,8 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#latest-reviews .gallery-card__thumb-placeholder")).isNotEmpty();
-        assertThat(document.select("#latest-reviews .gallery-card__thumb img")).isEmpty();
+        assertThat(document.select("#latest-reviews .review-strip__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#latest-reviews .review-strip__thumb img")).isEmpty();
     }
 
     @Test
@@ -707,7 +707,7 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#latest-reviews .gallery-grid")).isEmpty();
+        assertThat(document.select("#latest-reviews .review-strip")).isEmpty();
         assertThat(document.select("#latest-reviews .empty-state")).isNotEmpty();
     }
 
