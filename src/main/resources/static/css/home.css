@@ -808,7 +808,12 @@ html {
 }
 
 /* P13-T2: 메인 Hero / 연구소 소개 / Program 카드 / CTA.
-   Notice/Gallery(#latest-notices, #latest-gallery) 내부 마크업/스타일은 P13-T3 범위이므로 건드리지 않는다. */
+   Notice/Gallery(#latest-notices, #latest-gallery) 내부 마크업/스타일은 P13-T3 범위이므로 건드리지 않는다.
+   P14-T3A: .section을 가진 5개 콘텐츠 section(#home-pinned/#latest-programs/#latest-reviews/
+   #latest-notices/#latest-gallery)은 이제 #index-content 대신 자기 자신이 전체 폭(100%)의 직접
+   자식이라, 이 padding이 곧 (배경이 있는 경우) full-width surface의 상하 여백이 된다. 내부 실제
+   콘텐츠(heading/card/list)는 각 section 안의 새 <div class="container">가 기존과 동일한
+   --container-max/gutter로 정렬한다. */
 
 .section {
     padding: var(--space-4) 0;
@@ -843,18 +848,29 @@ html {
     text-align: center;
 }
 
-/* P14-T3: "주요 소식"(#home-pinned)은 관리자가 홈에 직접 고정한 콘텐츠라 다른 gallery-style
-   section(강의 후기/갤러리)과 구분되어야 한다. 새 component나 featured-card 없이, 기존 .section
-   padding을 이 섹션에서만 border+surface+더 큰 padding으로 대체해(값 자체를 덮어써 중복 적용은 없다)
-   "패널"처럼 보이게 한다. 좌우 padding이 생겨 본문이 다른 section 제목보다 살짝 안쪽에서 시작하지만
-   음수 margin으로 바깥까지 번지게 하지 않는다(좁은 viewport에서 container gutter를 넘는 overflow
-   위험을 피하기 위함, box-sizing: border-box는 Bootstrap reboot가 전역 적용). T0의 "제한적 warm
-   surface, zebra stripe 금지" 계약에 따라 이 섹션 하나에만 적용한다. */
+/* P14-T3A: "주요 소식"(#home-pinned)은 관리자가 홈에 직접 고정한 콘텐츠라 다른 section보다 강조돼야
+   한다. T3는 container 안에 있는 작은 "패널"(border+surface+padding)로 강조했지만, 이번 T3A에서
+   section 배경 자체가 viewport 끝까지 이어지는 full-width surface로 바뀌면서 그 안에 T3의 inner
+   panel(테두리+radius+자체 padding)을 그대로 두면 "박스 안에 또 박스"로 보인다. inner panel은
+   제거하고 #home-pinned(outer section) 자체를 restrained tonal surface로 통합한다. 색은 T0의
+   "제한적 warm/tonal surface, zebra stripe 금지" 계약에 따라 기존 3개 token(--color-bg/
+   --color-surface/--color-primary-soft) 중 가장 강조가 필요한 --color-primary-soft를 Pinned
+   한 곳에만 배정한다(다른 section에는 재사용하지 않아 "3색 반복 줄무늬"로 보이지 않는다). vertical
+   padding은 이 섹션도 다른 section과 동일하게 .section의 `padding: var(--space-4) 0`을 그대로
+   쓴다(중복 padding 없음). 중요도는 색 톤 자체와 기존 200px pinned card 폭(다른 gallery-style
+   section의 160px보다 큼)으로 계속 유지된다. */
 #home-pinned {
-    padding: var(--space-4);
+    background: var(--color-primary-soft);
+}
+
+/* P14-T3A: 강의 후기/갤러리는 둘 다 "이미지 중심 소셜 프루프성" 콘텐츠라 같은 warm 톤으로 묶어
+   콘텐츠 성격에 따른 grouping을 만든다(최신 프로그램/공지사항은 반대로 --color-bg 기본값 그대로 둬
+   "핵심 상품/공식 공지"라는 성격을 유지한다 - 3개 톤을 기계적으로 순환시키지 않고 의미 단위로만
+   배정). --color-surface는 이미 #home-pinned 이전(T3)부터 쓰이던 유일한 대체 surface token이라
+   새 색상 추가 없이 재사용한다. */
+#latest-reviews,
+#latest-gallery {
     background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
 }
 
 /* Pinned 카드 자체는 공유 .gallery-card/.gallery-grid 기본 규칙을 그대로 쓰되, #home-pinned로
@@ -877,10 +893,18 @@ html {
     padding: 0 var(--space-1) var(--space-1);
 }
 
-/* Hero */
+/* Hero. P14-T3A: Hero는 이번 full-width surface 대상에서 제외한다(배경 없음, 기존과 동일하게
+   .container 폭 안에서만 보인다). #index-content가 더 이상 .container가 아니게 되면서 #banners
+   내부에 .container를 하나 새로 두어 기존과 정확히 같은 폭을 유지한다. .hero__nav/.hero__bottom-bar
+   등 캐러셀 컨트롤의 절대 위치 기준점이던 position:relative를 #banners .container로 옮겨(outer
+   section 자체는 위치를 갖지 않는 순수 wrapper), 컨트롤이 이미지 영역 기준으로 기존과 동일한 위치에
+   배치되도록 한다(outer/inner 폭이 항상 같으므로 결과 좌표는 이전과 동일). */
 .hero {
-    position: relative;
     margin: 0 0 var(--space-4);
+}
+
+#banners .container {
+    position: relative;
 }
 
 .hero__viewport {
@@ -1009,18 +1033,8 @@ html {
     }
 }
 
-.hero__empty {
-    padding: var(--space-4);
-    border: 1px dashed var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    text-align: center;
-    color: var(--color-text-muted);
-}
-
-.hero__empty p {
-    margin: 0;
-}
+/* P14-T3A: .hero__empty("등록된 배너가 없습니다.") 마크업 자체를 제거했다(배너 0건이면 #banners
+   section 전체가 렌더링되지 않음) - 도달 불가능해진 규칙이라 함께 제거한다. */
 
 /* Program 카드.
    P14-T1은 auto-fill(minmax(220px,1fr))로 "아이템이 적어도 카드가 과도하게 커지는" P13 회귀
