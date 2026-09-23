@@ -214,8 +214,64 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#program-list .program-list__thumb img").attr("src")).isEqualTo("/api/files/3");
         assertThat(document.select("#program-list .program-list__thumb img").attr("loading")).isEqualTo("lazy");
         assertThat(document.select("#program-list .program-list__title").text()).isEqualTo("목록 썸네일 확인용 프로그램");
-        assertThat(document.select("#program-list .program-list__meta").text()).contains("COURSE", "OPEN");
+        // P14-T4A: raw enum(COURSE/OPEN)이 아니라 한글 표시명(수강/모집중)으로 노출된다(domain enum/DB
+        // 값 자체는 무변경 - presentation layer에서만 매핑). 아래 4개 테스트가 COURSE/SPECIAL, OPEN/CLOSED
+        // 전체 조합을 검증한다.
+        assertThat(document.select("#program-list .program-list__meta").text()).contains("수강", "모집중");
+        assertThat(document.select("#program-list .program-list__meta").text()).doesNotContain("COURSE", "OPEN");
         assertThat(document.select("#program-list .program-list__link").attr("href")).isEqualTo("/programs/" + id);
+    }
+
+    // P14-T4A: ProgramType/RecruitStatus 각각의 나머지 값(SPECIAL/CLOSED)도 한글로 표시되는지 확인한다.
+    // 두 enum 모두 COURSE/SPECIAL, OPEN/CLOSED 두 값만 존재하므로(구현 전 재확인) 이 조합으로 전체를 덮는다.
+    @Test
+    void listShowsKoreanLabelsForSpecialProgramTypeAndClosedRecruitStatusInsteadOfRawEnumNames() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.SPECIAL)
+                .title("마감된 특강")
+                .content("내용")
+                .recruitStatus(RecruitStatus.CLOSED)
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String metaText = document.select("#program-list .program-list__meta").text();
+
+        assertThat(metaText).contains("특강", "모집마감");
+        assertThat(metaText).doesNotContain("SPECIAL", "CLOSED");
+    }
+
+    // OPEN 상태 배지만 강조 클래스(.is-open)를 갖는지 확인한다(색만으로 상태를 전달하지 않도록 텍스트
+    // "모집중"/"모집마감"은 항상 함께 존재함을 위 두 테스트가 이미 검증했다).
+    @Test
+    void listMarksOnlyOpenRecruitStatusBadgeWithIsOpenModifierClass() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("모집중 프로그램")
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("마감 프로그램")
+                .content("내용")
+                .recruitStatus(RecruitStatus.CLOSED)
+                .isPublic(true)
+                .build());
+
+        String body = mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select(".program-list__status-badge.is-open")).hasSize(1);
+        assertThat(document.select(".program-list__status-badge.is-open").text()).isEqualTo("모집중");
     }
 
     @Test
