@@ -17,7 +17,7 @@
                 <input type="radio" class="form-check-input" name="accentPreset"
                        th:id="${'accentPreset-' + preset}" th:value="${preset}">
                 <label class="form-check-label" th:for="${'accentPreset-' + preset}"
-                       th:text="${preset.name() == 'TERRACOTTA'} ? '테라코타' : ${preset}">프리셋</label>
+                       th:text="${preset.name() == 'TERRACOTTA'} ? '테라코타' : (${preset.name() == 'BURGUNDY'} ? '버건디' : (${preset.name() == 'FOREST'} ? '포레스트' : ${preset}))">프리셋</label>
             </div>
             <p class="form-text">추가 색상 프리셋은 후속 작업에서 제공됩니다.</p>
         </fieldset>

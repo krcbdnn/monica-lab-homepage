@@ -106,4 +106,43 @@ class SiteThemeSettingServiceTest extends AbstractIntegrationTest {
 
         assertThat(siteThemeSettingRepository.count()).isZero();
     }
+
+    // P14-T8C: AccentPreset이 3개로 늘어난 뒤에도 저장/조회가 정상 동작하는지 확인한다. row 없음 시
+    // fallback이 여전히 TERRACOTTA+0-write임을 고정하는 위 두 테스트(returnsDefaultFallbackWhenRowIsMissing/
+    // fallbackReadDoesNotWriteToDatabase)는 이미 이 계약을 보호하고 있어 별도로 반복하지 않는다.
+    @Test
+    void updateSettingPersistsBurgundyAccentPreset() {
+        siteThemeSettingRepository.save(SiteThemeSetting.builder()
+                .settingKey(SiteThemeSetting.SITE_THEME_KEY)
+                .accentPreset(AccentPreset.TERRACOTTA)
+                .showPinned(true)
+                .showPrograms(true)
+                .showReviews(true)
+                .showNotices(true)
+                .showGallery(true)
+                .build());
+
+        siteThemeSettingService.updateSetting(
+                new SiteThemeSettingRequest(AccentPreset.BURGUNDY, true, true, true, true, true));
+
+        assertThat(siteThemeSettingService.getSetting().accentPreset()).isEqualTo(AccentPreset.BURGUNDY);
+    }
+
+    @Test
+    void updateSettingPersistsForestAccentPreset() {
+        siteThemeSettingRepository.save(SiteThemeSetting.builder()
+                .settingKey(SiteThemeSetting.SITE_THEME_KEY)
+                .accentPreset(AccentPreset.TERRACOTTA)
+                .showPinned(true)
+                .showPrograms(true)
+                .showReviews(true)
+                .showNotices(true)
+                .showGallery(true)
+                .build());
+
+        siteThemeSettingService.updateSetting(
+                new SiteThemeSettingRequest(AccentPreset.FOREST, true, true, true, true, true));
+
+        assertThat(siteThemeSettingService.getSetting().accentPreset()).isEqualTo(AccentPreset.FOREST);
+    }
 }

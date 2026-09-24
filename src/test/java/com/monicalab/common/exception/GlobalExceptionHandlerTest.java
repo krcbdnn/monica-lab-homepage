@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.monicalab.common.exception.support.ExceptionTestController;
 import com.monicalab.menu.service.MenuService;
+import com.monicalab.theme.service.SiteThemeSettingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -16,11 +17,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 // P13-T30B: @WebMvcTest는 controllers 필터와 무관하게 클래스패스의 모든 @ControllerAdvice 빈을
-// 항상 컨텍스트에 포함시킨다(Spring Boot 표준 동작). 신규 HeaderMenuControllerAdvice가
-// MenuService를 생성자로 요구하는데 이 슬라이스에는 @Service 빈이 로드되지 않아, MenuService를
-// MockitoBean으로 대체하지 않으면 컨텍스트 기동이 실패한다. HeaderMenuControllerAdvice의 동작
-// 자체는 이 테스트의 검증 대상이 아니므로(ExceptionTestController는 assignableTypes에 없어 어차피
-// 호출되지 않음) mock으로 충분하다.
+// 항상 컨텍스트에 포함시킨다(Spring Boot 표준 동작). HeaderMenuControllerAdvice가 MenuService를,
+// P14-T8C의 ThemeControllerAdvice가 SiteThemeSettingService를 각각 생성자로 요구하는데 이 슬라이스에는
+// @Service 빈이 로드되지 않아, 둘 다 MockitoBean으로 대체하지 않으면 컨텍스트 기동이 실패한다. 두
+// Advice의 동작 자체는 이 테스트의 검증 대상이 아니므로(ExceptionTestController는 둘 다의
+// assignableTypes에 없어 어차피 호출되지 않음) mock으로 충분하다.
 @WebMvcTest(controllers = ExceptionTestController.class)
 @AutoConfigureMockMvc(addFilters = false)
 class GlobalExceptionHandlerTest {
@@ -30,6 +31,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private MenuService menuService;
+
+    @MockitoBean
+    private SiteThemeSettingService siteThemeSettingService;
 
     @Test
     void successResponseFollowsApiResponseFormat() throws Exception {
