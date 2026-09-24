@@ -19,6 +19,7 @@ public enum ErrorCode {
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다."),
     MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "메뉴를 찾을 수 없습니다."),
     HOME_PINNED_CONTENT_NOT_FOUND(HttpStatus.NOT_FOUND, "고정 콘텐츠를 찾을 수 없습니다."),
+    SITE_THEME_SETTING_NOT_FOUND(HttpStatus.NOT_FOUND, "테마 설정을 찾을 수 없습니다."),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
     DUPLICATE_LOGIN_ID(HttpStatus.CONFLICT, "이미 존재하는 로그인 아이디입니다."),
     MENU_HAS_CHILDREN(HttpStatus.CONFLICT, "하위 메뉴가 있어 삭제하거나 그룹이 아닌 유형으로 변경할 수 없습니다."),

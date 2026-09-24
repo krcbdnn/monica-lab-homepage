@@ -67,7 +67,17 @@ public class SiteThemeSetting extends BaseEntity {
         this.showGallery = showGallery;
     }
 
-    // P14-T8A는 읽기 전용 도메인 기반만 다룬다. 실제 갱신 로직(Request DTO 검증, Admin API)은
-    // P14-T8B에서 함께 추가하며, 그 전까지는 이 Entity를 변경하는 유일한 경로가 V13 마이그레이션의
-    // 시드 INSERT뿐이므로 update류 메서드를 미리 만들지 않는다(YAGNI).
+    // P14-T8B: Admin이 저장할 수 있는 6개 값만 변경한다. id/settingKey/createdAt/updatedAt은
+    // 이 메서드로 손댈 수 없다 - settingKey는 계속 불변 논리 singleton key이고, createdAt/updatedAt은
+    // BaseEntity의 auditing이 전담한다. CmsPage.update(title, content)와 동일한 필드 재대입 방식이며
+    // public setter는 추가하지 않는다.
+    public void update(AccentPreset accentPreset, boolean showPinned, boolean showPrograms,
+            boolean showReviews, boolean showNotices, boolean showGallery) {
+        this.accentPreset = accentPreset;
+        this.showPinned = showPinned;
+        this.showPrograms = showPrograms;
+        this.showReviews = showReviews;
+        this.showNotices = showNotices;
+        this.showGallery = showGallery;
+    }
 }

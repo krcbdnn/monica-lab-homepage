@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#theme-form-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>홈페이지 디자인 설정</title>
+</head>
+<body>
+<div id="theme-form-content" style="max-width: 800px;">
+    <h3 class="mb-2">홈페이지 디자인 설정</h3>
+    <p class="text-muted mb-4">공개 홈페이지의 디자인 프리셋과 홈 화면 섹션 노출 설정을 관리합니다.</p>
+    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+    <div id="successMessage" class="alert alert-success" style="display: none;">저장되었습니다.</div>
+    <form id="themeForm">
+        <fieldset class="mb-4">
+            <legend class="h5">색상 프리셋</legend>
+            <div th:each="preset : ${accentPresets}" class="form-check">
+                <input type="radio" class="form-check-input" name="accentPreset"
+                       th:id="${'accentPreset-' + preset}" th:value="${preset}">
+                <label class="form-check-label" th:for="${'accentPreset-' + preset}"
+                       th:text="${preset.name() == 'TERRACOTTA'} ? '테라코타' : ${preset}">프리셋</label>
+            </div>
+            <p class="form-text">추가 색상 프리셋은 후속 작업에서 제공됩니다.</p>
+        </fieldset>
+        <fieldset class="mb-4">
+            <legend class="h5">홈 화면 섹션 노출</legend>
+            <p class="form-text">메인 배너는 배너 관리에서 설정합니다.</p>
+            <div class="form-check mb-2">
+                <input type="checkbox" class="form-check-input" id="showPinned" name="showPinned">
+                <label for="showPinned" class="form-check-label">주요 소식</label>
+            </div>
+            <div class="form-check mb-2">
+                <input type="checkbox" class="form-check-input" id="showPrograms" name="showPrograms">
+                <label for="showPrograms" class="form-check-label">프로그램</label>
+            </div>
+            <div class="form-check mb-2">
+                <input type="checkbox" class="form-check-input" id="showReviews" name="showReviews">
+                <label for="showReviews" class="form-check-label">강의 후기</label>
+            </div>
+            <div class="form-check mb-2">
+                <input type="checkbox" class="form-check-input" id="showNotices" name="showNotices">
+                <label for="showNotices" class="form-check-label">공지사항</label>
+            </div>
+            <div class="form-check mb-2">
+                <input type="checkbox" class="form-check-input" id="showGallery" name="showGallery">
+                <label for="showGallery" class="form-check-label">갤러리</label>
+            </div>
+        </fieldset>
+        <button type="submit" id="saveButton" class="btn btn-primary">저장</button>
+    </form>
+
+<script src="/js/admin/common-fetch.js"></script>
+<script>
+    var errorMessage = document.querySelector('#errorMessage');
+    var successMessage = document.querySelector('#successMessage');
+    var saveButton = document.querySelector('#saveButton');
+
+    function showError(message) {
+        successMessage.style.display = 'none';
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    }
+
+    function showSuccess() {
+        errorMessage.style.display = 'none';
+        successMessage.style.display = 'block';
+    }
+
+    function checkRadioByValue(name, value) {
+        var radio = document.querySelector('input[name="' + name + '"][value="' + value + '"]');
+        if (radio) {
+            radio.checked = true;
+        }
+    }
+
+    function readCheckedRadioValue(name) {
+        var checked = document.querySelector('input[name="' + name + '"]:checked');
+        return checked ? checked.value : null;
+    }
+
+    AdminFetch.adminFetch('/api/admin/theme')
+        .then(function (response) {
+            return response.json();
+        })
+        .then(function (body) {
+            var setting = body.data;
+
+            checkRadioByValue('accentPreset', setting.accentPreset);
+            document.querySelector('#showPinned').checked = setting.showPinned;
+            document.querySelector('#showPrograms').checked = setting.showPrograms;
+            document.querySelector('#showReviews').checked = setting.showReviews;
+            document.querySelector('#showNotices').checked = setting.showNotices;
+            document.querySelector('#showGallery').checked = setting.showGallery;
+        })
+        .catch(function () {
+            showError('설정을 불러오는 중 오류가 발생했습니다.');
+        });
+
+    document.querySelector('#themeForm').addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        errorMessage.style.display = 'none';
+        successMessage.style.display = 'none';
+
+        var payload = {
+            accentPreset: readCheckedRadioValue('accentPreset'),
+            showPinned: document.querySelector('#showPinned').checked,
+            showPrograms: document.querySelector('#showPrograms').checked,
+            showReviews: document.querySelector('#showReviews').checked,
+            showNotices: document.querySelector('#showNotices').checked,
+            showGallery: document.querySelector('#showGallery').checked
+        };
+
+        saveButton.disabled = true;
+
+        AdminFetch.adminFetch('/api/admin/theme', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    return {ok: response.ok, body: body};
+                });
+            })
+            .then(function (result) {
+                if (result.ok && result.body.success) {
+                    showSuccess();
+                } else {
+                    showError((result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.');
+                }
+            })
+            .catch(function () {
+                showError('저장 중 오류가 발생했습니다.');
+            })
+            .finally(function () {
+                saveButton.disabled = false;
+            });
+    });
+</script>
+</div>
+</body>
+</html>

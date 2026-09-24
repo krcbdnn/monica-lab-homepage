@@ -21,6 +21,8 @@ const ADMIN_PAGES = [
   '/admin/menus/new',
   // P13-T38A: 신규 admin 화면(등록/수정 폼이 따로 없어 목록 1개만 추가).
   '/admin/home-pinned-contents',
+  // P14-T8B: 신규 admin 화면(singleton 설정 폼 1개, 별도 목록 없음).
+  '/admin/theme',
 ];
 
 async function loginAsAdmin(context, baseURL) {
