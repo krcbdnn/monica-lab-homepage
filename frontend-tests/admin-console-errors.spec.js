@@ -11,6 +11,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 const ADMIN_PAGES = [
   '/admin/dashboard',
+  // P14-T9A: 이 회귀 목록에 그동안 없었던 기존 갭을 메운다(admin-layout.js 도입으로 전 admin 화면의
+  // 공통 layout 변경 위험이 커져 이 시점에 함께 보완).
+  '/admin/pages',
   '/admin/boards',
   '/admin/programs',
   '/admin/banners',

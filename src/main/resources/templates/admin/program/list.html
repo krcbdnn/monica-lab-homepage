@@ -27,6 +27,9 @@
         </div>
     </form>
 
+    <!-- P14-T9A: table 자체(columns/데이터/action)는 무변경 - 좁은 화면에서 페이지 전체가 아니라
+         이 wrapper 안에서만 가로 스크롤되도록 Bootstrap 기본 유틸리티만 추가한다. -->
+    <div class="table-responsive">
     <table class="table">
         <thead>
         <tr>
@@ -39,6 +42,7 @@
         </thead>
         <tbody id="program-list-body"></tbody>
     </table>
+    </div>
 
     <nav id="pagination" class="d-flex gap-2">
         <button id="prev-page" type="button" class="btn btn-outline-secondary" disabled>이전</button>

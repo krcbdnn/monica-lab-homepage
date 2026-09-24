@@ -1,10 +1,21 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
 <body>
+<!-- P14-T9A: 375~767.98px(Bootstrap md 미만)에서만 보이는 mobile sidebar toggle과, 항상 보이는
+     logout 버튼을 추가한다. 새 icon library를 추가하지 않고 "☰" 유니코드 문자로 최소 표현한다.
+     toggle의 실제 open/close 동작과 logout 동작은 전부 admin-layout.js가 담당한다(이 fragment는
+     마크업/aria attribute만 선언). -->
 <header th:fragment="header" id="admin-header"
         class="d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
-    <span class="fw-bold">모니카영어교육연구소 관리자</span>
-    <span>관리자: <span id="admin-name">-</span></span>
+    <div class="d-flex align-items-center gap-2">
+        <button type="button" id="admin-sidebar-toggle" class="btn btn-outline-secondary btn-sm d-md-none"
+                aria-controls="admin-sidebar" aria-expanded="false" aria-label="메뉴 열기">☰</button>
+        <span class="fw-bold">모니카영어교육연구소 관리자</span>
+    </div>
+    <div class="d-flex align-items-center gap-3">
+        <span>관리자: <span id="admin-name">-</span></span>
+        <button type="button" id="admin-logout-button" class="btn btn-outline-secondary btn-sm">로그아웃</button>
+    </div>
 </header>
 </body>
 </html>
