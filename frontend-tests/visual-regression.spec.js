@@ -776,6 +776,174 @@ test.describe('P14-T3D: "갤러리" 비대칭 mosaic', () => {
   });
 });
 
+// P14-T8D: Home Section Visibility. 관리자가 /admin/theme에서 저장한 5개 show* 설정이 실제
+// Public Home section 렌더링을 게이트하는지 검증한다. 32(2^5)개 조합 전수 테스트는 하지 않고,
+// 개별 OFF 5건 + all-OFF/all-ON 조합만 확인한다. 시작 전 실제 SITE_THEME 값을 GET으로 기록해두고
+// afterAll에서 정확히 그 값으로 복원한다(추측한 기본값으로 덮어쓰지 않음). visibility만 바꾸는
+// PUT에도 매번 기존 accentPreset을 그대로 실어 보내 T8C accent 설정이 훼손되지 않게 한다.
+test.describe('P14-T8D: Home Section Visibility', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let adminContext;
+  let originalSetting;
+
+  test.beforeAll(async ({ browser, baseURL }) => {
+    adminContext = await browser.newContext();
+    await loginAsAdmin(adminContext, baseURL);
+    const res = await adminContext.request.get(`${baseURL}/api/admin/theme`);
+    expect(res.ok()).toBeTruthy();
+    originalSetting = (await res.json()).data;
+  });
+
+  test.afterAll(async ({ baseURL }) => {
+    const xsrfToken = await getXsrfToken(adminContext);
+    const res = await adminContext.request.put(`${baseURL}/api/admin/theme`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: originalSetting,
+    });
+    expect(res.ok()).toBeTruthy();
+
+    // 복원 후 재조회해 완전히 동일한지 재확인한다.
+    const verify = await adminContext.request.get(`${baseURL}/api/admin/theme`);
+    expect((await verify.json()).data).toEqual(originalSetting);
+    await adminContext.close();
+  });
+
+  const ALL_VISIBLE = {
+    showPinned: true, showPrograms: true, showReviews: true, showNotices: true, showGallery: true,
+  };
+
+  async function setTheme(baseURL, overrides) {
+    const xsrfToken = await getXsrfToken(adminContext);
+    const payload = { ...originalSetting, ...ALL_VISIBLE, ...overrides };
+    const res = await adminContext.request.put(`${baseURL}/api/admin/theme`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: payload,
+    });
+    expect(res.ok()).toBeTruthy();
+  }
+
+  test('showPinned=false면 #home-pinned가 렌더링되지 않고 다른 section은 유지된다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showPinned: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#home-pinned')).toHaveCount(0);
+    await expect(page.locator('#latest-programs')).toHaveCount(1);
+  });
+
+  test('showPrograms=false면 #latest-programs가 렌더링되지 않는다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showPrograms: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-programs')).toHaveCount(0);
+    await expect(page.locator('#latest-reviews')).toHaveCount(1);
+  });
+
+  test('showReviews=false면 #latest-reviews(dark section)가 렌더링되지 않고 앞뒤 section이 자연스럽게 이어진다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showReviews: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-reviews')).toHaveCount(0);
+    // dark section 제거 후 이전/다음 section 사이에 이상한 이중 여백이 생기지 않는지, 즉 두 section이
+    // 각자의 padding만으로 자연스럽게 붙어 있는지 y좌표 gap으로 확인한다(margin-collapse가 아니라
+    // padding 기반 리듬이라는 코드 조사 결과를 실측으로 재확인).
+    const programsBox = await page.locator('#latest-programs').boundingBox();
+    const noticesBox = await page.locator('#latest-notices').boundingBox();
+    expect(noticesBox.y).toBeGreaterThanOrEqual(programsBox.y + programsBox.height);
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+  });
+
+  test('showNotices=false면 #latest-notices가 렌더링되지 않는다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showNotices: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-notices')).toHaveCount(0);
+    await expect(page.locator('#latest-gallery')).toHaveCount(1);
+  });
+
+  test('showGallery=false면 #latest-gallery가 렌더링되지 않는다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showGallery: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-gallery')).toHaveCount(0);
+  });
+
+  test('5개 전부 false여도 정상 동작하고(신규 validation 없음) Header/Footer는 그대로 유지된다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, {
+      showPinned: false, showPrograms: false, showReviews: false, showNotices: false, showGallery: false,
+    });
+
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    for (const id of ['#home-pinned', '#latest-programs', '#latest-reviews', '#latest-notices', '#latest-gallery']) {
+      await expect(page.locator(id)).toHaveCount(0);
+    }
+    await expect(page.locator('#site-header, header')).toBeVisible();
+    await expect(page.locator('#admin-footer, footer')).toBeVisible();
+
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+    expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+  });
+
+  for (const viewport of [{ width: 900, height: 900 }, { width: 375, height: 1200 }]) {
+    test(`${viewport.width}px: all-ON/all-OFF 전환에도 overflow와 pageerror가 없다`, async ({ page, baseURL }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await setTheme(baseURL, ALL_VISIBLE);
+      await page.setViewportSize(viewport);
+      await page.goto('/');
+      await page.waitForLoadState('networkidle');
+      let overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      await setTheme(baseURL, {
+        showPinned: false, showPrograms: false, showReviews: false, showNotices: false, showGallery: false,
+      });
+      await page.goto('/');
+      await page.waitForLoadState('networkidle');
+      overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+  }
+
+  test('accent 회귀 없음: visibility만 변경해도 html[data-theme]은 기존 accentPreset을 유지한다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showGallery: false });
+    await page.goto('/');
+    const dataTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+    expect(dataTheme).toBe(originalSetting.accentPreset);
+  });
+
+  // 실제 관리자 UI(체크박스→저장) end-to-end 흐름을 최소 1회 검증한다(나머지는 Admin API로 빠르게 전환).
+  test('관리자 화면에서 체크박스를 끄고 저장하면 Public Home에 즉시 반영된다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, ALL_VISIBLE);
+
+    await page.goto('/admin/login');
+    await page.fill('input[name=loginId]', ADMIN_LOGIN_ID);
+    await page.fill('input[name=password]', ADMIN_PASSWORD);
+    await Promise.all([page.waitForNavigation(), page.click('button[type=submit]')]);
+
+    await page.goto('/admin/theme');
+    await page.waitForLoadState('networkidle');
+    await page.locator('#showNotices').uncheck();
+    await page.locator('#saveButton').click();
+    await expect(page.locator('#successMessage')).toBeVisible();
+
+    await page.goto('/');
+    await expect(page.locator('#latest-notices')).toHaveCount(0);
+    await expect(page.locator('#latest-gallery')).toHaveCount(1);
+  });
+});
+
 // P13-T12: 메인 섹션 제목 링크화 + Program 목록 썸네일.
 test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일', () => {
   test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');

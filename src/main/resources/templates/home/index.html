@@ -77,7 +77,10 @@
          label이라 heading이 아닌 <p>로 두고 aria-hidden은 주지 않는다(시각적 신뢰감을 주는 실제 텍스트라
          스크린리더로도 "FEATURED"가 자연스럽게 읽혀야 함 - Program/Gallery의 순번처럼 순수 장식용 숫자와는
          다르다). -->
-    <section id="home-pinned" class="section" th:if="${pinnedContents != null and !pinnedContents.isEmpty()}">
+    <!-- P14-T8D: siteTheme.showPinned를 기존 0건 조건에 AND로 추가한다(showPinned=true여도
+         0건이면 기존과 동일하게 미렌더 - P13-T38 계약 무변경). -->
+    <section id="home-pinned" class="section"
+             th:if="${siteTheme.showPinned and pinnedContents != null and !pinnedContents.isEmpty()}">
         <div class="container">
             <p class="section-eyebrow">FEATURED</p>
             <h2 class="section-title">주요 소식</h2>
@@ -108,7 +111,10 @@
          편집형 위계를 완성한다). status 배지는 T4A(Program List)가 이미 검증한 "surface+border+
          muted, OPEN일 때만 primary 강조" 절제된 언어를 그대로 재사용해 새 배지 스타일을 만들지
          않는다. -->
-    <section id="latest-programs" class="section section--relaxed">
+    <!-- P14-T8D: siteTheme.showPrograms가 false면 section 전체(heading/eyebrow/목록/empty-state)가
+         SSR 단계에서 렌더링되지 않는다. 이 wrapper 안쪽의 0건 처리(program-rows/empty-state 분기)는
+         기존 정책 그대로 무변경 - showPrograms=true면 이전과 완전히 동일하게 동작한다. -->
+    <section id="latest-programs" class="section section--relaxed" th:if="${siteTheme.showPrograms}">
         <div class="container">
             <p class="section-eyebrow">LATEST PROGRAM</p>
             <h2 class="section-title"><a th:href="@{/programs}" class="section-title__link">최신 프로그램</a></h2>
@@ -151,7 +157,9 @@
          borderless photo strip으로 바꾼다. programType 라벨은 이번 Task에서 억지로 추가하지 않는다
          (요청서: "표시가 필요하지 않으면 추가하지 않아도 된다" - 현재 뷰에 라벨 자체가 없던 상태를
          유지). 가짜 caption 없음 - 실제 title만 사진 아래에 놓는다. -->
-    <section id="latest-reviews" class="section section--dark">
+    <!-- P14-T8D: siteTheme.showReviews가 false면 section 전체가 SSR 단계에서 렌더링되지 않는다.
+         내부 0건 처리(review-strip/empty-state 분기)는 기존 정책 그대로 무변경. -->
+    <section id="latest-reviews" class="section section--dark" th:if="${siteTheme.showReviews}">
         <div class="container">
             <p class="section-eyebrow">STORIES</p>
             <h2 class="section-title"><a th:href="@{/boards(boardType='REVIEW')}" class="section-title__link">강의 후기</a></h2>
@@ -184,7 +192,9 @@
          하나의 wrapper로 묶어 "list와 스팬을 공유하지 않는 단일 grid item"으로 만든다 - 이제 heading
          블록은 list의 높이와 무관하게 자기 콘텐츠 높이(eyebrow+작은 gap+h2)로만 결정되고, 1행
          2열 grid("heading list")에서 align-items:start로 둘 다 첫 줄 상단에 나란히 시작한다. -->
-    <section id="latest-notices" class="section section--compact">
+    <!-- P14-T8D: siteTheme.showNotices가 false면 section 전체가 SSR 단계에서 렌더링되지 않는다.
+         내부 0건 처리(notice-list/empty-state 분기)는 기존 정책 그대로 무변경. -->
+    <section id="latest-notices" class="section section--compact" th:if="${siteTheme.showNotices}">
         <div class="container">
             <div class="notice-section__heading">
                 <p class="section-eyebrow">NEWS</p>
@@ -211,7 +221,9 @@
          `:first-child`의 grid-column/row span + grid-auto-flow:dense의 auto-placement만으로
          만든다(:has() 미사용, item 개수를 감지해 layout mode 자체를 바꾸는 JS/조건부 마크업 없음 -
          0/1/2/3/4/5건 전부 동일한 규칙으로 자연스럽게 채워지거나 비워짐, backend limit(5) 무변경). -->
-    <section id="latest-gallery" class="section section--relaxed">
+    <!-- P14-T8D: siteTheme.showGallery가 false면 section 전체가 SSR 단계에서 렌더링되지 않는다.
+         내부 0건 처리(gallery-mosaic/empty-state 분기)는 기존 정책 그대로 무변경. -->
+    <section id="latest-gallery" class="section section--relaxed" th:if="${siteTheme.showGallery}">
         <div class="container">
             <p class="section-eyebrow">GALLERY</p>
             <h2 class="section-title"><a th:href="@{/boards(boardType='GALLERY')}" class="section-title__link">갤러리</a></h2>
