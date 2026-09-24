@@ -22,6 +22,9 @@ import com.monicalab.program.entity.ProgramType;
 import com.monicalab.program.entity.RecruitStatus;
 import com.monicalab.program.repository.ProgramRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import com.monicalab.theme.entity.AccentPreset;
+import com.monicalab.theme.entity.SiteThemeSetting;
+import com.monicalab.theme.repository.SiteThemeSettingRepository;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import org.jsoup.Jsoup;
@@ -57,6 +60,13 @@ class HomeControllerTest extends AbstractIntegrationTest {
     @Autowired
     private HomePinnedContentRepository homePinnedContentRepository;
 
+    // P14-T8D: visibility 테스트만을 위한 최소 의존성 추가. 기존 30여 개 테스트의 전제(공통 @BeforeEach)는
+    // 건드리지 않는다 - site_theme_setting row 유무/값은 saveTheme() 헬퍼를 호출하는 visibility 테스트만
+    // 명시적으로 준비하고, 그 외 기존 테스트는 지금처럼 공유 컨테이너의 기존 상태(V13 시드 또는 그 값이
+    // 지워졌다면 fallback)에 의존한다 - 어느 쪽이든 5개 visibility는 true라 기존 동작과 무관하다.
+    @Autowired
+    private SiteThemeSettingRepository siteThemeSettingRepository;
+
     // P13-T30C: #quick-menu가 최종 IA(HOME 정적 링크 + GROUP 3개 + 전체메뉴 mega menu)로
     // 렌더링되므로, 다른 테스트 클래스(예: AdminMenuControllerTest)가 같은 Testcontainers
     // 인스턴스에서 Menu 테이블을 자유롭게 변경해도 이 클래스의 검증이 실행 순서에 영향받지 않도록
@@ -76,6 +86,14 @@ class HomeControllerTest extends AbstractIntegrationTest {
         programRepository.deleteAll();
         menuRepository.deleteAll();
         homePinnedContentRepository.deleteAll();
+        // P14-T8D: 신규 visibility 테스트(saveTheme() 호출)가 site_theme_setting row를 남겨두면,
+        // 이 클래스의 다른 테스트가 실행 순서상 그 뒤에 실행될 때 의도치 않게 특정 section이 숨겨진
+        // 채로 검증되는 실제 격리 문제가 발생함을 확인했다(예: homePinnedSectionExcludesHiddenPinButShowsVisibleOnes가
+        // 이전 테스트가 남긴 showPinned=false를 물려받아 실패). row가 없으면 SiteThemeSettingService의
+        // 기존 fallback(TERRACOTTA+5×true)이 적용되므로, 매 테스트를 이 상태로 리셋해도 기존 테스트가
+        // 가정하는 "5개 section 전부 표시 가능" 전제와 완전히 동일하다 - 기존 테스트 30여 개는 이
+        // 변경으로 전혀 영향받지 않는다.
+        siteThemeSettingRepository.deleteAll();
         seedFinalMenuIa();
     }
 
@@ -894,6 +912,143 @@ class HomeControllerTest extends AbstractIntegrationTest {
         assertThat(topLevelSections.eachAttr("id")).containsExactly(
                 "popups", "home-pinned", "latest-programs", "latest-reviews",
                 "latest-notices", "latest-gallery");
+    }
+
+    // P14-T8D: SITE_THEME row를 명시적으로 준비하는 visibility 전용 helper. 기존 30여 개 테스트는
+    // 이 helper를 호출하지 않으므로 전혀 영향받지 않는다 - 아래 visibility 테스트만 자신이 검증할
+    // show* 조합을 스스로 준비한다.
+    private void saveTheme(boolean showPinned, boolean showPrograms, boolean showReviews,
+            boolean showNotices, boolean showGallery) {
+        siteThemeSettingRepository.deleteAll();
+        siteThemeSettingRepository.saveAndFlush(SiteThemeSetting.builder()
+                .settingKey(SiteThemeSetting.SITE_THEME_KEY)
+                .accentPreset(AccentPreset.TERRACOTTA)
+                .showPinned(showPinned)
+                .showPrograms(showPrograms)
+                .showReviews(showReviews)
+                .showNotices(showNotices)
+                .showGallery(showGallery)
+                .build());
+    }
+
+    // P14-T8D: showPinned=false면 실제 표시 가능한 pin이 있어도 #home-pinned 자체가 렌더링되지
+    // 않는다(false positive 방지 - 데이터가 없어서가 아니라 설정 때문에 안 보이는 것임을 증명).
+    @Test
+    void homePinnedSectionNotRenderedWhenShowPinnedIsFalse() throws Exception {
+        Board board = boardRepository.saveAndFlush(publicReview("고정 후보 게시글"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board.getId(), 0));
+        saveTheme(false, true, true, true, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#home-pinned")).isEmpty();
+    }
+
+    @Test
+    void latestProgramsSectionNotRenderedWhenShowProgramsIsFalse() throws Exception {
+        programRepository.saveAndFlush(publicProgram("표시 가능한 프로그램"));
+        saveTheme(true, false, true, true, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-programs")).isEmpty();
+    }
+
+    @Test
+    void latestReviewsSectionNotRenderedWhenShowReviewsIsFalse() throws Exception {
+        boardRepository.saveAndFlush(publicReview("표시 가능한 후기"));
+        saveTheme(true, true, false, true, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-reviews")).isEmpty();
+    }
+
+    @Test
+    void latestNoticesSectionNotRenderedWhenShowNoticesIsFalse() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("표시 가능한 공지").isPublic(true).build());
+        saveTheme(true, true, true, false, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-notices")).isEmpty();
+    }
+
+    @Test
+    void latestGallerySectionNotRenderedWhenShowGalleryIsFalse() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("표시 가능한 갤러리").isPublic(true).build());
+        saveTheme(true, true, true, true, false);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-gallery")).isEmpty();
+    }
+
+    // 5개 전부 false도 유효한 설정이다(신규 validation 도입 안 함) - Hero/Popup은 이 설정과 무관하게
+    // 계속 자신의 기존 0건 조건만 따른다(둘 다 데이터를 등록하지 않아 이 테스트에서도 렌더링되지 않음 -
+    // heroIsNotRenderedWhenNoBannersExist/popupOverlayAndAllModalsAreHiddenInServerRenderedMarkupRegardlessOfCount와
+    // 동일한 기존 계약).
+    @Test
+    void allFiveHomeSectionsNotRenderedWhenAllVisibilityFlagsAreFalse() throws Exception {
+        Board pinnedBoard = boardRepository.saveAndFlush(publicReview("고정 후보"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, pinnedBoard.getId(), 0));
+        programRepository.saveAndFlush(publicProgram("프로그램"));
+        boardRepository.saveAndFlush(publicReview("후기"));
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("갤러리").isPublic(true).build());
+        saveTheme(false, false, false, false, false);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#home-pinned")).isEmpty();
+        assertThat(document.select("#latest-programs")).isEmpty();
+        assertThat(document.select("#latest-reviews")).isEmpty();
+        assertThat(document.select("#latest-notices")).isEmpty();
+        assertThat(document.select("#latest-gallery")).isEmpty();
+    }
+
+    // T8C가 "row 없음 → fallback → DB write 0"을 Service 레벨에서 이미 검증했으므로, 여기서는 그
+    // fallback이 실제 Home 렌더링까지 연결되는 한 단계 더 나아간 계약만 고정한다.
+    @Test
+    void allFiveHomeSectionsRenderWhenSiteThemeRowIsMissingUsingFallbackDefaults() throws Exception {
+        siteThemeSettingRepository.deleteAll();
+        Board pinnedBoard = boardRepository.saveAndFlush(publicReview("고정 후보"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, pinnedBoard.getId(), 0));
+        programRepository.saveAndFlush(publicProgram("프로그램"));
+        boardRepository.saveAndFlush(publicReview("후기"));
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("갤러리").isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#home-pinned")).isNotEmpty();
+        assertThat(document.select("#latest-programs")).isNotEmpty();
+        assertThat(document.select("#latest-reviews")).isNotEmpty();
+        assertThat(document.select("#latest-notices")).isNotEmpty();
+        assertThat(document.select("#latest-gallery")).isNotEmpty();
+        assertThat(siteThemeSettingRepository.count()).isZero();
     }
 
     private HomePinnedContent pin(HomeTargetType targetType, Long targetId, int sortOrder) {
