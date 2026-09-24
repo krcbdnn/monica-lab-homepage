@@ -1,17 +1,35 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
 <body>
+<!-- P14-T9A: 현재 페이지의 sidebar 항목을 표시(active navigation)한다. 최초 시도한 Thymeleaf 기본
+     expression object #httpServletRequest는 이 fragment 포함 경로에서 실제로 null을 반환해
+     SpelEvaluationException(EL1007E)이 발생함을 테스트로 실제 확인했다 - 그래서 template hack
+     대신 작은 전용 AdminNavigationControllerAdvice가 공급하는 "currentAdminPath" model
+     attribute를 사용한다(HeaderMenuControllerAdvice가 currentLocation을 공급하는 것과 동일한
+     원리). list/new/edit가 모두 같은 상위 경로를 공유하므로 startsWith만으로 하위 라우트까지
+     정확히 하나의 항목만 활성화된다(대시보드만 하위 라우트가 없어 정확히 일치 비교). href/label/
+     순서는 전혀 변경하지 않는다 - class만 추가한다. -->
 <nav th:fragment="sidebar" id="admin-sidebar" class="d-flex flex-column p-3 border-end" style="min-width: 200px;">
-    <a href="/admin/dashboard" class="mb-2">대시보드</a>
-    <a href="/admin/pages" class="mb-2">기관소개 관리</a>
-    <a href="/admin/programs" class="mb-2">프로그램 관리</a>
-    <a href="/admin/boards" class="mb-2">게시판 관리</a>
-    <a href="/admin/banners" class="mb-2">배너 관리</a>
-    <a href="/admin/popups" class="mb-2">팝업 관리</a>
-    <a href="/admin/files" class="mb-2">파일 관리</a>
-    <a href="/admin/menus" class="mb-2">메뉴 관리</a>
-    <a href="/admin/home-pinned-contents" class="mb-2">메인 고정 콘텐츠 관리</a>
-    <a href="/admin/theme" class="mb-2">홈페이지 디자인 설정</a>
+    <a href="/admin/dashboard" class="mb-2"
+       th:classappend="${currentAdminPath == '/admin/dashboard'} ? ' is-active'">대시보드</a>
+    <a href="/admin/pages" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/pages')} ? ' is-active'">기관소개 관리</a>
+    <a href="/admin/programs" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/programs')} ? ' is-active'">프로그램 관리</a>
+    <a href="/admin/boards" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/boards')} ? ' is-active'">게시판 관리</a>
+    <a href="/admin/banners" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/banners')} ? ' is-active'">배너 관리</a>
+    <a href="/admin/popups" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/popups')} ? ' is-active'">팝업 관리</a>
+    <a href="/admin/files" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/files')} ? ' is-active'">파일 관리</a>
+    <a href="/admin/menus" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/menus')} ? ' is-active'">메뉴 관리</a>
+    <a href="/admin/home-pinned-contents" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/home-pinned-contents')} ? ' is-active'">메인 고정 콘텐츠 관리</a>
+    <a href="/admin/theme" class="mb-2"
+       th:classappend="${currentAdminPath.startsWith('/admin/theme')} ? ' is-active'">홈페이지 디자인 설정</a>
 </nav>
 </body>
 </html>
