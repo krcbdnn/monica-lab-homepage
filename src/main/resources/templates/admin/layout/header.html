@@ -4,17 +4,31 @@
 <!-- P14-T9A: 375~767.98px(Bootstrap md 미만)에서만 보이는 mobile sidebar toggle과, 항상 보이는
      logout 버튼을 추가한다. 새 icon library를 추가하지 않고 "☰" 유니코드 문자로 최소 표현한다.
      toggle의 실제 open/close 동작과 logout 동작은 전부 admin-layout.js가 담당한다(이 fragment는
-     마크업/aria attribute만 선언). -->
-<header th:fragment="header" id="admin-header"
-        class="d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
-    <div class="d-flex align-items-center gap-2">
-        <button type="button" id="admin-sidebar-toggle" class="btn btn-outline-secondary btn-sm d-md-none"
+     마크업/aria attribute만 선언).
+
+     P14-T9B(3차 보강): 실제 화면에서 header가 "텍스트 한 줄"로 보인다는 피드백에 따라 presentation
+     markup만 재구성한다 - 왼쪽은 텍스트 monogram("M", icon library 아님)+기관명+"ADMIN" 보조 라벨,
+     오른쪽은 "관리자" 라벨 위에 이름(#admin-name)을 쌓은 2단 identity + 작은 secondary 로그아웃
+     버튼. id(admin-header/admin-sidebar-toggle/admin-name/admin-logout-button), aria 속성,
+     admin-header.js가 #admin-name의 textContent만 채우는 JS 계약은 전부 그대로다. -->
+<header th:fragment="header" id="admin-header" class="admin-header">
+    <div class="admin-header__start">
+        <button type="button" id="admin-sidebar-toggle" class="btn btn-outline-secondary btn-sm d-md-none admin-header__toggle"
                 aria-controls="admin-sidebar" aria-expanded="false" aria-label="메뉴 열기">☰</button>
-        <span class="fw-bold">모니카영어교육연구소 관리자</span>
+        <div class="admin-brand">
+            <span class="admin-brand__mark" aria-hidden="true">M</span>
+            <span class="admin-brand__text">
+                <span class="admin-brand__name">모니카영어교육연구소</span>
+                <span class="admin-brand__context">ADMIN</span>
+            </span>
+        </div>
     </div>
-    <div class="d-flex align-items-center gap-3">
-        <span>관리자: <span id="admin-name">-</span></span>
-        <button type="button" id="admin-logout-button" class="btn btn-outline-secondary btn-sm">로그아웃</button>
+    <div class="admin-header__end">
+        <div class="admin-user">
+            <span class="admin-user__label">관리자</span>
+            <span id="admin-name" class="admin-user__name">-</span>
+        </div>
+        <button type="button" id="admin-logout-button" class="btn btn-outline-secondary btn-sm admin-header__logout">로그아웃</button>
     </div>
 </header>
 </body>
