@@ -8,27 +8,49 @@
      attribute를 사용한다(HeaderMenuControllerAdvice가 currentLocation을 공급하는 것과 동일한
      원리). list/new/edit가 모두 같은 상위 경로를 공유하므로 startsWith만으로 하위 라우트까지
      정확히 하나의 항목만 활성화된다(대시보드만 하위 라우트가 없어 정확히 일치 비교). href/label/
-     순서는 전혀 변경하지 않는다 - class만 추가한다. -->
-<nav th:fragment="sidebar" id="admin-sidebar" class="d-flex flex-column p-3 border-end" style="min-width: 200px;">
-    <a href="/admin/dashboard" class="mb-2"
+     순서는 전혀 변경하지 않는다 - class만 추가한다.
+
+     P14-T9B: sidebar visual grouping을 추가한다. 기존 10개 <a>의 href와 상대 순서는 전혀 바꾸지
+     않는다(AdminViewControllerTest#dashboardRendersSidebarWithAllAdminDomainLinks가
+     "#admin-sidebar a"만 선택해 href 순서를 그대로 검증하므로, <a>가 아닌 <span> group label을
+     링크 "사이" 에 끼워 넣는 것은 이 검증에 전혀 영향을 주지 않는다). 조사 단계에서 제안했던
+     "홈 화면(배너/팝업/메인 고정/홈페이지 디자인)"/"사이트 관리(메뉴/파일)" 3그룹 안은 실제 href
+     순서(배너, 팝업, 파일, 메뉴, 메인 고정, 홈페이지 디자인)와 맞지 않았다 - 파일/메뉴가 배너/팝업과
+     메인 고정/홈페이지 디자인 "사이"에 끼어 있어 그대로 적용하면 링크를 재배치해야 했다. 링크
+     재배치 금지 원칙을 우선해, 실제 순서를 그대로 두고 대신 자연스러운 4그룹으로 재구성했다 -
+     대시보드는 독립 링크, "콘텐츠"(기관소개/프로그램/게시판), "사이트 노출"(배너/팝업 - 공개
+     화면에 노출되는 콘텐츠 관리), "사이트 관리"(파일/메뉴 - 구조적 사이트 관리, 원래 조사안의
+     "사이트 관리" 명칭을 그대로 재사용), "홈 화면"(메인 고정 콘텐츠/홈페이지 디자인 설정 - 홈
+     화면 전용 설정).
+
+     P14-T9B(3차 보강): 실제 화면에서 sidebar가 "텍스트 링크 목록"으로 보인다는 피드백에 따라
+     presentation class만 교체한다 - Bootstrap 여백 유틸리티(mb-2)/inline min-width/p-3/border-end
+     대신 admin.css의 .admin-sidebar/.admin-nav-link(--primary/--child)가 panel 폭, 항목 높이,
+     hover/active surface, group 간격을 전부 담당한다. id/href/label/순서/is-active 계산은 무변경. -->
+<nav th:fragment="sidebar" id="admin-sidebar" class="admin-sidebar d-flex flex-column" aria-label="관리자 메뉴">
+    <a href="/admin/dashboard" class="admin-nav-link admin-nav-link--primary"
        th:classappend="${currentAdminPath == '/admin/dashboard'} ? ' is-active'">대시보드</a>
-    <a href="/admin/pages" class="mb-2"
+    <span class="admin-sidebar__group-label">콘텐츠</span>
+    <a href="/admin/pages" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/pages')} ? ' is-active'">기관소개 관리</a>
-    <a href="/admin/programs" class="mb-2"
+    <a href="/admin/programs" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/programs')} ? ' is-active'">프로그램 관리</a>
-    <a href="/admin/boards" class="mb-2"
+    <a href="/admin/boards" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/boards')} ? ' is-active'">게시판 관리</a>
-    <a href="/admin/banners" class="mb-2"
+    <span class="admin-sidebar__group-label">사이트 노출</span>
+    <a href="/admin/banners" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/banners')} ? ' is-active'">배너 관리</a>
-    <a href="/admin/popups" class="mb-2"
+    <a href="/admin/popups" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/popups')} ? ' is-active'">팝업 관리</a>
-    <a href="/admin/files" class="mb-2"
+    <span class="admin-sidebar__group-label">사이트 관리</span>
+    <a href="/admin/files" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/files')} ? ' is-active'">파일 관리</a>
-    <a href="/admin/menus" class="mb-2"
+    <a href="/admin/menus" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/menus')} ? ' is-active'">메뉴 관리</a>
-    <a href="/admin/home-pinned-contents" class="mb-2"
+    <span class="admin-sidebar__group-label">홈 화면</span>
+    <a href="/admin/home-pinned-contents" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/home-pinned-contents')} ? ' is-active'">메인 고정 콘텐츠 관리</a>
-    <a href="/admin/theme" class="mb-2"
+    <a href="/admin/theme" class="admin-nav-link admin-nav-link--child"
        th:classappend="${currentAdminPath.startsWith('/admin/theme')} ? ' is-active'">홈페이지 디자인 설정</a>
 </nav>
 </body>
