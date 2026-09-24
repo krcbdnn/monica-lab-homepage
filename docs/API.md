@@ -215,6 +215,8 @@ Response 200: `PageResponse<ProgramResponse>`.
 
 인증: ROLE_ADMIN. 비공개 포함 단건 조회. 존재하지 않으면 `PROGRAM_NOT_FOUND`(404).
 
+참고: 관리자 읽기 전용 상세 화면 `/admin/programs/{id}`는 이 API를 호출하지 않고 같은 관리자 조회 데이터를 서버 측에서 렌더링한다(REST API 항목 아님).
+
 ## POST /api/admin/programs
 
 인증: ROLE_ADMIN. Request: `ProgramRequest`의 POST 규칙.
@@ -290,6 +292,8 @@ Response 200: `PageResponse<BoardResponse>`.
 ## GET /api/admin/boards/{id}
 
 인증: ROLE_ADMIN. 비공개 포함 단건 조회.
+
+참고: 관리자 읽기 전용 상세 화면 `/admin/boards/{id}`는 이 API를 호출하지 않고 같은 관리자 조회 데이터를 서버 측에서 렌더링한다(REST API 항목 아님).
 
 ## POST /api/admin/boards
 

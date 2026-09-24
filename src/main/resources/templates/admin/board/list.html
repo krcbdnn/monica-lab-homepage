@@ -82,8 +82,12 @@
         function renderRow(board) {
             var tr = document.createElement('tr');
 
+            // P14-T10: 제목을 읽기 전용 관리자 상세로 연결한다(링크 텍스트는 계속 textContent로 escape 유지).
             var titleTd = document.createElement('td');
-            titleTd.textContent = board.title;
+            var titleLink = document.createElement('a');
+            titleLink.href = '/admin/boards/' + board.id;
+            titleLink.textContent = board.title;
+            titleTd.appendChild(titleLink);
             tr.appendChild(titleTd);
 
             // P13-T30D(Task C): REVIEW 게시글만 subtype을 함께 보여준다(전면 UI polish 아님, 목록에서

@@ -96,6 +96,8 @@ src/main/java
 
 이 규칙은 Program, Board, Page, Banner, Popup, File, Menu, Admin(Dashboard 포함) 전 도메인에 동일하게 적용한다. 공개 영역의 `{Domain}Controller`(API) / `{Domain}ViewController`(View) 분리(Page/Program/Board)와 동일한 패턴이다.
 
+**예외 — CKEditor 본문을 표시하는 읽기 전용 관리자 상세 View(Board/Program)**: 관리자 목록/등록/수정 화면은 위 원칙을 그대로 따른다. 단, Board/Program의 읽기 전용 관리자 상세 View(`GET /admin/boards/{id}`, `GET /admin/programs/{id}`)는 CKEditor HTML 본문을 공개 상세와 동일한 안전한 렌더링 경로로 출력해야 하므로, 해당 `Admin{Domain}ViewController`가 기존 관리자 조회 Service(`getAdminById`, 공개 여부 무관)를 호출해 결과 DTO를 model로 전달한다. 본문은 저장 시 `HtmlSanitizer`로 정제된 값을 대상으로 조회 시 `ContentLinkRenderer.externalLinksOpenInNewTab`을 적용한 `renderedContent`로만 전달하고, 템플릿은 `th:utext`로 이 값만 출력한다(아래 "XSS 방지 정책", "콘텐츠 링크 처리 정책"과 동일). JS fetch + `innerHTML` 방식으로 HTML/링크 처리 정책을 별도로 중복 구현하지 않기 위한 예외이며, 다른 관리자 화면에는 일반화하지 않는다(P14-T10에서 도입).
+
 ## Admin
 
 관리자 로그인 및 대시보드
@@ -166,7 +168,7 @@ LOCATION
 ProgramController
 
 AdminProgramController
-AdminProgramViewController  (GET /admin/programs 목록/등록/수정 화면 렌더링, Thymeleaf)
+AdminProgramViewController  (GET /admin/programs 목록/등록/수정 화면 + GET /admin/programs/{id} 읽기 전용 상세 렌더링, Thymeleaf)
 
 ProgramService
 
@@ -209,7 +211,7 @@ SPECIAL
 BoardController
 
 AdminBoardController
-AdminBoardViewController    (GET /admin/boards 목록/등록/수정 화면 렌더링, Thymeleaf)
+AdminBoardViewController    (GET /admin/boards 목록/등록/수정 화면 + GET /admin/boards/{id} 읽기 전용 상세 렌더링, Thymeleaf)
 
 BoardService
 
@@ -512,7 +514,7 @@ CKEditor5 본문에 삽입된 `<a href>` 링크는 외부/내부 여부에 따�
 - 링크 판별 기준: `href`가 `http://`, `https://`, `//`로 시작하면 외부 링크, 그 외(상대 경로, `mailto:`, `#anchor` 등)는 내부/비외부 링크로 간주한다.
 - 판별 및 속성 부여는 저장 시점이 아닌 공개 화면 렌더링 시점에 수행한다(공통 유틸 `common/util/ContentLinkRenderer.java`). 이미 저장된 기존 콘텐츠도 별도 마이그레이션이나 재저장 없이 자동 적용된다.
 - 외부 링크에는 `target="_blank" rel="noopener noreferrer"`를 부여하고, 내부 링크는 변경하지 않는다.
-- `Board`, `Program`, `Page` 상세 화면과 `Popup` 노출 화면, 총 4곳의 공개 뷰가 대상이다. 각 공개 `*ViewController`(`HomeController` 포함)가 `ContentLinkRenderer`로 미리 변환한 HTML을 view 전용 model attribute(`renderedContent`, Popup은 `popupRenderedContents` Map)로 전달하고, 템플릿은 `th:utext`로 이 값만 출력한다.
+- `Board`, `Program`, `Page` 상세 화면과 `Popup` 노출 화면, 총 4곳의 공개 뷰가 대상이다. 각 공개 `*ViewController`(`HomeController` 포함)가 `ContentLinkRenderer`로 미리 변환한 HTML을 view 전용 model attribute(`renderedContent`, Popup은 `popupRenderedContents` Map)로 전달하고, 템플릿은 `th:utext`로 이 값만 출력한다. 관리자 읽기 전용 상세 View(`/admin/boards/{id}`, `/admin/programs/{id}`)도 같은 방식(`renderedContent` + `th:utext`)으로 이 변환을 적용한다(위 "Admin 화면(View) / API 컨트롤러 명명 규칙"의 예외 참고).
 - DB에 저장되는 `content`, 관리자 CMS 응답(API Response DTO), CKEditor 재편집 시 로드되는 원본 데이터에는 이 변환을 적용하지 않는다. 즉 `HtmlSanitizer`가 담당하는 저장 시점 XSS 방지 화이트리스트와는 별개의, 표시 전용(read-time) 후처리다.
 
 ### 새 탭 링크 공통 규칙

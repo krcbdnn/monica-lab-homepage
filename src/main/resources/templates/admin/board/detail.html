@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#admin-board-detail-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>게시글 상세</title>
+</head>
+<body>
+<!-- P14-T10: 읽기 전용 관리자 게시글 상세. 공개 여부와 무관하게 조회되며(getAdminById), 본문은 공개 상세와
+     같은 경로(저장 시 HtmlSanitizer → ContentLinkRenderer가 만든 renderedContent → th:utext)로만 출력한다.
+     enum 값은 목록과 같이 그대로 표시한다(표시명 정리는 T9C). 삭제는 목록에서만 제공한다. -->
+<div id="admin-board-detail-content" class="admin-content-detail">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <h2 class="admin-content-detail__title" th:text="${board.title()}">제목</h2>
+        <div class="admin-content-detail__actions">
+            <a id="admin-detail-list-link" href="/admin/boards" class="btn btn-outline-secondary">목록으로</a>
+            <a id="admin-detail-public-link" th:if="${board.isPublic()}" th:href="@{/boards/{id}(id=${board.id()})}"
+               class="btn btn-outline-secondary" target="_blank" rel="noopener noreferrer">공개 페이지 보기</a>
+            <a id="admin-detail-edit-link" th:href="@{/admin/boards/{id}/edit(id=${board.id()})}"
+               class="btn btn-primary">수정</a>
+        </div>
+    </div>
+
+    <dl class="admin-content-detail__meta">
+        <div>
+            <dt>게시판 유형</dt>
+            <dd id="admin-detail-board-type"><span th:text="${board.boardType()}">NOTICE</span><span
+                    th:if="${board.programType() != null}" th:text="' ' + ${board.programType()}"></span></dd>
+        </div>
+        <div>
+            <dt>공개 상태</dt>
+            <dd id="admin-detail-visibility" th:text="${board.isPublic()} ? '공개' : '비공개'">공개</dd>
+        </div>
+        <div>
+            <dt>등록일</dt>
+            <dd id="admin-detail-created-at" th:text="${#temporals.format(board.createdAt(), 'yyyy.MM.dd HH:mm')}"></dd>
+        </div>
+        <div>
+            <dt>수정일</dt>
+            <dd id="admin-detail-updated-at" th:text="${#temporals.format(board.updatedAt(), 'yyyy.MM.dd HH:mm')}"></dd>
+        </div>
+        <div th:if="${board.thumbnail() != null}" class="admin-content-detail__meta-wide">
+            <dt>대표 이미지</dt>
+            <dd><img id="admin-detail-thumbnail" th:src="${board.thumbnail()}" alt="대표 이미지"
+                     class="admin-content-detail__thumbnail"></dd>
+        </div>
+    </dl>
+
+    <div class="ckeditor-content" th:if="${board.content() != null}" th:utext="${renderedContent}"></div>
+
+    <div th:if="${board.attachment() != null}" class="admin-content-detail__attachment">
+        <span>첨부파일</span>
+        <a id="admin-detail-attachment-link" th:href="${board.attachment()}" target="_blank"
+           rel="noopener noreferrer">열기/다운로드</a>
+    </div>
+</div>
+</body>
+</html>
