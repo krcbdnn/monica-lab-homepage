@@ -707,6 +707,171 @@ textarea.form-control {
     display: block;
 }
 
+/* ===== Content detail ===== */
+/* P14-T10: Board/Program 읽기 전용 관리자 상세. page header/버튼/링크/surface는 위 공통 규칙을 그대로 쓰고,
+   여기서는 제목 줄바꿈, action 묶음, 관리 정보 grid, 본문 읽기 폭만 정의한다. */
+.admin-content-detail__title {
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.admin-content-detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.admin-content-detail__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: 1rem 1.5rem;
+    max-width: 800px;
+    margin: 0 0 2rem;
+    padding: 1rem 1.25rem;
+    background-color: var(--admin-bg);
+    border: 1px solid var(--admin-border);
+    border-radius: var(--admin-radius);
+}
+
+.admin-content-detail__meta-wide {
+    grid-column: 1 / -1;
+}
+
+.admin-content-detail__meta dt {
+    margin-bottom: 0.25rem;
+    font-size: 0.78125rem;
+    font-weight: 600;
+    color: var(--admin-text-muted);
+}
+
+.admin-content-detail__meta dd {
+    margin: 0;
+    font-size: 0.90625rem;
+    overflow-wrap: anywhere;
+}
+
+.admin-content-detail__thumbnail {
+    display: block;
+    max-width: min(240px, 100%);
+    max-height: 180px;
+    border: 1px solid var(--admin-border);
+    border-radius: 6px;
+}
+
+.admin-content-detail__attachment {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    max-width: 800px;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--admin-border);
+    font-size: 0.90625rem;
+}
+
+.admin-content-detail__attachment > span {
+    font-weight: 600;
+    color: var(--admin-text-muted);
+}
+
+/* 본문(CKEditor HTML). 이미지 정렬/크기 규칙은 home.css의 공개 `.ckeditor-content` 규칙(P13-T23/T29/T40)을
+   관리자 상세 범위로 옮긴 복사본이다 - Phase 14는 home.css를 분할/공유하지 않으므로(P14 공통 계약 A-13)
+   공개 규칙이 바뀌면 이 블록도 함께 맞춰야 한다. --space-2(1rem)는 실제 값으로 옮겼고,
+   image-style-align-center는 아래 .image의 margin: auto와 결과가 같아 옮기지 않았다.
+   figcaption/table/heading/link는 공개 쪽에 전용 규칙이 없어 관리자 읽기용으로만 최소 추가한다. */
+.admin-content-detail .ckeditor-content {
+    display: flow-root;
+    max-width: 800px;
+    font-size: 1rem;
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+}
+
+.admin-content-detail .ckeditor-content .image {
+    clear: both;
+    margin: 1rem auto;
+    text-align: center;
+}
+
+.admin-content-detail .ckeditor-content .image img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+}
+
+.admin-content-detail .ckeditor-content img {
+    max-width: 100%;
+    height: auto;
+}
+
+.admin-content-detail .ckeditor-content .image-style-side {
+    float: right;
+    max-width: 50%;
+    margin-left: 1rem;
+}
+
+.admin-content-detail .ckeditor-content .image-style-align-left {
+    float: left;
+    margin-right: 1rem;
+}
+
+.admin-content-detail .ckeditor-content .image-style-align-right {
+    float: right;
+    margin-left: 1rem;
+}
+
+.admin-content-detail .ckeditor-content .image.image_resized {
+    max-width: 100%;
+}
+
+.admin-content-detail .ckeditor-content .image.image_resized img {
+    width: 100%;
+    height: auto;
+}
+
+.admin-content-detail .ckeditor-content figcaption {
+    margin-top: 0.5rem;
+    font-size: 0.84375rem;
+    color: var(--admin-text-muted);
+}
+
+.admin-content-detail .ckeditor-content :is(h1, h2, h3, h4, h5, h6) {
+    margin: 1.75rem 0 0.75rem;
+    line-height: 1.4;
+}
+
+.admin-content-detail .ckeditor-content h1 {
+    font-size: 1.75rem;
+}
+
+/* 공통 `main a:not(.btn):not(.page-link)`(밑줄 없음)보다 특이도를 높여 본문 링크만 밑줄로 구분한다. */
+.admin-content-detail .ckeditor-content a:not(.btn) {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* 넓은 표가 375px 등에서 페이지를 밀지 않도록 표 자체 안에서만 가로 스크롤한다. */
+.admin-content-detail .ckeditor-content table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 1rem 0;
+    border-collapse: collapse;
+}
+
+.admin-content-detail .ckeditor-content :is(th, td) {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--admin-border);
+}
+
+.admin-content-detail .ckeditor-content th {
+    background-color: var(--admin-bg);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 /* ===== Menu ===== */
 /* P13-T30E(Task B): 관리자 메뉴 목록 - 자식 행(parentId 존재) 들여쓰기. Menu는 GROUP만 부모가 될 수
    있어 2-depth만 존재함이 이미 보장되므로(MenuService.validateParentAndGroupPlacement) depth 계산 없이

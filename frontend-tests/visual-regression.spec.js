@@ -4794,3 +4794,107 @@ test.describe('P14-T2: sticky Header', () => {
     }
   });
 });
+
+// P14-T10: Admin Content Read View. 목록 제목 → 읽기 전용 관리자 상세 → 수정/목록 이동, 공개 여부에 따른
+// "공개 페이지 보기" 노출, 375px overflow를 실제 브라우저로 확인한다. 비로그인 redirect/404/model/본문 링크
+// 처리/sidebar active는 AdminBoardViewControllerTest/AdminProgramViewControllerTest에서 검증하므로 반복하지 않는다.
+test.describe('P14-T10: Admin Content Read View', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+  });
+
+  async function createBoard(context, baseURL, isPublic) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: `P14-T10 ${isPublic ? '공개' : '비공개'} 상세 확인 ${Date.now()}`,
+        content: '<h2>본문 소제목</h2><p>관리자 상세 본문 문단입니다.</p>',
+        isPublic,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data;
+  }
+
+  test('Board: 목록 제목 → 상세(본문 표시) → 수정 → 뒤로 → 목록으로, 공개 게시글은 공개 페이지 보기가 있다', async ({ page, context, baseURL, tracker }) => {
+    const board = await createBoard(context, baseURL, true);
+    tracker.track('board', board.id);
+
+    await page.goto('/admin/boards');
+    await page.locator(`#board-list-body a[href="/admin/boards/${board.id}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`/admin/boards/${board.id}$`));
+    await expect(page.locator('#admin-board-detail-content h2').first()).toHaveText(board.title);
+    await expect(page.locator('.admin-content-detail .ckeditor-content p')).toHaveText('관리자 상세 본문 문단입니다.');
+    await expect(page.locator('#admin-detail-public-link')).toHaveAttribute('href', `/boards/${board.id}`);
+
+    await page.locator('#admin-detail-edit-link').click();
+    await expect(page).toHaveURL(new RegExp(`/admin/boards/${board.id}/edit$`));
+    await page.goBack();
+    await page.locator('#admin-detail-list-link').click();
+    await expect(page).toHaveURL(/\/admin\/boards$/);
+  });
+
+  test('Board: 비공개 게시글도 관리자 상세에서 보이고 공개 페이지 보기는 없다', async ({ page, context, baseURL, tracker }) => {
+    const board = await createBoard(context, baseURL, false);
+    tracker.track('board', board.id);
+
+    await page.goto(`/admin/boards/${board.id}`);
+    await expect(page.locator('#admin-detail-visibility')).toHaveText('비공개');
+    await expect(page.locator('.admin-content-detail .ckeditor-content p')).toHaveText('관리자 상세 본문 문단입니다.');
+    await expect(page.locator('#admin-detail-public-link')).toHaveCount(0);
+  });
+
+  test('Program: 목록 제목 → 상세, CLOSED여도 공개 프로그램은 공개 페이지 보기가 있다', async ({ page, context, baseURL, tracker }) => {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE',
+        title: `P14-T10 프로그램 상세 확인 ${Date.now()}`,
+        content: '<p>프로그램 상세 본문입니다.</p>',
+        recruitStatus: 'CLOSED',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    const program = (await res.json()).data;
+    tracker.track('program', program.id);
+
+    await page.goto('/admin/programs');
+    await page.locator(`#program-list-body a[href="/admin/programs/${program.id}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`/admin/programs/${program.id}$`));
+    await expect(page.locator('#admin-detail-recruit-status')).toHaveText('CLOSED');
+    await expect(page.locator('#admin-detail-public-link')).toHaveAttribute('href', `/programs/${program.id}`);
+  });
+
+  test('375px: 긴 제목과 표가 있는 관리자 상세에서 가로 overflow와 pageerror가 없다', async ({ page, context, baseURL, tracker }) => {
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: `P14-T10 모바일 확인 ${'아주긴제목'.repeat(12)} ${Date.now()}`,
+        content: '<table><tr><th>항목</th><th>설명</th><th>비고</th><th>추가 열</th><th>추가 열 2</th></tr>'
+          + '<tr><td>1</td><td>아주 긴 설명 텍스트가 들어가는 셀입니다</td><td>-</td><td>값</td><td>값</td></tr></table>',
+        isPublic: false,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    const board = (await res.json()).data;
+    tracker.track('board', board.id);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/admin/boards/${board.id}`);
+    await page.waitForLoadState('networkidle');
+
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+    expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+  });
+});

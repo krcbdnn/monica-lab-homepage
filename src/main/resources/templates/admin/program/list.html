@@ -68,8 +68,12 @@
         function renderRow(program) {
             var tr = document.createElement('tr');
 
+            // P14-T10: 제목을 읽기 전용 관리자 상세로 연결한다(링크 텍스트는 계속 textContent로 escape 유지).
             var titleTd = document.createElement('td');
-            titleTd.textContent = program.title;
+            var titleLink = document.createElement('a');
+            titleLink.href = '/admin/programs/' + program.id;
+            titleLink.textContent = program.title;
+            titleTd.appendChild(titleLink);
             tr.appendChild(titleTd);
 
             var typeTd = document.createElement('td');
