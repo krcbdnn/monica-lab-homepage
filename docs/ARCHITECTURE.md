@@ -898,6 +898,10 @@ Admin
 ## Nginx 정적 리소스 공급
 운영 Docker Compose에서 Nginx가 직접 서빙하는 프로젝트 정적 리소스는 배포 checkout의 `./src/main/resources/static`을 Nginx 기본 정적 루트 `/usr/share/nginx/html`에 read-only bind mount(`./src/main/resources/static:/usr/share/nginx/html:ro`)하여 공급한다. `/css/**`, `/js/**`, `/images/**`, `/vendor/**` 등 해당 정적 경로는 Nginx가 직접 처리하고, 그 외 애플리케이션 요청은 Spring Boot 컨테이너로 reverse proxy한다. P12-T2에서는 이 계약을 그대로 사용하며 별도 static copy/shared-volume 방식을 임의 선택하지 않는다.
 
+**정적 리소스 캐시 정책**: Nginx가 직접 제공하는 `/css/`, `/js/`, `/images/`, `/vendor/` 응답에는 `Cache-Control: no-cache`를 명시한다(`nginx/nginx.conf`의 각 정적 location, P14-T11). 브라우저는 응답을 저장할 수 있지만 사용 전에 ETag/Last-Modified로 재검증해야 하며, 변경이 없으면 304로 응답한다. 명시적 정책이 없으면 브라우저가 heuristic freshness로 이전 CSS/JS를 재검증 없이 재사용해 "최신 HTML(Spring이 `no-store` 계열로 응답) + 이전 CSS/JS" 조합이 생길 수 있기 때문이다. 이는 versioned asset URL이 없는 현재 구조의 안전한 기본값이며, versioned asset URL을 도입하면 long-lived cache + `immutable`로 재검토한다. 새 정책은 이 헤더를 받은 응답부터 적용되므로, 정책 도입 이전에 이미 heuristic freshness 상태로 저장된 브라우저 캐시는 만료되거나 새로고침으로 새 응답을 받기 전까지 남을 수 있다.
+
+**운영 배포 전 결정 필요**: 현재 정적 리소스는 host checkout bind mount, application/template은 app image로 서로 다른 release lifecycle을 가진다. 그래서 `git pull` 시점에 정적 리소스만 먼저 바뀌거나, app image를 rollback해도 정적 리소스는 새 버전으로 남을 수 있어 atomic deployment/rollback이 보장되지 않는다. 운영 배포 전에 application/template/static asset을 동일 release version으로 묶는 방식, Nginx 정적 리소스의 image 기반 제공 여부, release directory/symlink 방식, versioned asset URL, long-lived cache + `immutable`을 함께 결정한다(현재 계약에서는 특정 방식을 확정하지 않는다).
+
 ## DB 스키마 관리
 운영 재현성을 위해 Flyway migration을 사용한다. `ddl-auto`는 local/test에서 검증 목적 설정을 명시하고 prod에서는 `validate`를 사용한다. 스키마 변경은 migration 파일로 관리하며 운영에서 `update/create`로 자동 변경하지 않는다.
 
