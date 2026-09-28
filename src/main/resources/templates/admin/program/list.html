@@ -52,10 +52,22 @@
         <button id="next-page" type="button" class="btn btn-outline-secondary" disabled>다음</button>
     </nav>
 
+    <script src="/js/admin/admin-list-state.js"></script>
     <script>
         var state = {page: 0, size: 20, programType: '', keyword: ''};
         var listStatus = document.getElementById('admin-list-status');
         var COLUMN_COUNT = 5;
+        // P14-T9C-2: 가장 최근 loadPrograms() 요청 번호. 늦게 도착한 이전 응답이 최신 state/URL/DOM을 덮지 못하게 한다.
+        var loadSeq = 0;
+
+        // P14-T9C-2: URL query(programType/keyword/page, 0-based)가 목록 state의 canonical 표현이다. 진입 시 한 번
+        // allowlist 검증을 거쳐 state와 검색 UI를 복원하고, 이후 URL 반영(replaceState)은 loadPrograms()가 맡는다.
+        var initialState = AdminListState.readState(AdminListState.PROGRAM_LIST, window.location.search);
+        state.programType = initialState.programType;
+        state.keyword = initialState.keyword;
+        state.page = initialState.page;
+        document.getElementById('searchProgramType').value = state.programType;
+        document.getElementById('searchKeyword').value = state.keyword;
         var STATUS_CHANGE_ERROR = '상태 변경 중 오류가 발생했습니다.';
         var DELETE_ERROR = '삭제 중 오류가 발생했습니다.';
 
@@ -100,9 +112,10 @@
             var tr = document.createElement('tr');
 
             // P14-T10: 제목을 읽기 전용 관리자 상세로 연결한다(링크 텍스트는 계속 textContent로 escape 유지).
+            // P14-T9C-2: 상세 URL에 현재 목록 state(allowlist된 canonical query)를 실어 "목록으로"가 이 상태로 돌아오게 한다.
             var titleTd = document.createElement('td');
             var titleLink = document.createElement('a');
-            titleLink.href = '/admin/programs/' + program.id;
+            titleLink.href = AdminListState.detailHref(AdminListState.PROGRAM_LIST, program.id, state);
             titleLink.textContent = program.title;
             titleTd.appendChild(titleLink);
             tr.appendChild(titleTd);
@@ -203,8 +216,15 @@
 
         // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody/pagination만 담당). 응답 실패/JSON 파싱 실패/
         // 렌더링 예외 모두 이전 행을 지우고 오류 행 하나만 남긴다.
-        function loadPrograms() {
+        // P14-T9C-2: 요청 직전에 URL을 요청 state로 맞추고(replaceState, 재조회 없음), 정상 응답이면
+        // AdminListState.resolvePage로 범위 밖 page(데이터 있음 → 마지막 유효 page로 1회 재조회)와 전체 0건(page 0으로
+        // 정규화, 재조회 없음)을 처리한다. 조회 실패는 page를 바꾸지 않고 T9C-1 오류 행만 표시한다. fallbackDone은
+        // 이미 1회 fallback한 재조회임을 뜻한다(무한 재조회 방지).
+        function loadPrograms(fallbackDone) {
             var tbody = document.getElementById('program-list-body');
+            var seq = ++loadSeq;
+            var requestedPage = state.page;
+            AdminListState.replaceUrl(window, AdminListState.PROGRAM_LIST, state);
             AdminFetch.adminFetch('/api/admin/programs?' + buildQuery())
                 .then(function (response) {
                     if (!response.ok) {
@@ -213,7 +233,18 @@
                     return response.json();
                 })
                 .then(function (body) {
+                    if (seq !== loadSeq) {
+                        return;
+                    }
                     var data = body.data;
+                    var resolved = AdminListState.resolvePage(requestedPage, data, !fallbackDone);
+                    state.page = resolved.page;
+                    if (resolved.reload) {
+                        loadPrograms(true);
+                        return;
+                    }
+                    AdminListState.replaceUrl(window, AdminListState.PROGRAM_LIST, state);
+
                     tbody.innerHTML = '';
                     data.content.forEach(function (program) {
                         tbody.appendChild(renderRow(program));
@@ -222,10 +253,13 @@
                         AdminDisplay.renderEmptyRow(document, tbody, COLUMN_COUNT, emptyMessage());
                     }
 
-                    document.getElementById('prev-page').disabled = data.page <= 0;
+                    document.getElementById('prev-page').disabled = state.page <= 0;
                     document.getElementById('next-page').disabled = data.last;
                 })
                 .catch(function () {
+                    if (seq !== loadSeq) {
+                        return;
+                    }
                     AdminDisplay.renderErrorRow(document, tbody, COLUMN_COUNT, '프로그램 목록을 불러오지 못했습니다.');
                     document.getElementById('next-page').disabled = true;
                 });

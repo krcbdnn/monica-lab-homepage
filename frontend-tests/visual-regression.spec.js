@@ -4981,7 +4981,9 @@ test.describe('P14-T9C-1: Admin List Presentation & Feedback', () => {
 
     await searchList(page, '/admin/boards', runId);
 
-    const reviewRow = page.locator('#board-list-body tr').filter({ has: page.locator(`a[href="/admin/boards/${review.id}"]`) });
+    // P14-T9C-2: 검색 후의 제목 링크는 현재 목록 state(allowlist된 canonical query)를 싣는다.
+    const reviewHref = `/admin/boards/${review.id}?${new URLSearchParams({ keyword: runId })}`;
+    const reviewRow = page.locator('#board-list-body tr').filter({ has: page.locator(`a[href="${reviewHref}"]`) });
     await expect(reviewRow.locator('a').first()).toHaveText(xssTitle);
     await expect(reviewRow.locator('img')).toHaveCount(0);
     await expect(reviewRow.locator('td').nth(1).locator('.badge.admin-badge.admin-badge--neutral')).toHaveText('강의 후기(정규 강좌)');
