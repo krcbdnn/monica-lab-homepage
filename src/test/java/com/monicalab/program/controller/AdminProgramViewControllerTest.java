@@ -157,6 +157,10 @@ class AdminProgramViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#admin-detail-program-type").text()).isEqualTo("SPECIAL");
         assertThat(document.select("#admin-detail-recruit-status").text()).isEqualTo("OPEN");
         assertThat(document.select("#admin-detail-visibility").text()).isEqualTo("공개");
+        // P14-T9C-1: raw 텍스트는 JS 실패 시 fallback으로 유지하고, 관리자 표시명/badge는 data-* 값으로 JS가 만든다.
+        assertThat(document.select("#admin-detail-program-type").attr("data-program-type")).isEqualTo("SPECIAL");
+        assertThat(document.select("#admin-detail-recruit-status").attr("data-recruit-status")).isEqualTo("OPEN");
+        assertThat(document.select("#admin-detail-visibility").attr("data-public")).isEqualTo("true");
         assertThat(document.select("#admin-detail-created-at").text()).isNotBlank();
         assertThat(document.select("#admin-detail-updated-at").text()).isNotBlank();
         Elements applyLink = document.select("#admin-detail-apply-link");
@@ -177,6 +181,7 @@ class AdminProgramViewControllerTest extends AbstractIntegrationTest {
         Document document = render(get("/admin/programs/{id}", id));
 
         assertThat(document.select("#admin-detail-visibility").text()).isEqualTo("비공개");
+        assertThat(document.select("#admin-detail-visibility").attr("data-public")).isEqualTo("false");
         assertThat(document.select(".admin-content-detail .ckeditor-content").text()).isEqualTo("비공개 본문");
         assertThat(document.select("#admin-detail-public-link")).isEmpty();
         assertThat(document.select("#admin-detail-apply-link")).isEmpty();

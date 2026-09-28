@@ -663,6 +663,34 @@ textarea.form-control {
     background-color: #FBFAF7;
 }
 
+/* P14-T9C-1: 좁은 폭에서 action 버튼의 한글 텍스트가 한 글자씩 세로로 끊기지 않게 한다 - 표가 넓어지면
+   .table-responsive wrapper 안에서만 가로 스크롤된다. */
+.table td .btn {
+    white-space: nowrap;
+}
+
+/* P14-T9C-1: 열이 많은 목록(HomePinned 등)이 375px에서 제목 열을 1글자 폭까지 줄여 한글이 한 글자씩 세로로
+   쌓이던 문제 - wrapper 안의 목록 셀은 한글도 공백에서만 줄바꿈하고, 모자라는 폭은 wrapper 가로 스크롤로 넘긴다. */
+.table-responsive > .table > tbody > tr > td {
+    word-break: keep-all;
+}
+
+/* P14-T9C-1: AdminDisplay.renderEmptyRow/renderErrorRow가 만드는 단일 colspan 행(CTA 없음). */
+.table > tbody > tr > .admin-list-empty {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    text-align: center;
+    color: var(--admin-text-muted);
+}
+
+.table > tbody > tr > .admin-list-empty--error {
+    color: var(--admin-danger);
+}
+
+.table > tbody > tr:hover > .admin-list-empty {
+    background-color: var(--admin-surface);
+}
+
 /* ===== Badges ===== */
 /* P14-T9B: Menu/HomePinned가 이미 쓰는 badge(text-bg-*)의 의미(성공=success, 숨김=secondary 등)는
    그대로 두고 radius/font-weight/padding만 정돈한다. plain text 상태값을 badge로 바꾸는 전환은
@@ -673,6 +701,39 @@ textarea.form-control {
     border-radius: var(--admin-radius);
     font-weight: 600;
     padding: 0.35em 0.65em;
+}
+
+/* P14-T9C-1: 관리자 목록/상세의 semantic badge(AdminDisplay.createBadge가 "badge admin-badge admin-badge--{tone}"을
+   부여). 위 .badge의 typography/padding/radius를 그대로 쓰고 색만 4개 의미로 제한한다 - 분류(BoardType/
+   ProgramType/FileType/Menu 유형 등)는 전부 neutral, 상태만 positive(공개/노출/모집중)/muted(비공개/숨김/
+   마감)/attention(원본 없음 등 확인 필요)을 쓴다. 이후 admin 목록은 text-bg-* 다색 badge를 쓰지 않는다.
+   신규 색상값 없이 기존 token과 Tokens 섹션에서 재정의한 Bootstrap subtle 변수만 재사용한다. */
+.admin-badge {
+    border: 1px solid transparent;
+}
+
+.admin-badge--positive {
+    background-color: var(--bs-success-bg-subtle);
+    border-color: var(--bs-success-border-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.admin-badge--muted {
+    background-color: var(--admin-surface-muted);
+    border-color: var(--admin-border);
+    color: var(--admin-text-muted);
+}
+
+.admin-badge--neutral {
+    background-color: var(--admin-surface);
+    border-color: var(--admin-border-strong);
+    color: var(--admin-text);
+}
+
+.admin-badge--attention {
+    background-color: var(--bs-danger-bg-subtle);
+    border-color: var(--bs-danger-border-subtle);
+    color: var(--bs-danger-text-emphasis);
 }
 
 /* ===== Feedback ===== */

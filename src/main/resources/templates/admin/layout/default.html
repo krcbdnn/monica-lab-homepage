@@ -11,6 +11,9 @@
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" rel="stylesheet">
     <link th:href="@{/css/admin/admin.css}" rel="stylesheet">
     <script src="/js/admin/common-fetch.js"></script>
+    <!-- P14-T9C-1: 목록/상세 content 안의 inline script가 AdminDisplay(표시명/badge/status/empty row)를 쓰므로
+         common-fetch.js와 같이 head에서 먼저 로드한다. 로드 자체로는 DOM을 바꾸지 않는다. -->
+    <script src="/js/admin/admin-display.js"></script>
 </head>
 <body class="admin-body">
 <!-- P14-T9B(3차 보강): Admin shell 구조 - header(white) / sidebar(white panel, 본문 높이 전체) /

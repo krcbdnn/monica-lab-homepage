@@ -122,7 +122,8 @@ test.describe('P14-T9A: Admin Critical UX Fix', () => {
       await page.setViewportSize({ width: 375, height: 812 });
     });
 
-    for (const path of ['/admin/boards', '/admin/programs', '/admin/menus']) {
+    // P14-T9C-1: File/Banner/Popup 목록도 .table-responsive wrapper를 갖는다.
+    for (const path of ['/admin/boards', '/admin/programs', '/admin/menus', '/admin/files', '/admin/banners', '/admin/popups']) {
       test(`${path}: 페이지 전체는 가로 overflow가 없고 table-responsive wrapper가 존재한다`, async ({ page }) => {
         const pageErrors = [];
         page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -135,6 +136,62 @@ test.describe('P14-T9A: Admin Critical UX Fix', () => {
         const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         expect(overflowX).toBeLessThanOrEqual(0);
         expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+      });
+    }
+  });
+
+  // P14-T9C-1: T9B에서 넘어온 HomePinned responsive. 고정 목록/검색 결과(추가 패널) 두 표 모두 wrapper 안에서만
+  // 가로 스크롤되고, 좁은 폭에서도 action 버튼 텍스트가 한 글자씩 세로로 끊기지 않는다(white-space: nowrap).
+  test.describe('P14-T9C-1: Responsive Table(375px) - HomePinned / action buttons', () => {
+    test.beforeEach(async ({ context, baseURL, page }) => {
+      await loginAsAdminApi(context, baseURL);
+      await page.setViewportSize({ width: 375, height: 812 });
+    });
+
+    test('/admin/home-pinned-contents: 두 table 모두 table-responsive 안에 있고 페이지 전체 가로 overflow가 없다', async ({ page }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await page.goto('/admin/home-pinned-contents');
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('table.table')).toHaveCount(2);
+      await expect(page.locator('.table-responsive > table.table')).toHaveCount(2);
+
+      // 검색 결과 표가 있는 추가 패널을 연 상태에서도 overflow가 없어야 한다.
+      await page.locator('#toggleAddPanel').click();
+      await page.waitForLoadState('networkidle');
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      // 열이 많은 고정 목록에서도 제목 등 한글 셀이 한 글자 폭으로 쪼개지지 않도록 공백에서만 줄바꿈한다
+      // (부족한 폭은 wrapper 가로 스크롤).
+      const wordBreaks = await page.locator('.table-responsive > table.table > tbody > tr > td')
+        .evaluateAll((cells) => [...new Set(cells.map((cell) => getComputedStyle(cell).wordBreak))]);
+      expect(wordBreaks).toEqual(['keep-all']);
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+
+    for (const path of ['/admin/boards', '/admin/programs', '/admin/home-pinned-contents']) {
+      test(`${path}: 표 안의 action 버튼은 줄바꿈 없이 한 줄로 표시된다`, async ({ page }) => {
+        await page.goto(path);
+        await page.waitForLoadState('networkidle');
+        const buttons = page.locator('.table td .btn');
+        const count = await buttons.count();
+        test.skip(count === 0, `${path}에 표시된 행이 없어 action 버튼을 확인할 수 없음`);
+        const metrics = await buttons.evaluateAll((elements) => elements.map((element) => {
+          const style = getComputedStyle(element);
+          return {
+            whiteSpace: style.whiteSpace,
+            height: element.getBoundingClientRect().height,
+            lineHeight: parseFloat(style.lineHeight),
+          };
+        }));
+        for (const metric of metrics) {
+          expect(metric.whiteSpace).toBe('nowrap');
+          // 한 줄 높이(line-height + padding/border)를 넘으면 텍스트가 여러 줄로 끊긴 것이다.
+          expect(metric.height).toBeLessThan(metric.lineHeight * 2);
+        }
       });
     }
   });

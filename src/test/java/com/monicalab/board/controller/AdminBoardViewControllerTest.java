@@ -154,6 +154,10 @@ class AdminBoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#admin-board-detail-content h2").text()).isEqualTo("관리자 상세 테스트");
         assertThat(document.select("#admin-detail-board-type").text()).isEqualTo("REVIEW COURSE");
         assertThat(document.select("#admin-detail-visibility").text()).isEqualTo("공개");
+        // P14-T9C-1: raw 텍스트는 JS 실패 시 fallback으로 유지하고, 관리자 표시명/badge는 data-* 값으로 JS가 만든다.
+        assertThat(document.select("#admin-detail-board-type").attr("data-board-type")).isEqualTo("REVIEW");
+        assertThat(document.select("#admin-detail-board-type").attr("data-program-type")).isEqualTo("COURSE");
+        assertThat(document.select("#admin-detail-visibility").attr("data-public")).isEqualTo("true");
         assertThat(document.select("#admin-detail-created-at").text()).isNotBlank();
         assertThat(document.select("#admin-detail-updated-at").text()).isNotBlank();
         assertThat(document.select("#admin-detail-thumbnail").attr("src")).isEqualTo("/api/files/11");
@@ -170,6 +174,9 @@ class AdminBoardViewControllerTest extends AbstractIntegrationTest {
         Document document = render(get("/admin/boards/{id}", id));
 
         assertThat(document.select("#admin-detail-visibility").text()).isEqualTo("비공개");
+        assertThat(document.select("#admin-detail-visibility").attr("data-public")).isEqualTo("false");
+        // programType이 없는 게시글은 data-program-type 속성 자체를 렌더하지 않는다.
+        assertThat(document.select("#admin-detail-board-type").hasAttr("data-program-type")).isFalse();
         assertThat(document.select(".admin-content-detail .ckeditor-content").text()).isEqualTo("비공개 본문");
         assertThat(document.select("#admin-detail-public-link")).isEmpty();
         assertThat(document.select("#admin-detail-thumbnail")).isEmpty();
