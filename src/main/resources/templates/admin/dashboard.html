@@ -5,50 +5,179 @@
     <title>관리자 대시보드</title>
 </head>
 <body>
-<div id="dashboard-content">
-    <h2 class="mb-4">대시보드</h2>
+<!-- P14-T9E: 로그인 직후 시작점 - (1) 운영 현황 요약, (2) 최근 게시글/프로그램 확인 → 상세 이동, (3) 새 게시글/프로그램 등록.
+     데이터는 기존처럼 GET /api/admin/dashboard를 inline JS가 받아 그린다(SSR/polling 없음). 표시명/badge/empty·error 행은
+     layout이 로드하는 AdminDisplay를 그대로 쓰고, sidebar와 중복되던 quick menu 버튼은 화면에서 뺐다(API quickMenus 필드는 유지). -->
+<div id="dashboard-content" class="admin-dashboard">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <h2>대시보드</h2>
+        <div class="admin-dashboard__actions">
+            <a id="dashboard-new-board-link" href="/admin/boards/new" class="btn btn-primary">게시글 등록</a>
+            <a id="dashboard-new-program-link" href="/admin/programs/new" class="btn btn-outline-primary">프로그램 등록</a>
+        </div>
+    </div>
 
-    <section id="recent-boards" class="mb-4">
-        <h4>최근 게시글</h4>
-        <ul id="recent-boards-list" class="list-group"></ul>
+    <section class="admin-dashboard-summary" aria-labelledby="dashboard-summary-heading">
+        <h3 id="dashboard-summary-heading" class="visually-hidden">운영 현황</h3>
+        <a id="dashboard-card-programs" class="admin-dashboard-card" href="/admin/programs">
+            <span class="admin-dashboard-card__label">모집중 프로그램</span>
+            <span id="program-status-open" class="admin-dashboard-card__value">-</span>
+            <span class="admin-dashboard-card__note">비공개 포함 · 마감 <span id="program-status-closed">-</span>건</span>
+        </a>
+        <a id="dashboard-card-popups" class="admin-dashboard-card" href="/admin/popups">
+            <span class="admin-dashboard-card__label">현재 노출 중인 팝업</span>
+            <span id="dashboard-popup-count" class="admin-dashboard-card__value">-</span>
+            <span class="admin-dashboard-card__note">노출 설정 + 게시 기간 안</span>
+        </a>
+        <a id="dashboard-card-banners" class="admin-dashboard-card" href="/admin/banners">
+            <span class="admin-dashboard-card__label">노출 배너</span>
+            <span id="dashboard-banner-count" class="admin-dashboard-card__value">-</span>
+            <span class="admin-dashboard-card__note">노출로 설정된 메인 배너</span>
+        </a>
     </section>
 
-    <section id="program-status" class="mb-4">
-        <h4>프로그램 현황</h4>
-        <p>모집중: <span id="program-status-open">-</span></p>
-        <p>마감: <span id="program-status-closed">-</span></p>
-    </section>
+    <div class="admin-dashboard-recent">
+        <section id="recent-boards" class="admin-dashboard-section" aria-labelledby="dashboard-recent-boards-heading">
+            <div class="admin-dashboard-section__header">
+                <h3 id="dashboard-recent-boards-heading" class="h5 mb-0">최근 게시글</h3>
+                <a href="/admin/boards" class="admin-dashboard-section__more">게시글 전체 보기</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                    <tr>
+                        <th scope="col">구분</th>
+                        <th scope="col">제목</th>
+                        <th scope="col">공개 여부</th>
+                        <th scope="col">등록일</th>
+                    </tr>
+                    </thead>
+                    <tbody id="recent-boards-body"></tbody>
+                </table>
+            </div>
+        </section>
 
-    <nav id="quick-menus" class="mb-4"></nav>
+        <section id="recent-programs" class="admin-dashboard-section" aria-labelledby="dashboard-recent-programs-heading">
+            <div class="admin-dashboard-section__header">
+                <h3 id="dashboard-recent-programs-heading" class="h5 mb-0">최근 프로그램</h3>
+                <a href="/admin/programs" class="admin-dashboard-section__more">프로그램 전체 보기</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                    <tr>
+                        <th scope="col">구분</th>
+                        <th scope="col">제목</th>
+                        <th scope="col">모집 상태</th>
+                        <th scope="col">공개 여부</th>
+                        <th scope="col">등록일</th>
+                    </tr>
+                    </thead>
+                    <tbody id="recent-programs-body"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
 
     <script>
-        AdminFetch.adminFetch('/api/admin/dashboard')
-            .then(function (response) {
-                return response.json();
-            })
-            .then(function (body) {
-                var data = body.data;
+        (function () {
+            var BOARD_COLUMN_COUNT = 4;
+            var PROGRAM_COLUMN_COUNT = 5;
+            var SUMMARY_VALUE_IDS = ['program-status-open', 'program-status-closed', 'dashboard-popup-count',
+                'dashboard-banner-count'];
 
-                var recentBoardsList = document.getElementById('recent-boards-list');
-                data.recentBoards.forEach(function (board) {
-                    var li = document.createElement('li');
-                    li.className = 'list-group-item';
-                    li.textContent = '[' + board.boardType + '] ' + board.title;
-                    recentBoardsList.appendChild(li);
+            // 서버 LocalDateTime(ISO, 예: 2026-09-21T18:34:35)의 날짜 부분만 관리자 상세와 같은 점 형식(yyyy.MM.dd)으로 보인다.
+            function formatDate(value) {
+                return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)
+                    ? value.slice(0, 10).replace(/-/g, '.')
+                    : '-';
+            }
+
+            function appendCell(tr, child, className) {
+                var td = document.createElement('td');
+                if (className) {
+                    td.className = className;
+                }
+                td.appendChild(child);
+                tr.appendChild(td);
+            }
+
+            function titleLink(href, title) {
+                var link = document.createElement('a');
+                link.href = href;
+                link.textContent = title;
+                return link;
+            }
+
+            function renderBoardRow(board) {
+                var tr = document.createElement('tr');
+                appendCell(tr, AdminDisplay.createBadge(document,
+                    AdminDisplay.boardTypeLabel(board.boardType, board.programType), 'neutral'));
+                appendCell(tr, titleLink('/admin/boards/' + encodeURIComponent(board.id), board.title), 'admin-dashboard-title');
+                appendCell(tr, AdminDisplay.createStateBadge(document, board.isPublic, '공개', '비공개'));
+                appendCell(tr, document.createTextNode(formatDate(board.createdAt)), 'admin-dashboard-date');
+                return tr;
+            }
+
+            function renderProgramRow(program) {
+                var tr = document.createElement('tr');
+                appendCell(tr, AdminDisplay.createBadge(document,
+                    AdminDisplay.label(AdminDisplay.PROGRAM_TYPE_LABELS, program.programType), 'neutral'));
+                appendCell(tr, titleLink('/admin/programs/' + encodeURIComponent(program.id), program.title), 'admin-dashboard-title');
+                appendCell(tr, AdminDisplay.createBadge(document,
+                    AdminDisplay.label(AdminDisplay.RECRUIT_STATUS_LABELS, program.recruitStatus),
+                    AdminDisplay.recruitStatusTone(program.recruitStatus)));
+                appendCell(tr, AdminDisplay.createStateBadge(document, program.isPublic, '공개', '비공개'));
+                appendCell(tr, document.createTextNode(formatDate(program.createdAt)), 'admin-dashboard-date');
+                return tr;
+            }
+
+            function renderRecent(tbodyId, items, renderRow, columnCount, emptyMessage) {
+                var tbody = document.getElementById(tbodyId);
+                tbody.replaceChildren();
+                items.forEach(function (item) {
+                    tbody.appendChild(renderRow(item));
                 });
+                if (items.length === 0) {
+                    AdminDisplay.renderEmptyRow(document, tbody, columnCount, emptyMessage);
+                }
+            }
 
-                document.getElementById('program-status-open').textContent = data.programStatus.OPEN;
-                document.getElementById('program-status-closed').textContent = data.programStatus.CLOSED;
+            function setValue(id, value) {
+                document.getElementById(id).textContent = typeof value === 'number' ? String(value) : '-';
+            }
 
-                var quickMenus = document.getElementById('quick-menus');
-                data.quickMenus.forEach(function (menu) {
-                    var a = document.createElement('a');
-                    a.href = menu.url;
-                    a.textContent = menu.label;
-                    a.className = 'me-3';
-                    quickMenus.appendChild(a);
+            // 조회 실패(HTTP 오류/네트워크/JSON)는 화면을 비워 두지 않고 요약 값은 "-", 최근 목록은 오류 행으로 보인다.
+            function renderFailure() {
+                SUMMARY_VALUE_IDS.forEach(function (id) {
+                    document.getElementById(id).textContent = '-';
                 });
-            });
+                AdminDisplay.renderErrorRow(document, document.getElementById('recent-boards-body'), BOARD_COLUMN_COUNT,
+                    '최근 게시글을 불러오지 못했습니다.');
+                AdminDisplay.renderErrorRow(document, document.getElementById('recent-programs-body'),
+                    PROGRAM_COLUMN_COUNT, '최근 프로그램을 불러오지 못했습니다.');
+            }
+
+            AdminFetch.adminFetch('/api/admin/dashboard')
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function (body) {
+                    var data = body.data;
+                    setValue('program-status-open', data.programStatus.OPEN);
+                    setValue('program-status-closed', data.programStatus.CLOSED);
+                    setValue('dashboard-popup-count', data.visiblePopupCount);
+                    setValue('dashboard-banner-count', data.visibleBannerCount);
+                    renderRecent('recent-boards-body', data.recentBoards, renderBoardRow, BOARD_COLUMN_COUNT,
+                        '등록된 게시글이 없습니다.');
+                    renderRecent('recent-programs-body', data.recentPrograms, renderProgramRow, PROGRAM_COLUMN_COUNT,
+                        '등록된 프로그램이 없습니다.');
+                })
+                .catch(renderFailure);
+        })();
     </script>
 </div>
 </body>
