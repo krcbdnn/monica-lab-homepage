@@ -29,7 +29,13 @@
 
         doc.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && sidebar.classList.contains('is-open')) {
+                // P14-T9F: 닫힌 drawer는 visibility: hidden이라 그 안에 있던 focus가 사라진다 - drawer 안에서
+                // Escape를 눌렀을 때만 focus를 toggle로 돌려준다(drawer 밖 focus는 그대로 둔다).
+                var focusWasInside = sidebar.contains(doc.activeElement);
                 setOpen(false);
+                if (focusWasInside) {
+                    toggle.focus();
+                }
             }
         });
     }

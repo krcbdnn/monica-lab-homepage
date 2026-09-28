@@ -67,10 +67,106 @@ test.describe('P14-T9A: Admin Critical UX Fix', () => {
     });
   });
 
+  // P14-T9F: is-open class는 transition 시작과 동시에 붙으므로, "완전히 열린" 실제 사용자 상태는 drawer의
+  // transition이 끝나(getAnimations() 비어 있음) 화면 왼쪽 끝(left 0)에 자리 잡은 것으로 판정한다(임의 대기 없음).
+  async function expectSidebarFullyOpen(page) {
+    const sidebar = page.locator('#admin-sidebar');
+    await expect(sidebar).toHaveClass(/is-open/);
+    await expect.poll(() => sidebar.evaluate((el) => ({
+      running: el.getAnimations().length,
+      left: Math.round(el.getBoundingClientRect().left),
+    }))).toEqual({ running: 0, left: 0 });
+  }
+
+  // 완전히 열린 drawer 위에서도 hamburger 중심점의 실제 최상위 요소가 toggle 자신이어야 한다.
+  async function expectToggleIsHitTarget(page) {
+    const hit = await page.locator('#admin-sidebar-toggle').evaluate((toggle) => {
+      const rect = toggle.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return top === toggle || toggle.contains(top);
+    });
+    expect(hit, 'hamburger 위치의 hit target이 toggle이 아니다(열린 drawer가 덮음)').toBe(true);
+  }
+
   test.describe('Mobile Sidebar(375px)', () => {
     test.beforeEach(async ({ context, baseURL, page }) => {
       await loginAsAdminApi(context, baseURL);
       await page.setViewportSize({ width: 375, height: 812 });
+    });
+
+    // P14-T9F: 완전히 열린 drawer에서 hamburger 재클릭(force 없음)으로 닫히고, 메뉴는 header 아래에서 시작한다.
+    test('완전히 열린 sidebar도 hamburger 재클릭으로 닫히고 첫 메뉴는 header 아래에서 시작한다', async ({ page }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await page.goto('/admin/dashboard');
+      await page.waitForLoadState('networkidle');
+
+      const toggle = page.locator('#admin-sidebar-toggle');
+      const sidebar = page.locator('#admin-sidebar');
+
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(sidebar).toBeHidden();
+
+      await toggle.click();
+      await expectSidebarFullyOpen(page);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(sidebar).toBeVisible();
+      await expect(page.locator('#admin-logout-button')).toBeVisible();
+
+      const headerBottom = await page.locator('#admin-header').evaluate((el) => el.getBoundingClientRect().bottom);
+      const firstLinkTop = await sidebar.locator('a').first().evaluate((el) => el.getBoundingClientRect().top);
+      expect(firstLinkTop).toBeGreaterThanOrEqual(headerBottom);
+
+      await expectToggleIsHitTarget(page);
+      await toggle.click();
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(sidebar).toBeHidden();
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+
+    // P14-T9F: drawer 안에 focus가 있을 때 Escape로 닫으면 focus가 toggle로 돌아오고, drawer 밖 focus는 건드리지 않는다.
+    test('drawer 안 focus에서 Escape로 닫으면 focus가 toggle로 돌아온다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      await page.waitForLoadState('networkidle');
+
+      const toggle = page.locator('#admin-sidebar-toggle');
+      const sidebar = page.locator('#admin-sidebar');
+
+      await toggle.click();
+      await expectSidebarFullyOpen(page);
+      await sidebar.locator('a[href="/admin/boards"]').focus();
+      await expect(sidebar.locator('a[href="/admin/boards"]')).toBeFocused();
+
+      await page.keyboard.press('Escape');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(toggle).toBeFocused();
+
+      await toggle.click();
+      await expectSidebarFullyOpen(page);
+      const logout = page.locator('#admin-logout-button');
+      await logout.focus();
+      await page.keyboard.press('Escape');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(logout).toBeFocused();
+    });
+
+    // P14-T9F: 닫힌 drawer의 링크는 화면 밖에 있으므로 Tab 순서에서 빠져야 한다(toggle 다음 Tab이 drawer로 가지 않음).
+    test('닫힌 sidebar의 링크는 키보드 Tab 대상이 아니다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.locator('#admin-sidebar')).toBeHidden();
+      await page.locator('#admin-sidebar-toggle').focus();
+      await page.keyboard.press('Tab');
+      const focusInSidebar = await page.evaluate(() => document.getElementById('admin-sidebar').contains(document.activeElement));
+      expect(focusInSidebar).toBe(false);
     });
 
     test('초기 상태는 닫혀 있고, toggle로 열고 닫을 수 있으며 Escape로도 닫힌다', async ({ page }) => {
@@ -96,8 +192,10 @@ test.describe('P14-T9A: Admin Critical UX Fix', () => {
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
       // 다시 열고 toggle 재클릭으로도 닫히는지 확인한다.
+      // P14-T9F: transition 초반의 재클릭은 drawer가 아직 toggle을 덮기 전이라 실제 버그를 놓쳤다 - 완전히 열린 뒤 누른다.
       await toggle.click();
-      await expect(sidebar).toHaveClass(/is-open/);
+      await expectSidebarFullyOpen(page);
+      await expectToggleIsHitTarget(page);
       await toggle.click();
       await expect(sidebar).not.toHaveClass(/is-open/);
 
@@ -113,6 +211,60 @@ test.describe('P14-T9A: Admin Critical UX Fix', () => {
       await expect(toggle).toBeFocused();
       await page.keyboard.press('Enter');
       await expect(page.locator('#admin-sidebar')).toHaveClass(/is-open/);
+    });
+  });
+
+  // P14-T9F: mobile 구간의 다른 폭(흔한 폰 폭 390px, breakpoint 직전 767px)에서도 완전히 열린 drawer를 hamburger로 닫는다.
+  for (const width of [390, 767]) {
+    test.describe(`Mobile Sidebar(${width}px)`, () => {
+      test.beforeEach(async ({ context, baseURL, page }) => {
+        await loginAsAdminApi(context, baseURL);
+        await page.setViewportSize({ width, height: 812 });
+      });
+
+      test('완전히 열린 sidebar를 hamburger 재클릭으로 닫는다', async ({ page }) => {
+        await page.goto('/admin/dashboard');
+        await page.waitForLoadState('networkidle');
+
+        const toggle = page.locator('#admin-sidebar-toggle');
+        const sidebar = page.locator('#admin-sidebar');
+
+        await toggle.click();
+        await expectSidebarFullyOpen(page);
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        await expectToggleIsHitTarget(page);
+        await toggle.click();
+        await expect(sidebar).not.toHaveClass(/is-open/);
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await expect(sidebar).toBeHidden();
+
+        const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflowX).toBeLessThanOrEqual(0);
+      });
+    });
+  }
+
+  // P14-T9F: 768px부터는 desktop 구조 - mobile 전용 header layering/drawer visibility 규칙이 적용되지 않는다.
+  test.describe('Desktop boundary(768px)', () => {
+    test.beforeEach(async ({ context, baseURL, page }) => {
+      await loginAsAdminApi(context, baseURL);
+      await page.setViewportSize({ width: 768, height: 900 });
+    });
+
+    test('toggle은 숨겨지고 sidebar는 static으로 보이며 header는 기본 position이다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      await expect(page.locator('#admin-sidebar-toggle')).toBeHidden();
+      const sidebar = page.locator('#admin-sidebar');
+      await expect(sidebar).toBeVisible();
+      await expect(sidebar).toHaveCSS('position', 'static');
+      await expect(sidebar).toHaveCSS('visibility', 'visible');
+      await expect(page.locator('#admin-header')).toHaveCSS('position', 'static');
+      await expect(page.locator('#admin-header')).toHaveCSS('z-index', 'auto');
+
+      const headerBottom = await page.locator('#admin-header').evaluate((el) => el.getBoundingClientRect().bottom);
+      const sidebarBox = await sidebar.boundingBox();
+      expect(sidebarBox.x).toBe(0);
+      expect(sidebarBox.y).toBeGreaterThanOrEqual(headerBottom);
     });
   });
 

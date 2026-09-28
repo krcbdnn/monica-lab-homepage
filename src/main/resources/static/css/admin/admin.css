@@ -1132,7 +1132,12 @@ textarea.form-control {
    header의 "관리자/이름" 블록을 숨겨 brand와 로그아웃 버튼이 한 줄에 들어오게 한다(#admin-name
    요소는 DOM에 그대로 남아 JS 계약 무변경). */
 @media (max-width: 767.98px) {
+    /* P14-T9F: 열린 drawer(z-index 1040, top 0)가 header의 hamburger toggle을 덮어 같은 버튼으로 닫을 수
+       없었다. header만 drawer 위 stacking level로 올려 toggle/brand/logout이 열린 drawer 위에서도 보이고
+       눌리게 한다(header/toggle의 부모에 stacking context가 없어 이 값이 그대로 적용된다). */
     .admin-header {
+        position: relative;
+        z-index: 1041;
         padding: 0 1rem;
     }
 
@@ -1173,13 +1178,20 @@ textarea.form-control {
         height: 100vh;
         overflow-y: auto;
         border-right: 1px solid var(--admin-border);
+        /* P14-T9F: drawer는 화면 위쪽부터 덮되(top 0 유지) 메뉴는 그 위에 올라온 header 아래에서 시작한다. */
+        padding-top: calc(var(--admin-header-height) + 1.25rem);
         transform: translateX(-100%);
-        transition: transform 0.2s ease-in-out;
+        /* P14-T9F: 닫힌 drawer의 링크가 화면 밖에서 Tab/스크린리더 대상이 되지 않게 visibility도 숨긴다.
+           닫힐 때는 transform animation이 끝난 뒤(0.2s 지연) hidden이 되고, 열 때는 즉시 visible이다. */
+        visibility: hidden;
+        transition: transform 0.2s ease-in-out, visibility 0s linear 0.2s;
     }
 
     /* 닫힌 상태에서는 그림자가 화면 왼쪽 가장자리에 새어 보이므로 열렸을 때만 준다. */
     #admin-sidebar.is-open {
         transform: translateX(0);
+        visibility: visible;
+        transition-delay: 0s;
         box-shadow: 4px 0 16px rgba(34, 38, 43, 0.12);
     }
 }
