@@ -93,14 +93,14 @@ const PAGES = [
     path: '/pages/GREETING',
     label: '인사말',
     nav: null,
-    main: 'h2',
+    main: 'h1',
     button: null,
   },
   {
     path: '/pages/INTRODUCTION',
     label: '연구소 소개',
     nav: null,
-    main: 'h2',
+    main: 'h1',
     button: null,
   },
   {
@@ -3734,7 +3734,7 @@ test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
 
     await page.goto('/boards?boardType=REVIEW&programType=COURSE');
     await page.locator('a', { hasText: courseTitle }).click();
-    await expect(page.locator('h2, .card-title')).toContainText(courseTitle);
+    await expect(page.locator('#board-detail-content h1')).toContainText(courseTitle);
 
     const backLink = page.locator('a', { hasText: '목록으로' });
     await expect(backLink).toHaveAttribute('href', /boardType=REVIEW.*programType=COURSE|programType=COURSE.*boardType=REVIEW/);
@@ -5182,5 +5182,78 @@ test.describe('P14-T9C-1: Admin List Presentation & Feedback', () => {
     await expect(page.locator('#admin-list-status')).toHaveText('모집 상태를 바꿀 수 없습니다.');
     await expect(programRow.locator('td').nth(2).locator('.admin-badge--positive')).toHaveText('모집중');
     errors.assertClean({ allowMockNetworkError: true });
+  });
+});
+
+// P14-T5: Detail / Static Page Reading Experience. 상세 전체가 --reading-max(800px) 읽기 칼럼으로 묶이고,
+// CKEditor resize(%)는 줄어든 본문 폭 기준으로 그대로 유지되며, 공백 없는 긴 URL/표가 어떤 폭에서도 가로
+// overflow를 만들지 않는지 확인한다. 표시명(raw enum 미노출)은 Java view test가 검증하므로 여기서 반복하지 않는다.
+test.describe('P14-T5: 상세 읽기 칼럼', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  const LONG_URL = 'https://blog.naver.com/monicalab/222440692380/very/long/unbroken/path/segment/0123456789';
+
+  async function createReadingBoard(context, baseURL) {
+    const xsrfToken = await getXsrfToken(context);
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: `P14-T5 읽기 칼럼 확인 ${Date.now()}`,
+        content: '<p>' + '모니카영어교육연구소 상세 본문 읽기 폭 확인 문단입니다. '.repeat(8) + '</p>'
+          + `<p><a href="${LONG_URL}">${LONG_URL}</a></p>`
+          + '<figure class="image image_resized" style="width:50%;"><img src="/api/files/900501"></figure>'
+          + '<h2>본문 소제목</h2>'
+          + '<table><tr><th>항목</th><th>설명</th><th>비고</th></tr>'
+          + '<tr><td>1</td><td>unbreakable_long_token_value_without_spaces_0123456789_abcdef</td><td>-</td></tr></table>',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+  });
+
+  test('1440px에서 상세가 800px 읽기 칼럼이 되고 50% resize figure는 본문 폭의 절반을 유지한다', async ({ page, context, baseURL, tracker }) => {
+    const boardId = tracker.track('board', await createReadingBoard(context, baseURL));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/boards/${boardId}`);
+
+    const containerBox = await page.locator('#board-detail-content').boundingBox();
+    const contentBox = await page.locator('#board-detail-content .ckeditor-content').boundingBox();
+    const figureBox = await page.locator('#board-detail-content .ckeditor-content figure.image_resized').boundingBox();
+
+    expect(containerBox.width, '상세 컨테이너는 --reading-max(800px)를 넘지 않는다').toBeLessThanOrEqual(800);
+    expect(contentBox.width, '본문 폭은 800px - gutter 2rem(768px) 이하').toBeLessThanOrEqual(769);
+    // 가운데 정렬: 좌우 여백이 같다.
+    expect(Math.abs(containerBox.x - (1440 - containerBox.x - containerBox.width))).toBeLessThanOrEqual(2);
+    expect(Math.abs(figureBox.width - contentBox.width * 0.5), '50% resize는 본문 폭 기준 절반').toBeLessThanOrEqual(2);
+    await expect(page.locator('h1')).toHaveCount(1);
+  });
+
+  test('375/768/1440px에서 긴 URL과 긴 토큰 표가 가로 overflow를 만들지 않는다', async ({ page, context, baseURL, tracker }) => {
+    const boardId = tracker.track('board', await createReadingBoard(context, baseURL));
+
+    for (const width of [375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/boards/${boardId}`);
+
+      const overflow = await page.evaluate(() => {
+        const root = document.querySelector('#board-detail-content');
+        return {
+          doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          root: root.scrollWidth - root.clientWidth,
+        };
+      });
+      expect(overflow.doc, `${width}px 문서 가로 overflow`).toBeLessThanOrEqual(0);
+      expect(overflow.root, `${width}px 상세 컨테이너 가로 overflow`).toBeLessThanOrEqual(0);
+
+      const contentBox = await page.locator('#board-detail-content .ckeditor-content').boundingBox();
+      const tableBox = await page.locator('#board-detail-content .ckeditor-content table').boundingBox();
+      expect(tableBox.width, `${width}px 표는 본문 폭 안에 들어온다`).toBeLessThanOrEqual(contentBox.width + 1);
+    }
   });
 });

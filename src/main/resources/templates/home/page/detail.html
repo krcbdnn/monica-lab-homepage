@@ -6,7 +6,7 @@
 </head>
 <body>
 <div id="page-detail-content" class="container">
-    <h2 th:text="${page.title()}"></h2>
+    <h1 class="detail-title" th:text="${page.title()}"></h1>
     <div class="ckeditor-content" th:if="${page.content() != null}" th:utext="${renderedContent}"></div>
     <p th:unless="${page.content() != null}" class="text-muted">등록된 내용이 없습니다.</p>
 </div>

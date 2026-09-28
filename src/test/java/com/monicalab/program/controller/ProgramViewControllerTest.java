@@ -101,6 +101,67 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#apply-link").attr("rel")).isEqualTo("noopener noreferrer");
     }
 
+    // P14-T5: 상세 배지도 목록(P14-T4A)과 같은 한글 표시명을 쓰고 raw enum을 노출하지 않는다.
+    @Test
+    void detailShowsKoreanLabelsForCourseAndOpenInsteadOfRawEnumNames() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("정규 강좌 상세")
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        Elements badges = document.select("#program-detail-content .detail-meta__badge");
+        assertThat(badges.eachText()).containsExactly("수강", "모집중");
+        assertThat(document.select("#program-detail-content .detail-meta").text()).doesNotContain("COURSE", "OPEN");
+        assertThat(document.select("#program-detail-content .detail-meta__badge.is-open").text()).isEqualTo("모집중");
+    }
+
+    @Test
+    void detailShowsKoreanLabelsForSpecialAndClosedWithoutIsOpenModifier() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.SPECIAL)
+                .title("특강 상세")
+                .content("내용")
+                .recruitStatus(RecruitStatus.CLOSED)
+                .isPublic(true)
+                .build()).getId();
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        Elements badges = document.select("#program-detail-content .detail-meta__badge");
+        assertThat(badges.eachText()).containsExactly("특강", "모집마감");
+        assertThat(document.select("#program-detail-content .detail-meta").text()).doesNotContain("SPECIAL", "CLOSED");
+        assertThat(document.select("#program-detail-content .detail-meta__badge.is-open")).isEmpty();
+    }
+
+    // P14-T5: 상세 제목이 페이지의 유일한 h1이다(본문 CKEditor heading은 h2 이하).
+    @Test
+    void detailRendersTitleAsTheOnlyH1() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("h1 제목 프로그램")
+                .content("<h2>본문 소제목</h2><p>내용</p>")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertThat(document.select("h1")).hasSize(1);
+        assertThat(document.select("#program-detail-content > h1.detail-title").text()).isEqualTo("h1 제목 프로그램");
+        assertThat(document.select("#program-detail-content .ckeditor-content h2").text()).isEqualTo("본문 소제목");
+    }
+
     @Test
     void detailShowsAttachmentLinkWithTargetBlankAndRelNoopenerWhenPresent() throws Exception {
         Long id = programRepository.saveAndFlush(Program.builder()
