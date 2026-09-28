@@ -108,6 +108,25 @@ class AdminBoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#admin-sidebar")).isNotEmpty();
     }
 
+    // P14-T9D: 목록 state query(유효/무효/모르는 값 포함)가 붙은 등록/수정 form GET도 200이고, 서버가 렌더하는 취소
+    // 링크는 query를 복사하지 않은 고정 fallback(/admin/boards)이다 - 목록 state 반영은 admin-list-state.js가 검증 후에만 한다.
+    @Test
+    void formIgnoresListStateQueryAndKeepsTheFixedCancelFallback() throws Exception {
+        for (String url : new String[] {"/admin/boards/new", "/admin/boards/1/edit"}) {
+            Document document = render(get(url)
+                    .param("boardType", "INVALID")
+                    .param("keyword", "a&b")
+                    .param("page", "-1")
+                    .param("returnUrl", "https://evil.example"));
+
+            assertThat(document.select("#board-form-content.admin-form")).hasSize(1);
+            assertThat(document.select("#admin-form-heading").text()).isEqualTo("게시글 등록");
+            assertThat(document.select("#admin-form-cancel-link").attr("href")).isEqualTo("/admin/boards");
+            assertThat(document.select("script[src=/js/admin/admin-list-state.js]")).hasSize(1);
+            assertThat(document.html()).doesNotContain("evil.example");
+        }
+    }
+
     // P14-T10: 읽기 전용 관리자 상세 View. 목록/등록/수정 View와 달리 Controller가 getAdminById로 직접
     // 조회해 서버 렌더링한다(ARCHITECTURE.md 읽기 전용 상세 예외).
 

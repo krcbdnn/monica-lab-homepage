@@ -84,6 +84,24 @@
         return config.path + '/' + encodeURIComponent(String(id)) + toSearch(config, state);
     }
 
+    // P14-T9D: 수정 화면 링크. 수정 → 저장/취소 후 같은 목록 상태(filter + keyword + page)로 돌아가도록 전부 싣는다.
+    function editHref(config, id, state) {
+        return config.path + '/' + encodeURIComponent(String(id)) + '/edit' + toSearch(config, state);
+    }
+
+    // P14-T9D: 등록 화면 링크. 새 항목은 첫 page에 나타나므로 filter + keyword만 싣고 page는 항상 뺀다
+    // (입력 state는 바꾸지 않는다).
+    function newHref(config, state) {
+        var firstPageState = {};
+        for (var key in state) {
+            if (Object.prototype.hasOwnProperty.call(state, key)) {
+                firstPageState[key] = state[key];
+            }
+        }
+        firstPageState.page = 0;
+        return config.path + '/new' + toSearch(config, firstPageState);
+    }
+
     // 현재 주소가 canonical 목록 URL과 다를 때만 replaceState한다(replaceState는 load/popstate를 일으키지 않는다).
     function replaceUrl(win, config, state) {
         var href = listHref(config, state);
@@ -118,6 +136,8 @@
         toSearch: toSearch,
         listHref: listHref,
         detailHref: detailHref,
+        editHref: editHref,
+        newHref: newHref,
         replaceUrl: replaceUrl,
         resolvePage: resolvePage
     };

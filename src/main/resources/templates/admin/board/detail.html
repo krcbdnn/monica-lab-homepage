@@ -60,10 +60,16 @@
     <script>
         (function () {
             // P14-T9C-2: 목록에서 넘어온 상세 URL query(boardType/keyword/page)를 allowlist 검증·정규화해 "목록으로"
-            // href만 그 목록 상태로 바꾼다(raw query를 그대로 붙이지 않음, JS가 없으면 서버가 렌더한 /admin/boards).
-            // 수정/공개 페이지 링크에는 목록 state를 붙이지 않는다(수정 → 저장 → 목록 복귀는 P14-T9D).
-            document.getElementById('admin-detail-list-link').href = AdminListState.listHref(AdminListState.BOARD_LIST,
-                AdminListState.readState(AdminListState.BOARD_LIST, window.location.search));
+            // href를 그 목록 상태로 바꾼다(raw query를 그대로 붙이지 않음, JS가 없으면 서버가 렌더한 /admin/boards).
+            // P14-T9D: "수정"도 같은 canonical state를 실어 수정 → 저장/취소 후 이 목록 상태로 돌아가게 한다(JS가 없으면
+            // 서버가 렌더한 query 없는 수정 경로). 공개 페이지 링크에는 목록 state를 붙이지 않는다.
+            var listState = AdminListState.readState(AdminListState.BOARD_LIST, window.location.search);
+            document.getElementById('admin-detail-list-link').href = AdminListState.listHref(AdminListState.BOARD_LIST, listState);
+            var idMatch = window.location.pathname.match(/^\/admin\/boards\/(\d+)$/);
+            if (idMatch) {
+                document.getElementById('admin-detail-edit-link').href =
+                    AdminListState.editHref(AdminListState.BOARD_LIST, idMatch[1], listState);
+            }
 
             var typeEl = document.getElementById('admin-detail-board-type');
             AdminDisplay.replaceContent(typeEl, AdminDisplay.createBadge(document,

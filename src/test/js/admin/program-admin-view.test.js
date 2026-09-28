@@ -26,9 +26,18 @@ test('templates/admin/program/list.html links to the new-program screen', () => 
     assert.match(html, /href="\/admin\/programs\/new"/);
 });
 
-test('templates/admin/program/list.html links each row to its edit screen', () => {
+// P14-T9D: 수정 링크는 현재 목록 state(filter + keyword + page)를 싣는다(query 없는 수정 링크 계약을 대체).
+test('templates/admin/program/list.html links each row to its edit screen with the current list state', () => {
     const html = readTemplate('admin/program/list.html');
-    assert.match(html, /editLink\.href = '\/admin\/programs\/' \+ program\.id \+ '\/edit'/);
+    assert.match(html, /editLink\.href = AdminListState\.editHref\(AdminListState\.PROGRAM_LIST, program\.id, state\);/);
+});
+
+// P14-T9D: 등록 링크는 서버 fallback(/admin/programs/new)을 두고, 조회마다 filter + keyword만(page 제외) 실어 재작성한다.
+test('templates/admin/program/list.html rewrites the new-program link with filter + keyword only on every load', () => {
+    const html = readTemplate('admin/program/list.html').replace(/\r\n/g, '\n');
+    assert.match(html, /<a id="admin-list-new-link" href="\/admin\/programs\/new" class="btn btn-primary">새 프로그램 등록<\/a>/);
+    const body = html.slice(html.indexOf('function loadPrograms(fallbackDone) {'), html.indexOf('AdminFetch.adminFetch(\'/api/admin/programs?\''));
+    assert.match(body, /document\.getElementById\('admin-list-new-link'\)\.href = AdminListState\.newHref\(AdminListState\.PROGRAM_LIST, state\);/);
 });
 
 test('templates/admin/program/list.html wires the delete action to DELETE /api/admin/programs/{id}', () => {
@@ -105,9 +114,11 @@ test('templates/admin/program/form.html waits for both the CKEditor instance and
     assert.match(html, /Promise\.all\(\[[\s\S]*?editorReady[\s\S]*?\]\)/);
 });
 
-test('templates/admin/program/form.html redirects to the list screen after a successful save', () => {
+// P14-T9D: 저장 후에는 여전히 목록으로 가되, form URL에서 검증한 목록 state(listHref)로 돌아간다.
+test('templates/admin/program/form.html redirects to the list screen (with the validated list state) after a successful save', () => {
     const html = readTemplate('admin/program/form.html');
-    assert.match(html, /window\.location\.href = '\/admin\/programs'/);
+    assert.match(html, /window\.location\.href = listHref;/);
+    assert.match(html, /var listHref = AdminListState\.listHref\(AdminListState\.PROGRAM_LIST, listState\);/);
 });
 
 test('templates/admin/program/form.html displays an error message when the save request fails', () => {
@@ -456,12 +467,119 @@ test('templates/admin/program/list.html links each title to the admin detail wit
 });
 
 // P14-T9C-2: 상세 "목록으로"는 상세 URL query를 allowlist 검증·정규화해서만 재작성한다(서버 fallback 유지, 수정/공개 링크 무변경).
-test('templates/admin/program/detail.html rewrites only the list link from the validated list state', () => {
+// P14-T9D: "목록으로"에 더해 "수정"도 같은 검증된 목록 state를 싣는다(T9C-2의 "수정 링크 query 없음" 계약을 대체).
+// 서버 fallback(목록/수정 경로)은 그대로이고, 공개 페이지 링크에는 목록 state를 붙이지 않는다.
+test('templates/admin/program/detail.html rewrites the list and edit links from the validated list state (not the public link)', () => {
     const source = readTemplate('admin/program/detail.html').replace(/\r\n/g, '\n');
     assert.match(source, /<a id="admin-detail-list-link" href="\/admin\/programs" class="btn btn-outline-secondary">목록으로<\/a>/);
+    assert.match(source, /<a id="admin-detail-edit-link" th:href="@\{\/admin\/programs\/\{id\}\/edit\(id=\$\{program\.id\(\)\}\)\}"/);
     const helperIndex = source.indexOf('<script src="/js/admin/admin-list-state.js"></script>');
     assert.ok(helperIndex !== -1 && helperIndex < source.indexOf('<script>'));
-    assert.match(source, /document\.getElementById\('admin-detail-list-link'\)\.href = AdminListState\.listHref\(AdminListState\.PROGRAM_LIST,\s*AdminListState\.readState\(AdminListState\.PROGRAM_LIST, window\.location\.search\)\);/);
+    assert.match(source, /var listState = AdminListState\.readState\(AdminListState\.PROGRAM_LIST, window\.location\.search\);\s*document\.getElementById\('admin-detail-list-link'\)\.href = AdminListState\.listHref\(AdminListState\.PROGRAM_LIST, listState\);/);
+    assert.match(source, /document\.getElementById\('admin-detail-edit-link'\)\.href =\s*AdminListState\.editHref\(AdminListState\.PROGRAM_LIST, idMatch\[1\], listState\);/);
     assert.equal((source.match(/window\.location\.search/g) || []).length, 1, 'the raw query is only ever parsed, never copied');
-    assert.doesNotMatch(source, /admin-detail-edit-link'\)\.href|admin-detail-public-link'\)\.href|replaceState|pushState/);
+    assert.doesNotMatch(source, /admin-detail-public-link'\)\.href|replaceState|pushState/);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// P14-T9D: Admin Form Composition 공통 계약(.admin-form 800px, 필수 표시, role=alert 오류 + focus, [취소][저장],
+// 저장 중 중복 submit 방지). form마다 같은 형태로 검증한다.
+// ---------------------------------------------------------------------------------------------------------------
+const T9D = {
+    "template": "admin/program/form.html",
+    "contentId": "program-form-content",
+    "cancelHref": "/admin/programs",
+    "requiredLabels": [
+        "프로그램 구분",
+        "제목"
+    ],
+    "createHeading": "프로그램 등록",
+    "editHeading": "프로그램 수정",
+    "editingVar": "editingProgramId"
+};
+
+function t9dSource() {
+    return readTemplate(T9D.template).replace(/\r\n/g, '\n');
+}
+
+function t9dEscape(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+test(`${T9D.template} uses the shared .admin-form wrapper instead of an inline max-width`, () => {
+    const source = t9dSource();
+    assert.match(source, new RegExp(`<div id="${T9D.contentId}" class="admin-form">`));
+    assert.doesNotMatch(source, /max-width: 800px/);
+});
+
+test(`${T9D.template} marks exactly the required fields and explains the marker once`, () => {
+    const source = t9dSource();
+    assert.match(source, /<p class="admin-form-required-note">\* 표시는 필수 입력입니다\.<\/p>/);
+    const markers = source.match(/<span class="admin-required" aria-hidden="true">\*<\/span>/g) || [];
+    assert.equal(markers.length, T9D.requiredLabels.length);
+    for (const label of T9D.requiredLabels) {
+        assert.match(source, new RegExp(`>${t9dEscape(label)}<span class="admin-required" aria-hidden="true">\\*</span></label>`),
+            `missing required marker for ${label}`);
+    }
+});
+
+test(`${T9D.template} shows errors in a focusable role=alert region`, () => {
+    const source = t9dSource();
+    assert.match(source, /<div id="errorMessage" class="alert alert-danger" role="alert" tabindex="-1" style="display: none;"><\/div>/);
+    assert.match(source, /function showError\(message\) \{\s*errorMessage\.textContent = message;\s*errorMessage\.style\.display = 'block';\s*errorMessage\.focus\(\);\s*\}/);
+});
+
+test(`${T9D.template} ends with a normal-flow [취소][저장] action area`, () => {
+    const source = t9dSource();
+    assert.match(source, new RegExp('<div class="admin-form-actions">\\s*'
+        + `<a id="admin-form-cancel-link" href="${t9dEscape(T9D.cancelHref)}" class="btn btn-outline-secondary">취소</a>\\s*`
+        + '<button type="submit" id="saveButton" class="btn btn-primary">저장</button>\\s*</div>\\s*</form>'));
+    assert.equal((source.match(/type="submit"/g) || []).length, 1);
+    assert.doesNotMatch(source, /sticky/);
+});
+
+test(`${T9D.template} disables the save button while saving and re-enables it only on failure`, () => {
+    const source = t9dSource();
+    const handler = source.slice(source.indexOf("addEventListener('submit'"));
+    const disableIndex = handler.indexOf('saveButton.disabled = true;');
+    const requestIndex = handler.indexOf('AdminFetch.adminFetch(');
+    assert.ok(disableIndex !== -1 && disableIndex < requestIndex, 'disable right before the save request');
+    assert.match(handler, /if \(result\.ok && result\.body\.success\) \{\s*window\.location\.href = [^;]+;\s*\} else \{\s*saveButton\.disabled = false;\s*showError\(/);
+    assert.match(handler, /\.catch\(function \(\) \{\s*saveButton\.disabled = false;\s*showError\('저장 중 오류가 발생했습니다\.'\);/);
+    assert.equal((handler.match(/saveButton\.disabled = false;/g) || []).length, 2);
+});
+
+test(`${T9D.template} switches the heading (and document title) to the edit wording only in edit mode`, () => {
+    const source = t9dSource();
+    assert.match(source, new RegExp(`<h3 id="admin-form-heading" class="mb-2">${T9D.createHeading}</h3>`));
+    assert.match(source, new RegExp(`if \\(${T9D.editingVar}\\) \\{\\s*document\\.querySelector\\('#admin-form-heading'\\)\\.textContent = '${T9D.editHeading}';\\s*\\}\\s*`
+        + "document\\.title = document\\.querySelector\\('#admin-form-heading'\\)\\.textContent;"));
+});
+
+// P14-T9D: 목록 state 복귀 - form URL query를 AdminListState로 검증·정규화해 취소/저장 목적지를 만든다(returnUrl 없음).
+test('templates/admin/program/form.html returns to the validated list state on cancel and save (new → page 0)', () => {
+    const source = t9dSource();
+    const helperIndex = source.indexOf('<script src="/js/admin/admin-list-state.js"></script>');
+    assert.ok(helperIndex !== -1 && helperIndex < source.indexOf('<script>\n'), 'the helper loads before the inline script');
+    assert.match(source, /var listState = AdminListState\.readState\(AdminListState\.PROGRAM_LIST, window\.location\.search\);\s*if \(!editingProgramId\) \{\s*listState\.page = 0;\s*\}\s*var listHref = AdminListState\.listHref\(AdminListState\.PROGRAM_LIST, listState\);\s*document\.querySelector\('#admin-form-cancel-link'\)\.href = listHref;/);
+    assert.match(source, /window\.location\.href = listHref;/);
+    assert.equal((source.match(/window\.location\.search/g) || []).length, 1, 'the raw query is only parsed, never copied');
+    assert.doesNotMatch(source, /returnUrl|redirectUrl|nextUrl|replaceState|pushState/);
+});
+
+test('templates/admin/program/form.html groups the long form into fieldset sections without reordering fields', () => {
+    const source = t9dSource();
+    const legends = [...source.matchAll(/<legend class="h5">([^<]+)<\/legend>/g)].map((match) => match[1]);
+    assert.deepEqual(legends, ['기본 정보', '본문', '파일', '신청·모집', '공개 설정']);
+    let previous = -1;
+    for (const id of ['programType', 'title', 'content', 'thumbnailInput', 'attachmentInput', 'googleFormUrl', 'recruitStatus', 'isPublic']) {
+        const index = source.indexOf(`id="${id}"`);
+        assert.ok(index > previous, `field ${id} keeps its original order`);
+        previous = index;
+    }
+});
+
+test('templates/admin/program/form.html explains the Google Form URL contract (http(s), empty hides the apply button)', () => {
+    const source = t9dSource();
+    assert.match(source, /<div class="form-text">http:\/\/ 또는 https:\/\/로 시작하는 주소입니다\. 비워두면 공개 화면에 신청 버튼이 표시되지 않습니다\.<\/div>/);
 });
