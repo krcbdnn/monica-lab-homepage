@@ -1822,6 +1822,21 @@ html {
     font-size: 1rem;
 }
 
+/* P14-T7: Program/Board 목록 검색 버튼만 Bootstrap 기본 파랑(#0d6efd)으로 남아 있었다. 전역 .btn-primary는
+   두고 두 목록의 검색 form 안에서만 Bootstrap 버튼 변수를 public primary token에 연결한다(상세 CTA와 동일). */
+#program-list-content form .btn-primary,
+#board-list-content form .btn-primary {
+    --bs-btn-bg: var(--color-primary);
+    --bs-btn-border-color: var(--color-primary);
+    --bs-btn-color: var(--color-primary-contrast);
+    --bs-btn-hover-bg: var(--color-primary-hover);
+    --bs-btn-hover-border-color: var(--color-primary-hover);
+    --bs-btn-hover-color: var(--color-primary-contrast);
+    --bs-btn-active-bg: var(--color-primary-hover);
+    --bs-btn-active-border-color: var(--color-primary-hover);
+    --bs-btn-active-color: var(--color-primary-contrast);
+}
+
 /* P13-T14: /boards 목록. 게시판 분류명/제목/조회수를 한 줄(board-list__row)에 묶어 자연스럽게
    붙어 보이게 하고, 작성일시는 아래 보조 줄로 분리한다. 제목에 flex-grow를 주지 않는 이유: grow를
    주면 제목이 행의 남은 폭을 전부 차지해버려 조회수가 화면 오른쪽 끝으로 밀려나 보인다(실측으로
@@ -2041,7 +2056,8 @@ html {
     background: transparent;
     font-size: 1.5rem;
     line-height: 1;
-    color: var(--color-text-muted);
+    /* P14-T7: 어두운 header(--color-text) 위 대비 2.76:1 → 기존 다크 전용 muted token으로 약 9.8:1. */
+    color: var(--color-text-muted-on-dark);
     cursor: pointer;
 }
 
