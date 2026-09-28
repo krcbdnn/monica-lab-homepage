@@ -5326,3 +5326,96 @@ test.describe('P14-T6A: pagination 숫자 target 크기', () => {
     }
   });
 });
+
+// P14-T7: Public Final QA에서 확인한 실제 결함 2건의 회귀 방지. (1) Popup 닫기 "×"가 어두운 header 위에서
+// 대비 2.76:1이던 문제 - axe는 기호 한 글자를 대비 검사에서 제외하므로 computed color로 직접 계산한다.
+// (2) Program/Board 목록 검색 버튼만 Bootstrap 기본 파랑으로 남아 있던 문제.
+function p14t7RelativeLuminance(rgb) {
+  const [r, g, b] = rgb.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number).map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function p14t7Contrast(fg, bg) {
+  const [l1, l2] = [p14t7RelativeLuminance(fg), p14t7RelativeLuminance(bg)].sort((a, b) => b - a);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+
+test.describe('P14-T7: Popup 닫기 버튼 대비', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  function toLocalIsoString(date) {
+    return date.getFullYear() + '-' + popupPad2(date.getMonth() + 1) + '-' + popupPad2(date.getDate())
+      + 'T' + popupPad2(date.getHours()) + ':' + popupPad2(date.getMinutes()) + ':' + popupPad2(date.getSeconds());
+  }
+
+  test('1440/375px에서 닫기 "×"가 header 배경 대비 4.5:1 이상이고 focus 표시와 닫기가 정상이다', async ({ page, context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    const xsrfToken = await getXsrfToken(context);
+    const title = `P14-T7 Popup 대비 ${Date.now()}`;
+    const now = Date.now();
+    const res = await context.request.post(`${baseURL}/api/admin/popups`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        title, content: '<p>P14-T7 대비 확인</p>', isVisible: true,
+        startDate: toLocalIsoString(new Date(now - 60 * 60 * 1000)), endDate: toLocalIsoString(new Date(now + 60 * 60 * 1000)),
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    tracker.track('popup', (await res.json()).data.id);
+
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto('/');
+      const modal = page.locator('.popup-modal').filter({ has: page.locator(`text=${title}`) });
+      await expect(modal).toBeVisible();
+      const close = modal.locator('.popup-modal__close');
+
+      const colors = await close.evaluate((el) => ({
+        fg: getComputedStyle(el).color,
+        bg: getComputedStyle(el.closest('.popup-modal__header')).backgroundColor,
+      }));
+      expect(p14t7Contrast(colors.fg, colors.bg), `${width}px 닫기 × 대비 (${colors.fg} on ${colors.bg})`).toBeGreaterThanOrEqual(4.5);
+
+      const modalBox = await modal.boundingBox();
+      expect(modalBox.x).toBeGreaterThanOrEqual(0);
+      expect(modalBox.x + modalBox.width).toBeLessThanOrEqual(width);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px 문서 가로 overflow`).toBeLessThanOrEqual(0);
+
+      await close.focus();
+      await expect(close).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(modal).toBeHidden();
+    }
+  });
+});
+
+test.describe('P14-T7: 목록 검색 버튼 public primary', () => {
+  for (const width of [1440, 375]) {
+    test(`${width}px: /programs, /boards 검색 버튼이 Bootstrap 기본 파랑이 아니라 public primary token을 쓴다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of ['/programs', '/boards']) {
+        await page.goto(path);
+        const button = page.locator('form button[type="submit"].btn-primary').first();
+        await expect(button).toHaveText('검색');
+        const expected = await page.evaluate(() => {
+          const probe = document.createElement('span');
+          probe.style.backgroundColor = 'var(--color-primary)';
+          document.body.appendChild(probe);
+          const color = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return color;
+        });
+        await expect(button, `${path} 검색 버튼 배경`).toHaveCSS('background-color', expected);
+        expect(expected).not.toBe('rgb(13, 110, 253)');
+        const colors = await button.evaluate((el) => ({ fg: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor }));
+        expect(p14t7Contrast(colors.fg, colors.bg)).toBeGreaterThanOrEqual(4.5);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+      }
+    });
+  }
+});
