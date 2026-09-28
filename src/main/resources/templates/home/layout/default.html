@@ -12,6 +12,8 @@
     <link th:href="@{/css/home.css}" rel="stylesheet">
 </head>
 <body>
+<!-- P14-T6A: 첫 keyboard focus 대상. 기존 #site-main으로 이동한다(tabindex 추가 없음, 평소 화면 밖). -->
+<a class="skip-link" href="#site-main">본문 바로가기</a>
 <div th:replace="~{home/layout/header :: header}"></div>
 <main id="site-main">
     <th:block th:replace="${content}"></th:block>

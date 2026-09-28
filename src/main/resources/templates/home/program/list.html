@@ -6,21 +6,21 @@
 </head>
 <body>
 <div id="program-list-content" class="container">
-    <h2 class="mb-4">프로그램</h2>
+    <h1 class="mb-4">프로그램</h1>
 
-    <nav id="program-type-filter" class="filter-nav mb-3">
+    <nav id="program-type-filter" class="filter-nav mb-3" aria-label="프로그램 분류">
         <a th:href="@{/programs(keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${programType == null} ? ' is-active'">전체</a>
+           th:with="filterActive=${programType == null}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">전체</a>
         <a th:href="@{/programs(programType='COURSE', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${programType != null and programType.name() == 'COURSE'} ? ' is-active'">수강</a>
+           th:with="filterActive=${programType != null and programType.name() == 'COURSE'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">수강</a>
         <a th:href="@{/programs(programType='SPECIAL', keyword=${keyword})}" class="filter-nav__link"
-           th:classappend="${programType != null and programType.name() == 'SPECIAL'} ? ' is-active'">특강</a>
+           th:with="filterActive=${programType != null and programType.name() == 'SPECIAL'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">특강</a>
     </nav>
 
     <form method="get" th:action="@{/programs}" class="row g-2 mb-4">
         <input type="hidden" name="programType" th:if="${programType != null}" th:value="${programType}">
         <div class="col-auto">
-            <input type="text" name="keyword" class="form-control" placeholder="검색어" th:value="${keyword}">
+            <input type="text" name="keyword" class="form-control" placeholder="검색어" aria-label="검색어" th:value="${keyword}">
         </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-primary">검색</button>

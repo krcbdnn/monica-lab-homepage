@@ -210,6 +210,43 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#attachment-link")).isEmpty();
     }
 
+    // P14-T6A: 목록 제목이 유일한 h1이고, 분류 nav/검색 input/pagination이 접근 가능한 이름과 현재 상태를 갖는다.
+    // 소식·자료(NOTICE)와 강의 후기(REVIEW 전체) context 각각에서 현재 filter 하나에만 aria-current가 붙는다.
+    @Test
+    void listExposesH1AndAccessibleNamesAndCurrentStateForFilterAndPagination() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("접근성 공지").content("내용").isPublic(true).build());
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/boards").param("boardType", "NOTICE"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertThat(document.select("h1")).hasSize(1);
+        assertThat(document.select("#board-list-content > h1").text()).isEqualTo("소식·자료");
+
+        assertThat(document.select("#board-type-filter").attr("aria-label")).isEqualTo("게시판 분류");
+        Elements current = document.select("#board-type-filter .filter-nav__link[aria-current=page]");
+        assertThat(current.eachText()).containsExactly("공지사항");
+        assertThat(current.hasClass("is-active")).isTrue();
+        assertThat(document.select("#board-type-filter .filter-nav__link:not([aria-current])").eachText())
+                .containsExactly("갤러리", "자료실");
+
+        assertThat(document.select("#board-list-content input[name=keyword]").attr("aria-label")).isEqualTo("검색어");
+
+        assertThat(document.select("#pagination").attr("aria-label")).isEqualTo("페이지 이동");
+        assertThat(document.select("#pagination .pagination-bar__number[aria-current=page]").eachText())
+                .containsExactly("1");
+
+        Document review = Jsoup.parse(mockMvc.perform(get("/boards").param("boardType", "REVIEW"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertThat(review.select("h1")).hasSize(1);
+        assertThat(review.select("#board-list-content > h1").text()).isEqualTo("강의 후기");
+        assertThat(review.select("#board-type-filter .filter-nav__link[aria-current=page]").eachText())
+                .containsExactly("전체");
+    }
+
     // P14-T5: 상세 배지도 목록(P14-T4B)과 같은 한글 표시명을 쓰고 raw boardType을 노출하지 않는다.
     // REVIEW는 programType 세부 구분 없이 "강의 후기" 하나로 표시한다(T4B 결정 유지).
     @Test

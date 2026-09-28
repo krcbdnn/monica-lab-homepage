@@ -101,6 +101,38 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#apply-link").attr("rel")).isEqualTo("noopener noreferrer");
     }
 
+    // P14-T6A: 목록 제목이 유일한 h1이고, 분류 nav/검색 input/pagination이 접근 가능한 이름과 현재 상태를 갖는다.
+    @Test
+    void listExposesH1AndAccessibleNamesAndCurrentStateForFilterAndPagination() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("접근성 목록 프로그램")
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build());
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/programs").param("programType", "COURSE"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertThat(document.select("h1")).hasSize(1);
+        assertThat(document.select("#program-list-content > h1").text()).isEqualTo("프로그램");
+
+        assertThat(document.select("#program-type-filter").attr("aria-label")).isEqualTo("프로그램 분류");
+        Elements current = document.select("#program-type-filter .filter-nav__link[aria-current=page]");
+        assertThat(current.eachText()).containsExactly("수강");
+        assertThat(current.hasClass("is-active")).isTrue();
+        assertThat(document.select("#program-type-filter .filter-nav__link:not([aria-current])").eachText())
+                .containsExactly("전체", "특강");
+
+        assertThat(document.select("#program-list-content input[name=keyword]").attr("aria-label")).isEqualTo("검색어");
+
+        assertThat(document.select("#pagination").attr("aria-label")).isEqualTo("페이지 이동");
+        assertThat(document.select("#pagination .pagination-bar__number[aria-current=page]").eachText())
+                .containsExactly("1");
+    }
+
     // P14-T5: 상세 배지도 목록(P14-T4A)과 같은 한글 표시명을 쓰고 raw enum을 노출하지 않는다.
     @Test
     void detailShowsKoreanLabelsForCourseAndOpenInsteadOfRawEnumNames() throws Exception {

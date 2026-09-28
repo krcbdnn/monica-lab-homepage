@@ -5257,3 +5257,72 @@ test.describe('P14-T5: 상세 읽기 칼럼', () => {
     }
   });
 });
+
+// P14-T6A: 공개 접근성 보완. skip link(첫 focus, 평소 화면 밖, Enter 후 다음 Tab이 #site-main 안), 목록 h1,
+// pagination 숫자 target 24x24 이상(WCAG 2.2 2.5.8). aria-current/aria-label 계약은 Java view test가 검증한다.
+test.describe('P14-T6A: 공개 접근성 보완', () => {
+  for (const width of [1440, 375]) {
+    test.describe(`${width}px`, () => {
+      test.use({ viewport: { width, height: 900 } });
+
+      test('skip link는 평소 화면 밖에 있고, 첫 Tab에 보이며 Enter 후 다음 Tab이 본문(#site-main)으로 간다', async ({ page }) => {
+        await page.goto('/boards?boardType=NOTICE');
+        const skip = page.locator('a.skip-link');
+        await expect(skip).toHaveAttribute('href', '#site-main');
+        const hiddenBox = await skip.boundingBox();
+        expect(hiddenBox.y + hiddenBox.height, '평소에는 viewport 위쪽 밖').toBeLessThanOrEqual(0);
+
+        await page.keyboard.press('Tab');
+        await expect(skip).toBeFocused();
+        const box = await skip.boundingBox();
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        // sticky header보다 위에 그려져 실제로 보이는지(가운데 지점의 최상위 요소가 skip link).
+        const onTop = await page.evaluate(() => {
+          const r = document.querySelector('a.skip-link').getBoundingClientRect();
+          return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('a.skip-link') !== null;
+        });
+        expect(onTop, 'focus된 skip link가 header에 가려지지 않는다').toBeTruthy();
+
+        await page.keyboard.press('Enter');
+        await expect(page).toHaveURL(/#site-main$/);
+        await page.keyboard.press('Tab');
+        const inMain = await page.evaluate(() => !!document.activeElement.closest('#site-main'));
+        expect(inMain, 'skip 후 다음 Tab은 본문 안의 focus 대상').toBeTruthy();
+      });
+
+      test('공개 목록(/programs, /boards)은 h1이 정확히 하나다', async ({ page }) => {
+        for (const path of ['/programs', '/boards']) {
+          await page.goto(path);
+          await expect(page.locator('h1'), `${path} h1`).toHaveCount(1);
+        }
+      });
+    });
+  }
+});
+
+test.describe('P14-T6A: pagination 숫자 target 크기', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test('현재 페이지 숫자(한 자리)가 1440/375px에서 24x24 이상이다', async ({ page, context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    const xsrfToken = await getXsrfToken(context);
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'GALLERY', title: `P14-T6A pagination 확인 ${Date.now()}`, content: '<p>내용</p>', isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    tracker.track('board', (await res.json()).data.id);
+
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/boards?boardType=GALLERY');
+      const current = page.locator('#pagination .pagination-bar__number[aria-current="page"]');
+      await expect(current).toHaveText('1');
+      const box = await current.boundingBox();
+      expect(box.width, `${width}px 현재 페이지 숫자 폭`).toBeGreaterThanOrEqual(24);
+      expect(box.height, `${width}px 현재 페이지 숫자 높이`).toBeGreaterThanOrEqual(24);
+    }
+  });
+});

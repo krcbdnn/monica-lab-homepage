@@ -7,7 +7,7 @@
      컨트롤러가 null로 정상 바인딩하는 것을 실측 확인함). #prev-page/#next-page id는 P13-T1 계약
      대상이라 그대로 유지한다. -->
 <nav th:fragment="pagination(basePath, page, totalPages, size, boardType, programType, keyword)"
-     id="pagination" class="pagination-bar" th:if="${totalPages > 0}">
+     id="pagination" class="pagination-bar" th:if="${totalPages > 0}" aria-label="페이지 이동">
     <a id="prev-page" class="pagination-bar__nav" th:if="${page > 0}"
        th:href="@{${basePath}(page=${page - 1}, size=${size}, boardType=${boardType}, programType=${programType}, keyword=${keyword})}">이전</a>
 
@@ -16,6 +16,7 @@
                         page / 10 * 10,
                         (page / 10 * 10 + 9 lt totalPages - 1) ? (page / 10 * 10 + 9) : (totalPages - 1))}"
            class="pagination-bar__number" th:classappend="${n == page} ? ' is-active'"
+           th:attr="aria-current=${n == page} ? 'page' : null"
            th:href="@{${basePath}(page=${n}, size=${size}, boardType=${boardType}, programType=${programType}, keyword=${keyword})}"
            th:text="${n + 1}"></a>
     </span>
