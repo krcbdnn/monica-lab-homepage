@@ -70,8 +70,15 @@
            rel="noopener noreferrer">열기/다운로드</a>
     </div>
 
+    <script src="/js/admin/admin-list-state.js"></script>
     <script>
         (function () {
+            // P14-T9C-2: 목록에서 넘어온 상세 URL query(programType/keyword/page)를 allowlist 검증·정규화해 "목록으로"
+            // href만 그 목록 상태로 바꾼다(raw query를 그대로 붙이지 않음, JS가 없으면 서버가 렌더한 /admin/programs).
+            // 수정/공개 페이지 링크에는 목록 state를 붙이지 않는다(수정 → 저장 → 목록 복귀는 P14-T9D).
+            document.getElementById('admin-detail-list-link').href = AdminListState.listHref(AdminListState.PROGRAM_LIST,
+                AdminListState.readState(AdminListState.PROGRAM_LIST, window.location.search));
+
             var typeEl = document.getElementById('admin-detail-program-type');
             AdminDisplay.replaceContent(typeEl, AdminDisplay.createBadge(document,
                 AdminDisplay.label(AdminDisplay.PROGRAM_TYPE_LABELS, typeEl.getAttribute('data-program-type')),

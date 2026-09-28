@@ -26,7 +26,8 @@ test('templates/admin/file/list.html loads files from the admin file API via com
 test('templates/admin/file/list.html renders rows from the paginated response and toggles prev/next based on page/last', () => {
     const html = readTemplate('admin/file/list.html');
     assert.match(html, /data\.content\.forEach\(function \(file\)/);
-    assert.match(html, /document\.getElementById\('prev-page'\)\.disabled = data\.page <= 0/);
+    // P14-T9C-2: 이전 버튼은 정규화된 state.page(범위 밖/전체 0건 보정 후) 기준이다.
+    assert.match(html, /document\.getElementById\('prev-page'\)\.disabled = state\.page <= 0/);
     assert.match(html, /document\.getElementById\('next-page'\)\.disabled = data\.last/);
 });
 
@@ -151,10 +152,12 @@ test(`${T9C1.template} wraps every table in .table-responsive`, () => {
 
 test(`${T9C1.template} ${T9C1.loadFn}() checks response.ok, renders an empty row, and replaces rows with an error row on failure`, () => {
     const html = readTemplate(T9C1.template);
-    const body = sliceBetween(html, `function ${T9C1.loadFn}() {`, '\n        }\n');
+    // P14-T9C-2: load 함수가 fallbackDone 인자를 받으므로 이름으로만 찾는다.
+    const body = sliceBetween(html, `function ${T9C1.loadFn}(`, '\n        }\n');
     assert.match(body, /if \(!response\.ok\) \{\s*throw new Error\('HTTP ' \+ response\.status\);\s*\}\s*return response\.json\(\);/);
     assert.match(body, new RegExp(`AdminDisplay\\.renderEmptyRow\\(document, tbody, ${T9C1.columnCountVar}, ${escapeRegExp(T9C1.emptyMessageExpr)}\\);`));
-    assert.match(body, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.renderErrorRow\\(document, tbody, ${T9C1.columnCountVar}, '${escapeRegExp(T9C1.errorMessage)}'\\);`));
+    // P14-T9C-2: catch 첫 줄의 stale-response guard(`if (seq !== loadSeq) { return; }`)는 T9C-2 테스트가 별도로 강제한다.
+    assert.match(body, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*(?:if \\(seq !== loadSeq\\) \\{\\s*return;\\s*\\}\\s*)?AdminDisplay\\.renderErrorRow\\(document, tbody, ${T9C1.columnCountVar}, '${escapeRegExp(T9C1.errorMessage)}'\\);`));
     // 목록 재조회는 inline status를 절대 건드리지 않는다(삭제 성공 메시지가 reload 성공/실패 후에도 남는 계약).
     assert.doesNotMatch(body, /clearStatus|showStatus/);
 });
@@ -195,4 +198,77 @@ test(`${T9C1.template} PATCH actions check response.ok and surface failures inst
         assert.match(handler, new RegExp(`return reloadOrShowError\\(response, ${action.errorVar}\\);`));
         assert.match(handler, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.showStatus\\(listStatus, ${action.errorVar}, 'error'\\);`));
     }
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// P14-T9C-2: Admin List State & Navigation 계약(URL = 목록 state, replaceState만, race guard, pagination fallback).
+// ---------------------------------------------------------------------------------------------------------------
+const T9C2 = {
+    "template": "admin/file/list.html",
+    "config": "FILE_LIST",
+    "loadFn": "loadFiles",
+    "restores": [
+        "state.page = AdminListState.readState(AdminListState.FILE_LIST, window.location.search).page;"
+    ]
+};
+
+function t9c2Source() {
+    return readTemplate(T9C2.template).replace(/\r\n/g, '\n');
+}
+
+test(`${T9C2.template} loads admin-list-state.js right before its inline script`, () => {
+    const source = t9c2Source();
+    const helperIndex = source.indexOf('<script src="/js/admin/admin-list-state.js"></script>');
+    const inlineIndex = source.indexOf('<script>');
+    assert.notEqual(helperIndex, -1);
+    assert.ok(helperIndex < inlineIndex, 'the helper must load before the inline script that uses AdminListState');
+    assert.equal(source.indexOf('AdminListState'), source.indexOf('AdminListState', inlineIndex),
+        'AdminListState must not be referenced before the inline script');
+});
+
+test(`${T9C2.template} restores state from the URL once, before the single initial load`, () => {
+    const source = t9c2Source();
+    const readIndex = source.indexOf(`AdminListState.readState(AdminListState.${T9C2.config}, window.location.search)`);
+    const initialLoadIndex = source.lastIndexOf(`${T9C2.loadFn}();`);
+    assert.notEqual(readIndex, -1);
+    assert.ok(readIndex < initialLoadIndex);
+    assert.equal((source.match(/AdminListState\.readState\(/g) || []).length, 1, 'state is read from the URL exactly once');
+    for (const restore of T9C2.restores) {
+        assert.ok(source.includes(restore), `missing restore: ${restore}`);
+    }
+    // 진입 시 조회는 파일 끝의 한 번뿐이다(replaceState는 load를 일으키지 않는다).
+    assert.match(source, new RegExp(`\\n        ${T9C2.loadFn}\\(\\);\\n    </script>`));
+});
+
+test(`${T9C2.template} uses replaceState only (no pushState/popstate) through AdminListState.replaceUrl`, () => {
+    const source = t9c2Source();
+    assert.doesNotMatch(source, /pushState|popstate|history\.replaceState|location\.href\s*=|returnUrl|redirectUrl/);
+    const body = sliceBetween(source, `function ${T9C2.loadFn}(fallbackDone) {`, '\n        }\n');
+    const replaceBeforeFetch = body.indexOf(`AdminListState.replaceUrl(window, AdminListState.${T9C2.config}, state);`);
+    assert.ok(replaceBeforeFetch !== -1 && replaceBeforeFetch < body.indexOf('AdminFetch.adminFetch('),
+        'the URL must reflect the requested state before the request');
+});
+
+test(`${T9C2.template} guards against stale responses with a request sequence number in then and catch`, () => {
+    const source = t9c2Source();
+    assert.match(source, /var loadSeq = 0;/);
+    const body = sliceBetween(source, `function ${T9C2.loadFn}(fallbackDone) {`, '\n        }\n');
+    assert.match(body, /var seq = \+\+loadSeq;/);
+    assert.match(body, /\.then\(function \(body\) \{\s*if \(seq !== loadSeq\) \{\s*return;\s*\}/);
+    assert.match(body, /\.catch\(function \(\) \{\s*if \(seq !== loadSeq\) \{\s*return;\s*\}/);
+});
+
+test(`${T9C2.template} resolves out-of-range pages only from a successful response and reloads at most once`, () => {
+    const source = t9c2Source();
+    const body = sliceBetween(source, `function ${T9C2.loadFn}(fallbackDone) {`, '\n        }\n');
+    const resolveIndex = body.indexOf('var resolved = AdminListState.resolvePage(requestedPage, data, !fallbackDone);');
+    assert.notEqual(resolveIndex, -1);
+    assert.ok(resolveIndex > body.indexOf('.then(function (body) {'), 'fallback is decided only after a successful response');
+    assert.match(body, new RegExp(`state\\.page = resolved\\.page;\\s*if \\(resolved\\.reload\\) \\{\\s*${T9C2.loadFn}\\(true\\);\\s*return;\\s*\\}`));
+    // 재조회가 필요하면 중간 빈 목록을 그리지 않고 반환한다(렌더 코드는 reload 분기 뒤).
+    assert.ok(body.indexOf("tbody.innerHTML = '';") > body.indexOf('if (resolved.reload)'));
+    const catchBody = body.slice(body.indexOf('.catch('));
+    assert.doesNotMatch(catchBody, /state\.page|resolvePage|replaceUrl/, 'a failed request must not change the page');
+    assert.match(body, /document\.getElementById\('prev-page'\)\.disabled = state\.page <= 0;/);
+    assert.match(body, /document\.getElementById\('next-page'\)\.disabled = data\.last;/);
 });

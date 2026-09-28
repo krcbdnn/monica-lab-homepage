@@ -214,6 +214,26 @@ class AdminProgramViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select(".ckeditor-content a[href=/programs]").attr("target")).isEmpty();
     }
 
+    // P14-T9C-2: 목록 state query(유효/무효/모르는 값 포함)가 붙은 상세 요청도 그대로 조회되고, 서버가 렌더하는
+    // "목록으로"는 query를 복사하지 않은 고정 fallback(/admin/programs)이다 - 목록 state 반영은 admin-list-state.js가
+    // allowlist 검증 후 브라우저에서만 한다.
+    @Test
+    void detailIgnoresListStateQueryAndKeepsTheFixedListLinkFallback() throws Exception {
+        Long id = saveProgram(true, RecruitStatus.OPEN, "<p>본문</p>");
+
+        Document document = render(get("/admin/programs/{id}", id)
+                .param("programType", "COURSE")
+                .param("keyword", "a&b=c")
+                .param("page", "2")
+                .param("returnUrl", "https://evil.example"));
+
+        assertThat(document.select("#admin-program-detail-content h2").text()).isEqualTo("관리자 프로그램 상세 테스트");
+        assertThat(document.select("#admin-detail-list-link").attr("href")).isEqualTo("/admin/programs");
+        assertThat(document.select("#admin-detail-edit-link").attr("href")).isEqualTo("/admin/programs/" + id + "/edit");
+        assertThat(document.select("script[src=/js/admin/admin-list-state.js]")).hasSize(1);
+        assertThat(document.html()).doesNotContain("evil.example");
+    }
+
     @Test
     void detailReturnsNotFoundForNonExistentProgram() throws Exception {
         mockMvc.perform(get("/admin/programs/{id}", 999_999_999L)

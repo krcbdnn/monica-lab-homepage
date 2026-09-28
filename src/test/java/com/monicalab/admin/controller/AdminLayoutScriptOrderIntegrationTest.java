@@ -26,6 +26,7 @@ class AdminLayoutScriptOrderIntegrationTest extends AbstractIntegrationTest {
 
     private static final String COMMON_FETCH_SRC = "/js/admin/common-fetch.js";
     private static final String ADMIN_DISPLAY_SRC = "/js/admin/admin-display.js";
+    private static final String ADMIN_LIST_STATE_SRC = "/js/admin/admin-list-state.js";
 
     @Autowired
     private MockMvc mockMvc;
@@ -67,6 +68,15 @@ class AdminLayoutScriptOrderIntegrationTest extends AbstractIntegrationTest {
         for (String url : new String[] {"/admin/boards", "/admin/programs", "/admin/files", "/admin/banners",
                 "/admin/popups", "/admin/menus", "/admin/home-pinned-contents"}) {
             assertScriptLoadsBeforeFirstInlineUsage(url, ADMIN_DISPLAY_SRC, "AdminDisplay");
+        }
+    }
+
+    // P14-T9C-2: URL state가 있는 목록은 진입 즉시 AdminListState로 URL을 읽으므로, layout이 아니라 각 template이
+    // 인라인 스크립트 바로 앞에서 admin-list-state.js를 로드해야 한다(다른 admin 화면에는 로드하지 않는다).
+    @Test
+    void urlStateListsLoadAdminListStateBeforeTheyUseIt() throws Exception {
+        for (String url : new String[] {"/admin/boards", "/admin/programs", "/admin/files"}) {
+            assertScriptLoadsBeforeFirstInlineUsage(url, ADMIN_LIST_STATE_SRC, "AdminListState");
         }
     }
 
