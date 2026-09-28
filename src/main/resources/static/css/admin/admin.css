@@ -113,10 +113,11 @@ body {
     box-shadow: 0 1px 2px rgba(34, 38, 43, 0.04);
 }
 
-/* 등록/수정 form은 각 template이 이미 inline max-width:800px로 폭을 제한한다(개별 template 무변경).
-   그 경우 white surface가 1320px까지 넓게 비어 보이지 않도록 surface 자체를 form 폭에 맞춘다.
-   :has() 미지원 브라우저에서는 넓은 surface로 그대로 표시될 뿐 기능 영향은 없다. */
-.admin-page:has(> [style*="max-width: 800px"]) {
+/* 등록/수정 form은 .admin-form(800px, 아래 Forms 섹션)으로 폭을 제한한다. 그 경우 white surface가 1320px까지
+   넓게 비어 보이지 않도록 surface 자체를 form 폭에 맞춘다. P14-T9D: 예전 inline style 문자열 매칭
+   ([style*="max-width: 800px"])을 class 기반으로 바꿨다(폭 값은 동일). :has() 미지원 브라우저에서는 넓은
+   surface로 그대로 표시될 뿐 기능 영향은 없다. */
+.admin-page:has(> .admin-form) {
     max-width: calc(800px + 4rem + 2px);
 }
 
@@ -603,6 +604,42 @@ textarea.form-control {
 .form-check-input:focus {
     border-color: var(--admin-primary);
     box-shadow: 0 0 0 0.2rem var(--admin-focus);
+}
+
+/* P14-T9D: 관리자 등록/수정 form 공통 composition. 폭은 공개/관리자 상세 본문 읽기 폭과 같은 800px을 유지한다
+   (예전 inline style을 class로 옮김). 새 breakpoint/card/shadow/sticky 없이 T9B token만 쓴다. */
+.admin-form {
+    max-width: 800px;
+}
+
+.admin-form-required-note {
+    margin-bottom: 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--admin-text-muted);
+}
+
+/* 실제 필수 입력 field에만 붙는 표시(색만으로 의미를 전달하지 않도록 상단 안내 문구와 input required가 함께 쓰인다). */
+.admin-required {
+    margin-left: 0.125rem;
+    font-weight: 700;
+    color: var(--admin-danger);
+}
+
+/* 긴 form(Board/Program)과 Theme의 fieldset section 사이를 옅은 구분선으로 나눈다(legend.h5 typography는 T9B). */
+.admin-form fieldset + fieldset {
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--admin-border);
+}
+
+/* [취소][저장] action 영역 - 일반 문서 흐름(sticky 아님), 본문과 구분선으로 분리하고 오른쪽 정렬. */
+.admin-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 2rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--admin-border);
 }
 
 /* ===== Tables ===== */

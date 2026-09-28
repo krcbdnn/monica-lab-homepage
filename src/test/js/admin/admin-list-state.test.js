@@ -130,6 +130,43 @@ test('listHref/detailHref keep the fixed base path and append only canonical sta
     assert.ok(!AdminListState.listHref(BOARD_LIST, {keyword: 'javascript:alert(1)'}).startsWith('javascript:'));
 });
 
+// P14-T9D: 수정 링크는 filter + keyword + page를 모두, 등록 링크는 filter + keyword만(page 없음) 싣는다.
+test('editHref keeps filter, keyword and page and omits the query for the default state', () => {
+    assert.equal(AdminListState.editHref(BOARD_LIST, 123, {boardType: '', keyword: '', page: 0}), '/admin/boards/123/edit');
+    assert.equal(AdminListState.editHref(BOARD_LIST, 123, {boardType: 'NOTICE', keyword: 'test', page: 1}),
+        '/admin/boards/123/edit?boardType=NOTICE&keyword=test&page=1');
+    assert.equal(AdminListState.editHref(PROGRAM_LIST, 7, {programType: 'COURSE', keyword: 'a&b #한글', page: 2}),
+        '/admin/programs/7/edit?programType=COURSE&keyword=a%26b+%23%ED%95%9C%EA%B8%80&page=2');
+    assert.equal(AdminListState.editHref(PROGRAM_LIST, 7, {programType: '', keyword: '', page: 0}), '/admin/programs/7/edit');
+    assert.equal(AdminListState.editHref(BOARD_LIST, '../x', {}), '/admin/boards/..%2Fx/edit');
+});
+
+test('editHref never carries invalid or unknown values from a canonicalized state', () => {
+    const state = AdminListState.readState(BOARD_LIST, '?boardType=INVALID&page=-1&returnUrl=https%3A%2F%2Fevil.example&keyword=k');
+    assert.equal(AdminListState.editHref(BOARD_LIST, 5, state), '/admin/boards/5/edit?keyword=k');
+});
+
+test('newHref keeps filter and keyword but always drops page', () => {
+    assert.equal(AdminListState.newHref(BOARD_LIST, {boardType: '', keyword: '', page: 0}), '/admin/boards/new');
+    assert.equal(AdminListState.newHref(BOARD_LIST, {boardType: 'NOTICE', keyword: 'test', page: 3}),
+        '/admin/boards/new?boardType=NOTICE&keyword=test');
+    assert.equal(AdminListState.newHref(PROGRAM_LIST, {programType: 'SPECIAL', keyword: '공백 &', page: 9}),
+        '/admin/programs/new?programType=SPECIAL&keyword=%EA%B3%B5%EB%B0%B1+%26');
+    assert.equal(AdminListState.newHref(PROGRAM_LIST, {programType: '', keyword: '', page: 5}), '/admin/programs/new');
+    for (const href of [
+        AdminListState.newHref(BOARD_LIST, {boardType: 'REVIEW', keyword: 'x', page: 1}),
+        AdminListState.newHref(PROGRAM_LIST, {programType: 'COURSE', keyword: 'y', page: 42}),
+    ]) {
+        assert.equal(new URL(href, 'http://x').searchParams.has('page'), false, `${href} must not carry page`);
+    }
+});
+
+test('newHref drops unknown values from a canonicalized state and does not mutate the input', () => {
+    const state = Object.freeze(AdminListState.readState(BOARD_LIST, '?boardType=GALLERY&page=4&x=1&redirectUrl=%2F%2Fevil'));
+    assert.equal(AdminListState.newHref(BOARD_LIST, state), '/admin/boards/new?boardType=GALLERY');
+    assert.equal(state.page, 4);
+});
+
 test('readState/toSearch do not mutate their inputs', () => {
     const state = Object.freeze({boardType: 'NOTICE', keyword: 'k', page: 2, size: 20});
     assert.doesNotThrow(() => AdminListState.toSearch(BOARD_LIST, state));

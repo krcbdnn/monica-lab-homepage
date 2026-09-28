@@ -149,7 +149,10 @@ test.describe('P14-T9C-2: Admin List State & Navigation', () => {
       await page.locator(`#board-list-body a[href^="/admin/boards/${secondPageBoardId}?"]`).click();
       await expect.poll(() => pathAndQuery(page)).toBe(detailUrl);
       await expect(page.locator('#admin-detail-list-link')).toHaveAttribute('href', secondPageUrl());
-      await expect(page.locator('#admin-detail-edit-link')).toHaveAttribute('href', `/admin/boards/${secondPageBoardId}/edit`);
+      // P14-T9D: 수정 링크도 같은 목록 state(filter + keyword + page)를 싣는다(T9C-2의 "수정 링크 query 없음" 계약 대체).
+      await expect(page.locator('#admin-detail-edit-link'))
+        .toHaveAttribute('href', listUrl(`/admin/boards/${secondPageBoardId}/edit`, { boardType: 'NOTICE', keyword, page: '1' }));
+      await expect(page.locator('#admin-detail-public-link')).toHaveAttribute('href', `/boards/${secondPageBoardId}`);
       await page.locator('#admin-detail-list-link').click();
       await expect.poll(() => pathAndQuery(page)).toBe(secondPageUrl());
       await expect(page.locator('#searchBoardType')).toHaveValue('NOTICE');
@@ -276,7 +279,10 @@ test.describe('P14-T9C-2: Admin List State & Navigation', () => {
     expect(detailHref).toBe(listUrl(`/admin/programs/${program.id}`, { programType: 'COURSE', keyword }));
     await detailLink.click();
     await expect(page.locator('#admin-detail-list-link')).toHaveAttribute('href', expectedList);
-    await expect(page.locator('#admin-detail-edit-link')).toHaveAttribute('href', `/admin/programs/${program.id}/edit`);
+    // P14-T9D: 수정 링크도 같은 목록 state를 싣고, 공개 페이지 링크에는 싣지 않는다.
+    await expect(page.locator('#admin-detail-edit-link'))
+      .toHaveAttribute('href', listUrl(`/admin/programs/${program.id}/edit`, { programType: 'COURSE', keyword }));
+    await expect(page.locator('#admin-detail-public-link')).toHaveAttribute('href', `/programs/${program.id}`);
     await page.locator('#admin-detail-list-link').click();
     await expect.poll(() => pathAndQuery(page)).toBe(expectedList);
     await expect(page.locator('#searchProgramType')).toHaveValue('COURSE');

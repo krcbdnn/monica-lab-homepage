@@ -5,13 +5,18 @@
     <title>게시글 등록/수정</title>
 </head>
 <body>
-<div id="board-form-content" style="max-width: 800px;">
-    <h3 class="mb-4">게시글 등록/수정</h3>
-    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+<!-- P14-T9D: 공통 form composition(.admin-form 800px, 등록/수정 heading, 필수 표시, role=alert 오류, [취소][저장])과
+     긴 form용 fieldset section(기본 정보/본문/파일/공개 설정). field DOM 순서와 CKEditor mount 구조는 그대로다. -->
+<div id="board-form-content" class="admin-form">
+    <h3 id="admin-form-heading" class="mb-2">게시글 등록</h3>
+    <p class="admin-form-required-note">* 표시는 필수 입력입니다.</p>
+    <div id="errorMessage" class="alert alert-danger" role="alert" tabindex="-1" style="display: none;"></div>
     <form id="boardForm">
         <input type="hidden" id="boardId" name="boardId">
+        <fieldset class="mb-4">
+        <legend class="h5">기본 정보</legend>
         <div class="mb-3">
-            <label for="boardType" class="form-label">게시판 구분</label>
+            <label for="boardType" class="form-label">게시판 구분<span class="admin-required" aria-hidden="true">*</span></label>
             <select class="form-select" id="boardType" name="boardType" required>
                 <option value="NOTICE">공지사항</option>
                 <option value="GALLERY">갤러리</option>
@@ -21,21 +26,25 @@
         </div>
         <!-- P13-T30D(Task C): 강의 후기(REVIEW)일 때만 노출되는 subtype 선택. 신규 작성 시 COURSE/SPECIAL
              중 하나를 반드시 명시적으로 선택하게 하기 위해 첫 옵션은 빈 값(placeholder)이다 - 브라우저가
-             옵션 순서상 첫 번째("수강 후기")를 암묵적으로 기본 선택하지 않도록 하는 장치다. 기존 REVIEW+NULL
+             옵션 순서상 첫 번째("정규 강좌")를 암묵적으로 기본 선택하지 않도록 하는 장치다. 기존 REVIEW+NULL
              (legacy) 게시글을 수정 화면에서 열어도 이 placeholder가 그대로 선택된 채로 보여야 하므로,
-             JS에서 board.programType이 없을 때 임의로 COURSE를 채우지 않는다(아래 스크립트 참고). -->
+             JS에서 board.programType이 없을 때 임의로 COURSE를 채우지 않는다(아래 스크립트 참고).
+             P14-T9D: option 표시명은 관리자 공통 표현(정규 강좌/특강)이다(value는 무변경). -->
         <div class="mb-3" id="programTypeField" hidden>
-            <label for="programType" class="form-label">후기 대상</label>
+            <label for="programType" class="form-label">후기 대상<span class="admin-required" aria-hidden="true">*</span></label>
             <select class="form-select" id="programType" name="programType">
                 <option value="">후기 대상을 선택하세요</option>
-                <option value="COURSE">수강 후기</option>
-                <option value="SPECIAL">특강 후기</option>
+                <option value="COURSE">정규 강좌</option>
+                <option value="SPECIAL">특강</option>
             </select>
         </div>
         <div class="mb-3">
-            <label for="title" class="form-label">제목</label>
+            <label for="title" class="form-label">제목<span class="admin-required" aria-hidden="true">*</span></label>
             <input type="text" class="form-control" id="title" name="title" required maxlength="200">
         </div>
+        </fieldset>
+        <fieldset class="mb-4">
+        <legend class="h5">본문</legend>
         <div class="mb-3">
             <label for="content" class="form-label">내용</label>
             <textarea class="form-control" id="content" name="content" rows="8"></textarea>
@@ -51,6 +60,9 @@
                 </div>
             </div>
         </div>
+        </fieldset>
+        <fieldset class="mb-4">
+        <legend class="h5">파일</legend>
         <div class="mb-3">
             <label for="thumbnailInput" class="form-label">대표 이미지</label>
             <div id="thumbnailPreview" class="mb-2" hidden>
@@ -74,11 +86,18 @@
             <input type="file" class="form-control" id="attachmentInput">
             <input type="hidden" id="attachment" name="attachment">
         </div>
+        </fieldset>
+        <fieldset class="mb-4">
+        <legend class="h5">공개 설정</legend>
         <div class="form-check mb-3">
             <input type="checkbox" class="form-check-input" id="isPublic" name="isPublic">
             <label for="isPublic" class="form-check-label">공개</label>
         </div>
-        <button type="submit" class="btn btn-primary">저장</button>
+        </fieldset>
+        <div class="admin-form-actions">
+            <a id="admin-form-cancel-link" href="/admin/boards" class="btn btn-outline-secondary">취소</a>
+            <button type="submit" id="saveButton" class="btn btn-primary">저장</button>
+        </div>
     </form>
 
 <script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
@@ -88,8 +107,18 @@
 <script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script src="/js/admin/board-file-upload.js"></script>
 <script src="/js/admin/admin-file-preview.js"></script>
+<script src="/js/admin/admin-list-state.js"></script>
 <script>
     var contentEditor = null;
+    var errorMessage = document.querySelector('#errorMessage');
+    var saveButton = document.querySelector('#saveButton');
+
+    // P14-T9D: 오류는 role=alert 영역에 표시하고 focus해 긴 form 아래쪽에서 저장해도 바로 보이게 한다.
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+        errorMessage.focus();
+    }
 
     var editorReady = ClassicEditor.create(document.querySelector('#content'), AdminCkeditorConfig.EDITOR_CONFIG)
         .then(function (editor) {
@@ -108,6 +137,22 @@
     }
 
     var editingBoardId = extractBoardIdFromPath();
+
+    // P14-T9D: 등록/수정이 같은 template이므로 수정 모드에서만 heading을 바꾸고 문서 title도 같은 의미로 맞춘다.
+    if (editingBoardId) {
+        document.querySelector('#admin-form-heading').textContent = '게시글 수정';
+    }
+    document.title = document.querySelector('#admin-form-heading').textContent;
+
+    // P14-T9D: 목록에서 넘어온 form URL query(boardType/keyword/page)를 allowlist 검증·정규화해 저장 후 이동과 취소가
+    // 같은 목록 상태로 돌아가게 한다(raw query 복사나 임의 복귀 URL 파라미터 없음, form URL 자체는 정규화하지 않음). 새 글은 첫 page에
+    // 나타나므로 등록 모드에서는 URL에 page가 있어도 page 0으로 돌아간다.
+    var listState = AdminListState.readState(AdminListState.BOARD_LIST, window.location.search);
+    if (!editingBoardId) {
+        listState.page = 0;
+    }
+    var listHref = AdminListState.listHref(AdminListState.BOARD_LIST, listState);
+    document.querySelector('#admin-form-cancel-link').href = listHref;
 
     // P13-T30D(Task C): boardType이 REVIEW일 때만 programType 필드를 노출한다. REVIEW가 아닌 값으로
     // 바뀌면 필드를 숨기고 값도 함께 비워(payload에서 항상 null로 나가도록) 서버에 stale programType이
@@ -236,7 +281,6 @@
     document.querySelector('#boardForm').addEventListener('submit', function (event) {
         event.preventDefault();
 
-        var errorMessage = document.querySelector('#errorMessage');
         errorMessage.style.display = 'none';
 
         var boardTypeValue = document.querySelector('#boardType').value;
@@ -247,8 +291,7 @@
         // 차단한다(서버 MenuService/BoardService 쪽은 REVIEW+NULL을 계속 허용하는 것과 별개로,
         // 이 화면을 통한 신규/수정 저장에서는 명시적 선택을 강제한다).
         if (boardTypeValue === 'REVIEW' && !programTypeValue) {
-            errorMessage.textContent = '후기 대상(수강 후기/특강 후기)을 선택해야 합니다.';
-            errorMessage.style.display = 'block';
+            showError('후기 대상(정규 강좌/특강)을 선택해야 합니다.');
             return;
         }
 
@@ -267,6 +310,8 @@
         var url = boardId ? '/api/admin/boards/' + boardId : '/api/admin/boards';
         var method = boardId ? 'PUT' : 'POST';
 
+        // P14-T9D: 요청 중 중복 submit 방지 - 실패하면 다시 활성화하고, 성공하면 이동하므로 비활성 상태로 둔다.
+        saveButton.disabled = true;
         AdminFetch.adminFetch(url, {
             method: method,
             headers: {'Content-Type': 'application/json'},
@@ -279,16 +324,16 @@
             })
             .then(function (result) {
                 if (result.ok && result.body.success) {
-                    window.location.href = '/admin/boards';
+                    window.location.href = listHref;
                 } else {
-                    errorMessage.textContent = (result.body.error && result.body.error.message)
-                        || '저장 중 오류가 발생했습니다.';
-                    errorMessage.style.display = 'block';
+                    saveButton.disabled = false;
+                    showError((result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.');
                 }
             })
             .catch(function () {
-                errorMessage.textContent = '저장 중 오류가 발생했습니다.';
-                errorMessage.style.display = 'block';
+                saveButton.disabled = false;
+                showError('저장 중 오류가 발생했습니다.');
             });
     });
 </script>

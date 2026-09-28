@@ -22,6 +22,12 @@ const ADMIN_PAGES = [
   // P13-T30E(Task B): admin menu 화면(list/form)이 이 회귀 목록에 없었던 기존 갭을 메운다.
   '/admin/menus',
   '/admin/menus/new',
+  // P14-T9D: form composition(.admin-form/action 영역/필수 표시)을 바꾼 등록·편집 form도 최초 진입 pageerror 0을 확인한다.
+  '/admin/boards/new',
+  '/admin/programs/new',
+  '/admin/banners/new',
+  '/admin/popups/new',
+  '/admin/pages/GREETING/edit',
   // P13-T38A: 신규 admin 화면(등록/수정 폼이 따로 없어 목록 1개만 추가).
   '/admin/home-pinned-contents',
   // P14-T8B: 신규 admin 화면(singleton 설정 폼 1개, 별도 목록 없음).

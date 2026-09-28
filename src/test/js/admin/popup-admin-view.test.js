@@ -254,3 +254,84 @@ test('templates/admin/popup/list.html renders visibility as a positive/muted sta
     assert.match(html, /visibleTd\.appendChild\(AdminDisplay\.createStateBadge\(document, popup\.isVisible, '노출', '비노출'\)\);/);
     assert.doesNotMatch(html, /visibleTd\.textContent/);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// P14-T9D: Admin Form Composition 공통 계약(.admin-form 800px, 필수 표시, role=alert 오류 + focus, [취소][저장],
+// 저장 중 중복 submit 방지). form마다 같은 형태로 검증한다.
+// ---------------------------------------------------------------------------------------------------------------
+const T9D = {
+    "template": "admin/popup/form.html",
+    "contentId": "popup-form-content",
+    "cancelHref": "/admin/popups",
+    "requiredLabels": [
+        "제목",
+        "시작일",
+        "종료일"
+    ],
+    "createHeading": "팝업 등록",
+    "editHeading": "팝업 수정",
+    "editingVar": "editingPopupId"
+};
+
+function t9dSource() {
+    return readTemplate(T9D.template).replace(/\r\n/g, '\n');
+}
+
+function t9dEscape(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+test(`${T9D.template} uses the shared .admin-form wrapper instead of an inline max-width`, () => {
+    const source = t9dSource();
+    assert.match(source, new RegExp(`<div id="${T9D.contentId}" class="admin-form">`));
+    assert.doesNotMatch(source, /max-width: 800px/);
+});
+
+test(`${T9D.template} marks exactly the required fields and explains the marker once`, () => {
+    const source = t9dSource();
+    assert.match(source, /<p class="admin-form-required-note">\* 표시는 필수 입력입니다\.<\/p>/);
+    const markers = source.match(/<span class="admin-required" aria-hidden="true">\*<\/span>/g) || [];
+    assert.equal(markers.length, T9D.requiredLabels.length);
+    for (const label of T9D.requiredLabels) {
+        assert.match(source, new RegExp(`>${t9dEscape(label)}<span class="admin-required" aria-hidden="true">\\*</span></label>`),
+            `missing required marker for ${label}`);
+    }
+});
+
+test(`${T9D.template} shows errors in a focusable role=alert region`, () => {
+    const source = t9dSource();
+    assert.match(source, /<div id="errorMessage" class="alert alert-danger" role="alert" tabindex="-1" style="display: none;"><\/div>/);
+    assert.match(source, /function showError\(message\) \{\s*errorMessage\.textContent = message;\s*errorMessage\.style\.display = 'block';\s*errorMessage\.focus\(\);\s*\}/);
+});
+
+test(`${T9D.template} ends with a normal-flow [취소][저장] action area`, () => {
+    const source = t9dSource();
+    assert.match(source, new RegExp('<div class="admin-form-actions">\\s*'
+        + `<a id="admin-form-cancel-link" href="${t9dEscape(T9D.cancelHref)}" class="btn btn-outline-secondary">취소</a>\\s*`
+        + '<button type="submit" id="saveButton" class="btn btn-primary">저장</button>\\s*</div>\\s*</form>'));
+    assert.equal((source.match(/type="submit"/g) || []).length, 1);
+    assert.doesNotMatch(source, /sticky/);
+});
+
+test(`${T9D.template} disables the save button while saving and re-enables it only on failure`, () => {
+    const source = t9dSource();
+    const handler = source.slice(source.indexOf("addEventListener('submit'"));
+    const disableIndex = handler.indexOf('saveButton.disabled = true;');
+    const requestIndex = handler.indexOf('AdminFetch.adminFetch(');
+    assert.ok(disableIndex !== -1 && disableIndex < requestIndex, 'disable right before the save request');
+    assert.match(handler, /if \(result\.ok && result\.body\.success\) \{\s*window\.location\.href = [^;]+;\s*\} else \{\s*saveButton\.disabled = false;\s*showError\(/);
+    assert.match(handler, /\.catch\(function \(\) \{\s*saveButton\.disabled = false;\s*showError\('저장 중 오류가 발생했습니다\.'\);/);
+    assert.equal((handler.match(/saveButton\.disabled = false;/g) || []).length, 2);
+});
+
+test(`${T9D.template} switches the heading (and document title) to the edit wording only in edit mode`, () => {
+    const source = t9dSource();
+    assert.match(source, new RegExp(`<h3 id="admin-form-heading" class="mb-2">${T9D.createHeading}</h3>`));
+    assert.match(source, new RegExp(`if \\(${T9D.editingVar}\\) \\{\\s*document\\.querySelector\\('#admin-form-heading'\\)\\.textContent = '${T9D.editHeading}';\\s*\\}\\s*`
+        + "document\\.title = document\\.querySelector\\('#admin-form-heading'\\)\\.textContent;"));
+});
+
+test('templates/admin/popup/form.html explains the start/end date contract without adding client date validation', () => {
+    const source = t9dSource();
+    assert.match(source, /<div class="form-text">시작일은 종료일보다 늦을 수 없습니다\.<\/div>/);
+});

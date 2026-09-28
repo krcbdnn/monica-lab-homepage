@@ -5,13 +5,15 @@
     <title>메뉴 등록/수정</title>
 </head>
 <body>
-<div id="menu-form-content" style="max-width: 800px;">
-    <h3 class="mb-4">메뉴 등록/수정</h3>
-    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+<!-- P14-T9D: 공통 form composition(.admin-form 800px, 등록/수정 heading, 필수 표시, role=alert 오류, [취소][저장]). -->
+<div id="menu-form-content" class="admin-form">
+    <h3 id="admin-form-heading" class="mb-2">메뉴 등록</h3>
+    <p class="admin-form-required-note">* 표시는 필수 입력입니다.</p>
+    <div id="errorMessage" class="alert alert-danger" role="alert" tabindex="-1" style="display: none;"></div>
     <form id="menuForm">
         <input type="hidden" id="menuId" name="menuId">
         <div class="mb-3">
-            <label for="label" class="form-label">메뉴명</label>
+            <label for="label" class="form-label">메뉴명<span class="admin-required" aria-hidden="true">*</span></label>
             <input type="text" class="form-control" id="label" name="label" required maxlength="50">
         </div>
         <div class="mb-3">
@@ -19,13 +21,13 @@
             <select class="form-select" id="parentId" name="parentId">
                 <option value="">없음(최상위)</option>
             </select>
-            <div class="form-text">상위 메뉴로 선택할 수 있는 것은 유형이 "GROUP"인 최상위 메뉴뿐입니다.</div>
+            <div class="form-text">상위 메뉴로 선택할 수 있는 것은 "그룹" 유형인 최상위 메뉴뿐입니다.</div>
         </div>
         <div class="mb-3">
-            <label for="targetType" class="form-label">유형</label>
+            <label for="targetType" class="form-label">유형<span class="admin-required" aria-hidden="true">*</span></label>
             <!-- P13-T30E(Task B): option value(서버로 보내는 실제 enum 문자열)는 그대로 두고 표시
                  텍스트만 한글 우선으로 바꾼다. -->
-            <select class="form-select" id="targetType" name="targetType">
+            <select class="form-select" id="targetType" name="targetType" required>
                 <option value="GROUP">그룹(하위 메뉴 묶음, 자체 링크 없음)</option>
                 <option value="HOME">홈(메인 화면)</option>
                 <option value="PAGE">고정 페이지(기관소개)</option>
@@ -56,12 +58,12 @@
             <label for="targetSubvalue" class="form-label">후기 대상(강의 후기 세부 구분)</label>
             <select class="form-select" id="targetSubvalue" name="targetSubvalue">
                 <option value="">미지정(기존 REVIEW 전체 호환)</option>
-                <option value="COURSE">수강 후기(COURSE)</option>
-                <option value="SPECIAL">특강 후기(SPECIAL)</option>
+                <option value="COURSE">정규 강좌</option>
+                <option value="SPECIAL">특강</option>
             </select>
         </div>
         <div class="mb-3">
-            <label for="sortOrder" class="form-label">정렬 순서</label>
+            <label for="sortOrder" class="form-label">정렬 순서<span class="admin-required" aria-hidden="true">*</span></label>
             <input type="number" class="form-control" id="sortOrder" name="sortOrder" min="0" required>
         </div>
         <div class="form-check mb-3">
@@ -72,16 +74,22 @@
             <input type="checkbox" class="form-check-input" id="openInNewTab" name="openInNewTab">
             <label for="openInNewTab" class="form-check-label">새 탭에서 열기</label>
         </div>
-        <button type="submit" class="btn btn-primary">저장</button>
+        <div class="admin-form-actions">
+            <a id="admin-form-cancel-link" href="/admin/menus" class="btn btn-outline-secondary">취소</a>
+            <button type="submit" id="saveButton" class="btn btn-primary">저장</button>
+        </div>
     </form>
 
 <script src="/js/admin/common-fetch.js"></script>
 <script>
     var errorMessage = document.querySelector('#errorMessage');
+    var saveButton = document.querySelector('#saveButton');
 
+    // P14-T9D: 오류는 role=alert 영역에 표시하고 focus해 긴 form 아래쪽에서 저장해도 바로 보이게 한다.
     function showError(message) {
         errorMessage.textContent = message;
         errorMessage.style.display = 'block';
+        errorMessage.focus();
     }
 
     function extractMenuIdFromPath() {
@@ -90,6 +98,12 @@
     }
 
     var editingMenuId = extractMenuIdFromPath();
+
+    // P14-T9D: 등록/수정이 같은 template이므로 수정 모드에서만 heading을 바꾸고 문서 title도 같은 의미로 맞춘다.
+    if (editingMenuId) {
+        document.querySelector('#admin-form-heading').textContent = '메뉴 수정';
+    }
+    document.title = document.querySelector('#admin-form-heading').textContent;
 
     // P13-T30A: 상위 메뉴로 선택할 수 있는 것은 유형이 GROUP인 최상위 메뉴뿐이다(자기 자신 제외).
     // 실제 강제는 서버(MenuService)가 하지만, 화면에서도 애초에 고를 수 없는 후보는 보여주지 않는다.
@@ -220,6 +234,8 @@
         var url = menuId ? '/api/admin/menus/' + menuId : '/api/admin/menus';
         var method = menuId ? 'PUT' : 'POST';
 
+        // P14-T9D: 요청 중 중복 submit 방지 - 실패하면 다시 활성화하고, 성공하면 이동하므로 비활성 상태로 둔다.
+        saveButton.disabled = true;
         AdminFetch.adminFetch(url, {
             method: method,
             headers: {'Content-Type': 'application/json'},
@@ -234,11 +250,13 @@
                 if (result.ok && result.body.success) {
                     window.location.href = '/admin/menus';
                 } else {
+                    saveButton.disabled = false;
                     showError((result.body.error && result.body.error.message)
                         || '저장 중 오류가 발생했습니다.');
                 }
             })
             .catch(function () {
+                saveButton.disabled = false;
                 showError('저장 중 오류가 발생했습니다.');
             });
     });

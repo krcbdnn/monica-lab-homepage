@@ -77,6 +77,20 @@ class AdminThemeViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#showGallery[type=checkbox]")).isNotEmpty();
     }
 
+    // P14-T9D: Theme은 공통 .admin-form wrapper와 action 영역만 쓰고, 단일 설정 화면이라 취소 버튼이 없다.
+    // 기존 inline 성공 메시지/저장 버튼 id 계약은 그대로다.
+    @Test
+    void formUsesSharedFormCompositionWithoutCancelAndKeepsInlineSuccess() throws Exception {
+        Document document = render(get("/admin/theme"));
+
+        assertThat(document.select("#theme-form-content.admin-form")).hasSize(1);
+        assertThat(document.select("#theme-form-content").attr("style")).isEmpty();
+        assertThat(document.select("#errorMessage").attr("role")).isEqualTo("alert");
+        assertThat(document.select(".admin-form-actions #saveButton[type=submit]")).hasSize(1);
+        assertThat(document.select("#admin-form-cancel-link")).isEmpty();
+        assertThat(document.select("#successMessage").text()).isEqualTo("저장되었습니다.");
+    }
+
     private Document render(MockHttpServletRequestBuilder request) throws Exception {
         String body = mockMvc.perform(request
                         .with(user("admin").authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
