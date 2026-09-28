@@ -11,7 +11,9 @@
         <button type="button" id="toggleAddPanel" class="btn btn-primary">새 고정 추가</button>
     </div>
 
-    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+    <!-- P14-T9C-1: 고정 해제/추가/전환/순서 변경 결과 inline status(AdminDisplay.showStatus/clearStatus). 기존
+         목록 전용 #errorMessage를 대체한다. -->
+    <div id="admin-list-status" hidden></div>
 
     <!-- admin/layout/default.html에는 Bootstrap JS 번들이 로드되어 있지 않아 data-bs-toggle 기반
          modal을 쓸 수 없다. 대신 순수 JS로 hidden 속성만 토글하는 inline 패널로 구현한다. -->
@@ -35,80 +37,97 @@
                     <button type="submit" class="btn btn-outline-primary">검색</button>
                 </div>
             </form>
+            <!-- P14-T9C-1: 검색 결과 표도 좁은 화면에서 이 wrapper 안에서만 가로 스크롤된다. -->
+            <div class="table-responsive">
             <table class="table">
                 <thead>
                 <tr>
-                    <th>제목</th>
-                    <th>공개 여부</th>
-                    <th>정렬 순서</th>
-                    <th>관리</th>
+                    <th scope="col">제목</th>
+                    <th scope="col">공개 여부</th>
+                    <th scope="col">정렬 순서</th>
+                    <th scope="col">관리</th>
                 </tr>
                 </thead>
                 <tbody id="search-result-body"></tbody>
             </table>
+            </div>
         </div>
     </div>
 
+    <!-- P14-T9C-1: T9B에서 T9C로 넘긴 responsive wrapper. 좁은 화면에서 페이지 전체가 아니라 이 안에서만
+         가로 스크롤된다. -->
+    <div class="table-responsive">
     <table class="table">
         <thead>
         <tr>
-            <th>타입</th>
-            <th>제목</th>
-            <th>정렬 순서</th>
-            <th>노출 여부</th>
-            <th>원본 상태</th>
-            <th>관리</th>
+            <th scope="col">타입</th>
+            <th scope="col">제목</th>
+            <th scope="col">정렬 순서</th>
+            <th scope="col">노출 여부</th>
+            <th scope="col">원본 상태</th>
+            <th scope="col">관리</th>
         </tr>
         </thead>
         <tbody id="pinned-list-body"></tbody>
     </table>
+    </div>
 
     <script>
-        var errorMessage = document.querySelector('#errorMessage');
+        var listStatus = document.getElementById('admin-list-status');
         var pinnedKeys = {};
         var nextSortOrder = 0;
+        var PINNED_COLUMN_COUNT = 6;
+        var SEARCH_COLUMN_COUNT = 4;
+        var ORDER_CHANGE_ERROR = '순서 변경 중 오류가 발생했습니다.';
+        var STATUS_CHANGE_ERROR = '상태 변경 중 오류가 발생했습니다.';
+        var UNPIN_ERROR = '고정 해제 중 오류가 발생했습니다.';
+        var PIN_ERROR = '고정 추가 중 오류가 발생했습니다.';
 
-        function showError(message) {
-            errorMessage.textContent = message;
-            errorMessage.style.display = 'block';
+        // P14-T9C-1: 실패 응답의 body가 JSON이 아니어도(세션 만료 HTML 등) fallback 문구로 표시한다.
+        function showResponseError(response, fallback) {
+            return response.json()
+                .catch(function () {
+                    return null;
+                })
+                .then(function (body) {
+                    AdminDisplay.showStatus(listStatus, AdminDisplay.apiErrorMessage(body, fallback), 'error');
+                });
         }
 
-        function clearError() {
-            errorMessage.style.display = 'none';
+        // 전환/순서 변경 성공은 다시 그려진 목록 자체가 결과이므로 별도 성공 메시지 없이 목록만 다시 불러온다.
+        function reloadOrShowError(response, fallback) {
+            if (response.ok) {
+                loadPinned();
+                return undefined;
+            }
+            return showResponseError(response, fallback);
         }
 
         function pinKey(targetType, targetId) {
             return targetType + ':' + targetId;
         }
 
+        // P14-T9C-1: 타입은 분류라 neutral, 노출 여부는 positive/muted, 원본 상태는 공개(positive) 외에는
+        // 메인에 노출되지 않아 관리자 확인이 필요한 상태(비공개/원본 없음)라 attention이다.
         var TARGET_TYPE_LABELS = {BOARD: '게시글', PROGRAM: '프로그램'};
 
         function targetTypeBadge(targetType) {
-            var span = document.createElement('span');
-            span.className = 'badge text-bg-info';
-            span.textContent = TARGET_TYPE_LABELS[targetType] || targetType;
-            return span;
+            return AdminDisplay.createBadge(document, TARGET_TYPE_LABELS[targetType] || targetType, 'neutral');
         }
 
         function visibilityBadge(visible) {
-            var span = document.createElement('span');
-            span.className = 'badge ' + (visible ? 'text-bg-success' : 'text-bg-secondary');
-            span.textContent = visible ? '노출' : '숨김';
-            return span;
+            return AdminDisplay.createStateBadge(document, visible, '노출', '숨김');
         }
 
         var SOURCE_STATUS_LABELS = {
-            PUBLIC: {text: '공개', cls: 'text-bg-success'},
-            PRIVATE: {text: '비공개', cls: 'text-bg-warning text-dark'},
-            DELETED: {text: '원본 없음', cls: 'text-bg-danger'}
+            PUBLIC: {text: '공개', tone: 'positive'},
+            PRIVATE: {text: '비공개', tone: 'attention'},
+            DELETED: {text: '원본 없음', tone: 'attention'}
         };
 
         function sourceStatusBadge(sourceStatus) {
-            var info = SOURCE_STATUS_LABELS[sourceStatus] || {text: sourceStatus, cls: 'text-bg-light text-dark border'};
-            var span = document.createElement('span');
-            span.className = 'badge ' + info.cls;
-            span.textContent = info.text;
-            return span;
+            var info = SOURCE_STATUS_LABELS[sourceStatus] || {text: sourceStatus, tone: 'neutral'};
+            return AdminDisplay.createBadge(document, info.text, info.tone);
         }
 
         function renderPinnedRow(pin) {
@@ -136,27 +155,17 @@
             orderButton.className = 'btn btn-sm btn-outline-secondary';
             orderButton.textContent = '순서 변경';
             orderButton.addEventListener('click', function () {
-                clearError();
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id + '/order', {
                     method: 'PATCH',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({sortOrder: Number(sortOrderInput.value)})
                 })
                     .then(function (response) {
-                        return response.json().then(function (body) {
-                            return {ok: response.ok, body: body};
-                        });
-                    })
-                    .then(function (result) {
-                        if (result.ok && result.body.success) {
-                            loadPinned();
-                        } else {
-                            showError((result.body.error && result.body.error.message)
-                                || '순서 변경 중 오류가 발생했습니다.');
-                        }
+                        return reloadOrShowError(response, ORDER_CHANGE_ERROR);
                     })
                     .catch(function () {
-                        showError('순서 변경 중 오류가 발생했습니다.');
+                        AdminDisplay.showStatus(listStatus, ORDER_CHANGE_ERROR, 'error');
                     });
             });
             sortOrderTd.appendChild(orderButton);
@@ -185,12 +194,18 @@
             visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
             visibilityButton.textContent = pin.visible ? '숨김으로 전환' : '노출로 전환';
             visibilityButton.addEventListener('click', function () {
-                clearError();
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id + '/visibility', {
                     method: 'PATCH',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({visible: !pin.visible})
-                }).then(loadPinned);
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, STATUS_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, STATUS_CHANGE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(visibilityButton);
 
@@ -202,19 +217,19 @@
                 if (!window.confirm('고정을 해제하시겠습니까?')) {
                     return;
                 }
-                clearError();
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id, {method: 'DELETE'})
                     .then(function (response) {
                         if (response.ok) {
+                            // loadPinned()는 status를 건드리지 않으므로 성공 메시지는 재조회(실패 포함) 후에도 남는다.
                             loadPinned();
-                            return;
+                            AdminDisplay.showStatus(listStatus, '고정이 해제되었습니다.', 'success');
+                            return undefined;
                         }
-                        response.json().then(function (body) {
-                            showError((body.error && body.error.message) || '고정 해제 중 오류가 발생했습니다.');
-                        });
+                        return showResponseError(response, UNPIN_ERROR);
                     })
                     .catch(function () {
-                        showError('고정 해제 중 오류가 발생했습니다.');
+                        AdminDisplay.showStatus(listStatus, UNPIN_ERROR, 'error');
                     });
             });
             actionTd.appendChild(deleteButton);
@@ -223,9 +238,15 @@
             return tr;
         }
 
+        // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody만 담당). 응답 실패/JSON 파싱 실패/렌더링 예외
+        // 모두 이전 행을 지우고 오류 행 하나만 남긴다.
         function loadPinned() {
+            var tbody = document.getElementById('pinned-list-body');
             AdminFetch.adminFetch('/api/admin/home-pinned-contents')
                 .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
                     return response.json();
                 })
                 .then(function (body) {
@@ -240,11 +261,16 @@
                     });
                     nextSortOrder = maxSortOrder + 1;
 
-                    var tbody = document.getElementById('pinned-list-body');
                     tbody.innerHTML = '';
                     pins.forEach(function (pin) {
                         tbody.appendChild(renderPinnedRow(pin));
                     });
+                    if (pins.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, PINNED_COLUMN_COUNT, '고정된 콘텐츠가 없습니다.');
+                    }
+                })
+                .catch(function () {
+                    AdminDisplay.renderErrorRow(document, tbody, PINNED_COLUMN_COUNT, '고정 콘텐츠 목록을 불러오지 못했습니다.');
                 });
         }
 
@@ -258,7 +284,7 @@
             tr.appendChild(titleTd);
 
             var publicTd = document.createElement('td');
-            publicTd.textContent = item.isPublic ? '공개' : '비공개';
+            publicTd.appendChild(AdminDisplay.createStateBadge(document, item.isPublic, '공개', '비공개'));
             tr.appendChild(publicTd);
 
             var sortOrderTd = document.createElement('td');
@@ -286,7 +312,7 @@
             } else {
                 addButton.textContent = '고정';
                 addButton.addEventListener('click', function () {
-                    clearError();
+                    AdminDisplay.clearStatus(listStatus);
                     AdminFetch.adminFetch('/api/admin/home-pinned-contents', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -297,21 +323,15 @@
                         })
                     })
                         .then(function (response) {
-                            return response.json().then(function (body) {
-                                return {ok: response.ok, body: body};
-                            });
-                        })
-                        .then(function (result) {
-                            if (result.ok && result.body.success) {
+                            if (response.ok) {
                                 loadPinned();
                                 runSearch();
-                            } else {
-                                showError((result.body.error && result.body.error.message)
-                                    || '고정 추가 중 오류가 발생했습니다.');
+                                return undefined;
                             }
+                            return showResponseError(response, PIN_ERROR);
                         })
                         .catch(function () {
-                            showError('고정 추가 중 오류가 발생했습니다.');
+                            AdminDisplay.showStatus(listStatus, PIN_ERROR, 'error');
                         });
                 });
             }
@@ -377,16 +397,25 @@
             var url = (searchState.targetType === 'BOARD' ? '/api/admin/boards?' : '/api/admin/programs?')
                 + buildSearchParams();
 
+            var tbody = document.getElementById('search-result-body');
             AdminFetch.adminFetch(url)
                 .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
                     return response.json();
                 })
                 .then(function (body) {
-                    var tbody = document.getElementById('search-result-body');
                     tbody.innerHTML = '';
                     body.data.content.forEach(function (item) {
                         tbody.appendChild(renderSearchResultRow(item, searchState.targetType));
                     });
+                    if (body.data.content.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, SEARCH_COLUMN_COUNT, '검색 결과가 없습니다.');
+                    }
+                })
+                .catch(function () {
+                    AdminDisplay.renderErrorRow(document, tbody, SEARCH_COLUMN_COUNT, '검색 결과를 불러오지 못했습니다.');
                 });
         }
 

@@ -27,30 +27,37 @@
         </div>
     </form>
 
+    <!-- P14-T9C-1: 삭제/전환 결과 inline status(AdminDisplay.showStatus/clearStatus). -->
+    <div id="admin-list-status" hidden></div>
+
     <!-- P14-T9A: table 자체(columns/데이터/action)는 무변경 - 좁은 화면에서 페이지 전체가 아니라
          이 wrapper 안에서만 가로 스크롤되도록 Bootstrap 기본 유틸리티만 추가한다. -->
     <div class="table-responsive">
     <table class="table">
         <thead>
         <tr>
-            <th>제목</th>
-            <th>구분</th>
-            <th>모집 상태</th>
-            <th>공개 여부</th>
-            <th>관리</th>
+            <th scope="col">제목</th>
+            <th scope="col">구분</th>
+            <th scope="col">모집 상태</th>
+            <th scope="col">공개 여부</th>
+            <th scope="col">관리</th>
         </tr>
         </thead>
         <tbody id="program-list-body"></tbody>
     </table>
     </div>
 
-    <nav id="pagination" class="d-flex gap-2">
+    <nav id="pagination" class="d-flex gap-2" aria-label="페이지 이동">
         <button id="prev-page" type="button" class="btn btn-outline-secondary" disabled>이전</button>
         <button id="next-page" type="button" class="btn btn-outline-secondary" disabled>다음</button>
     </nav>
 
     <script>
         var state = {page: 0, size: 20, programType: '', keyword: ''};
+        var listStatus = document.getElementById('admin-list-status');
+        var COLUMN_COUNT = 5;
+        var STATUS_CHANGE_ERROR = '상태 변경 중 오류가 발생했습니다.';
+        var DELETE_ERROR = '삭제 중 오류가 발생했습니다.';
 
         function buildQuery() {
             var params = new URLSearchParams();
@@ -65,6 +72,30 @@
             return params.toString();
         }
 
+        // P14-T9C-1: 실패 응답의 body가 JSON이 아니어도(세션 만료 HTML 등) fallback 문구로 표시한다.
+        function showResponseError(response, fallback) {
+            return response.json()
+                .catch(function () {
+                    return null;
+                })
+                .then(function (body) {
+                    AdminDisplay.showStatus(listStatus, AdminDisplay.apiErrorMessage(body, fallback), 'error');
+                });
+        }
+
+        // 전환 성공은 다시 그려진 badge 자체가 결과이므로 별도 성공 메시지 없이 목록만 다시 불러온다.
+        function reloadOrShowError(response, fallback) {
+            if (response.ok) {
+                loadPrograms();
+                return undefined;
+            }
+            return showResponseError(response, fallback);
+        }
+
+        function emptyMessage() {
+            return state.programType || state.keyword ? '조건에 맞는 프로그램이 없습니다.' : '등록된 프로그램이 없습니다.';
+        }
+
         function renderRow(program) {
             var tr = document.createElement('tr');
 
@@ -76,16 +107,20 @@
             titleTd.appendChild(titleLink);
             tr.appendChild(titleTd);
 
+            // P14-T9C-1: 유형은 neutral, 모집 상태는 모집중(positive)/마감(muted), 공개 여부는 state badge.
             var typeTd = document.createElement('td');
-            typeTd.textContent = program.programType;
+            typeTd.appendChild(AdminDisplay.createBadge(document,
+                AdminDisplay.label(AdminDisplay.PROGRAM_TYPE_LABELS, program.programType), 'neutral'));
             tr.appendChild(typeTd);
 
             var statusTd = document.createElement('td');
-            statusTd.textContent = program.recruitStatus;
+            statusTd.appendChild(AdminDisplay.createBadge(document,
+                AdminDisplay.label(AdminDisplay.RECRUIT_STATUS_LABELS, program.recruitStatus),
+                AdminDisplay.recruitStatusTone(program.recruitStatus)));
             tr.appendChild(statusTd);
 
             var publicTd = document.createElement('td');
-            publicTd.textContent = program.isPublic ? '공개' : '비공개';
+            publicTd.appendChild(AdminDisplay.createStateBadge(document, program.isPublic, '공개', '비공개'));
             tr.appendChild(publicTd);
 
             var actionTd = document.createElement('td');
@@ -101,11 +136,18 @@
             visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
             visibilityButton.textContent = program.isPublic ? '비공개로 전환' : '공개로 전환';
             visibilityButton.addEventListener('click', function () {
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/programs/' + program.id + '/visibility', {
                     method: 'PATCH',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({isPublic: !program.isPublic})
-                }).then(loadPrograms);
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, STATUS_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, STATUS_CHANGE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(visibilityButton);
 
@@ -115,11 +157,18 @@
             var nextStatus = program.recruitStatus === 'OPEN' ? 'CLOSED' : 'OPEN';
             statusButton.textContent = nextStatus === 'CLOSED' ? '마감으로 전환' : '모집중으로 전환';
             statusButton.addEventListener('click', function () {
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/programs/' + program.id + '/status', {
                     method: 'PATCH',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({recruitStatus: nextStatus})
-                }).then(loadPrograms);
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, STATUS_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, STATUS_CHANGE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(statusButton);
 
@@ -131,8 +180,20 @@
                 if (!window.confirm('삭제하시겠습니까?')) {
                     return;
                 }
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/programs/' + program.id, {method: 'DELETE'})
-                    .then(loadPrograms);
+                    .then(function (response) {
+                        if (response.ok) {
+                            // loadPrograms()는 status를 건드리지 않으므로 성공 메시지는 재조회(실패 포함) 후에도 남는다.
+                            loadPrograms();
+                            AdminDisplay.showStatus(listStatus, '삭제되었습니다.', 'success');
+                            return undefined;
+                        }
+                        return showResponseError(response, DELETE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, DELETE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(deleteButton);
 
@@ -140,21 +201,33 @@
             return tr;
         }
 
+        // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody/pagination만 담당). 응답 실패/JSON 파싱 실패/
+        // 렌더링 예외 모두 이전 행을 지우고 오류 행 하나만 남긴다.
         function loadPrograms() {
+            var tbody = document.getElementById('program-list-body');
             AdminFetch.adminFetch('/api/admin/programs?' + buildQuery())
                 .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
                     return response.json();
                 })
                 .then(function (body) {
                     var data = body.data;
-                    var tbody = document.getElementById('program-list-body');
                     tbody.innerHTML = '';
                     data.content.forEach(function (program) {
                         tbody.appendChild(renderRow(program));
                     });
+                    if (data.content.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, COLUMN_COUNT, emptyMessage());
+                    }
 
                     document.getElementById('prev-page').disabled = data.page <= 0;
                     document.getElementById('next-page').disabled = data.last;
+                })
+                .catch(function () {
+                    AdminDisplay.renderErrorRow(document, tbody, COLUMN_COUNT, '프로그램 목록을 불러오지 못했습니다.');
+                    document.getElementById('next-page').disabled = true;
                 });
         }
 

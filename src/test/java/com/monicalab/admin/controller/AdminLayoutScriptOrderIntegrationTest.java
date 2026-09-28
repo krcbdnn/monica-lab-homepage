@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class AdminLayoutScriptOrderIntegrationTest extends AbstractIntegrationTest {
 
     private static final String COMMON_FETCH_SRC = "/js/admin/common-fetch.js";
+    private static final String ADMIN_DISPLAY_SRC = "/js/admin/admin-display.js";
 
     @Autowired
     private MockMvc mockMvc;
@@ -59,7 +60,21 @@ class AdminLayoutScriptOrderIntegrationTest extends AbstractIntegrationTest {
         assertCommonFetchLoadsBeforeFirstAdminFetchUsage("/admin/files");
     }
 
+    // P14-T9C-1: 목록 화면은 페이지 진입 즉시(로드 성공/빈 목록/실패 모두) AdminDisplay를 사용하는 인라인 스크립트를
+    // 실행하므로 admin-display.js도 같은 순서 계약(<head>에서 먼저 로드)을 지켜야 한다.
+    @Test
+    void adminListsLoadAdminDisplayBeforeTheyUseIt() throws Exception {
+        for (String url : new String[] {"/admin/boards", "/admin/programs", "/admin/files", "/admin/banners",
+                "/admin/popups", "/admin/menus", "/admin/home-pinned-contents"}) {
+            assertScriptLoadsBeforeFirstInlineUsage(url, ADMIN_DISPLAY_SRC, "AdminDisplay");
+        }
+    }
+
     private void assertCommonFetchLoadsBeforeFirstAdminFetchUsage(String url) throws Exception {
+        assertScriptLoadsBeforeFirstInlineUsage(url, COMMON_FETCH_SRC, "AdminFetch");
+    }
+
+    private void assertScriptLoadsBeforeFirstInlineUsage(String url, String src, String globalName) throws Exception {
         String body = mockMvc.perform(get(url)
                         .with(user("admin").authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
                 .andExpect(status().isOk())
@@ -68,33 +83,33 @@ class AdminLayoutScriptOrderIntegrationTest extends AbstractIntegrationTest {
         Document document = Jsoup.parse(body);
         Elements scripts = document.select("script");
 
-        int commonFetchIndex = -1;
-        int firstAdminFetchUsageIndex = -1;
+        int srcIndex = -1;
+        int firstUsageIndex = -1;
 
         for (int i = 0; i < scripts.size(); i++) {
             Element script = scripts.get(i);
             boolean hasSrc = script.hasAttr("src");
 
-            if (commonFetchIndex == -1 && hasSrc && COMMON_FETCH_SRC.equals(script.attr("src"))) {
-                commonFetchIndex = i;
+            if (srcIndex == -1 && hasSrc && src.equals(script.attr("src"))) {
+                srcIndex = i;
             }
 
-            // 인라인 스크립트(src 없음)이면서 실제로 AdminFetch를 사용하는 코드만 대상으로 삼는다.
+            // 인라인 스크립트(src 없음)이면서 실제로 해당 전역을 사용하는 코드만 대상으로 삼는다.
             // 무관한 인라인 스크립트(예: 다른 전역만 쓰는 코드)가 섞여 있어도 흔들리지 않도록 한다.
-            if (firstAdminFetchUsageIndex == -1 && !hasSrc && script.data().contains("AdminFetch")) {
-                firstAdminFetchUsageIndex = i;
+            if (firstUsageIndex == -1 && !hasSrc && script.data().contains(globalName)) {
+                firstUsageIndex = i;
             }
         }
 
-        assertThat(commonFetchIndex)
-                .as("%s 응답에 common-fetch.js <script src> 태그가 존재해야 한다", url)
+        assertThat(srcIndex)
+                .as("%s 응답에 %s <script src> 태그가 존재해야 한다", url, src)
                 .isNotEqualTo(-1);
-        assertThat(firstAdminFetchUsageIndex)
-                .as("%s 응답에 AdminFetch를 사용하는 인라인 스크립트가 존재해야 한다", url)
+        assertThat(firstUsageIndex)
+                .as("%s 응답에 %s를 사용하는 인라인 스크립트가 존재해야 한다", url, globalName)
                 .isNotEqualTo(-1);
-        assertThat(commonFetchIndex)
-                .as("%s: common-fetch.js(index=%d)가 AdminFetch를 사용하는 첫 인라인 스크립트(index=%d)보다 먼저 로드되어야 한다",
-                        url, commonFetchIndex, firstAdminFetchUsageIndex)
-                .isLessThan(firstAdminFetchUsageIndex);
+        assertThat(srcIndex)
+                .as("%s: %s(index=%d)가 %s를 사용하는 첫 인라인 스크립트(index=%d)보다 먼저 로드되어야 한다",
+                        url, src, srcIndex, globalName, firstUsageIndex)
+                .isLessThan(firstUsageIndex);
     }
 }

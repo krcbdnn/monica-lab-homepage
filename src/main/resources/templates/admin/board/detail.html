@@ -7,7 +7,8 @@
 <body>
 <!-- P14-T10: 읽기 전용 관리자 게시글 상세. 공개 여부와 무관하게 조회되며(getAdminById), 본문은 공개 상세와
      같은 경로(저장 시 HtmlSanitizer → ContentLinkRenderer가 만든 renderedContent → th:utext)로만 출력한다.
-     enum 값은 목록과 같이 그대로 표시한다(표시명 정리는 T9C). 삭제는 목록에서만 제공한다. -->
+     P14-T9C-1: 서버는 enum raw 값을 fallback 텍스트 + data-* 속성으로만 렌더하고, 아래 script가 목록과 같은
+     관리자 공통 표시명/badge(AdminDisplay)로 바꾼다(JS 실패 시 raw 값이 그대로 보인다). 삭제는 목록에서만 제공한다. -->
 <div id="admin-board-detail-content" class="admin-content-detail">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <h2 class="admin-content-detail__title" th:text="${board.title()}">제목</h2>
@@ -23,12 +24,14 @@
     <dl class="admin-content-detail__meta">
         <div>
             <dt>게시판 유형</dt>
-            <dd id="admin-detail-board-type"><span th:text="${board.boardType()}">NOTICE</span><span
+            <dd id="admin-detail-board-type" th:data-board-type="${board.boardType()}"
+                th:data-program-type="${board.programType()}"><span th:text="${board.boardType()}">NOTICE</span><span
                     th:if="${board.programType() != null}" th:text="' ' + ${board.programType()}"></span></dd>
         </div>
         <div>
             <dt>공개 상태</dt>
-            <dd id="admin-detail-visibility" th:text="${board.isPublic()} ? '공개' : '비공개'">공개</dd>
+            <dd id="admin-detail-visibility" th:data-public="${board.isPublic()}"
+                th:text="${board.isPublic()} ? '공개' : '비공개'">공개</dd>
         </div>
         <div>
             <dt>등록일</dt>
@@ -52,6 +55,19 @@
         <a id="admin-detail-attachment-link" th:href="${board.attachment()}" target="_blank"
            rel="noopener noreferrer">열기/다운로드</a>
     </div>
+
+    <script>
+        (function () {
+            var typeEl = document.getElementById('admin-detail-board-type');
+            AdminDisplay.replaceContent(typeEl, AdminDisplay.createBadge(document,
+                AdminDisplay.boardTypeLabel(typeEl.getAttribute('data-board-type'),
+                    typeEl.getAttribute('data-program-type')), 'neutral'));
+
+            var visibilityEl = document.getElementById('admin-detail-visibility');
+            AdminDisplay.replaceContent(visibilityEl, AdminDisplay.createStateBadge(document,
+                visibilityEl.getAttribute('data-public') === 'true', '공개', '비공개'));
+        })();
+    </script>
 </div>
 </body>
 </html>

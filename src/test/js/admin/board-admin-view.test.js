@@ -304,3 +304,137 @@ test('templates/admin/board/form.html payload normalizes programType to null for
     const html = readTemplate('admin/board/form.html');
     assert.match(html, /programType: boardTypeValue === 'REVIEW' \? programTypeValue : null/);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// P14-T9C-1: Admin List Presentation & Feedback 공통 계약(7개 목록이 같은 형태로 검증된다).
+// ---------------------------------------------------------------------------------------------------------------
+// 작업 트리(CRLF, Windows autocrlf)와 CI(LF) 어디서나 같은 marker로 자르도록 줄바꿈을 LF로 정규화한다.
+function sliceBetween(rawSource, startMarker, endMarker) {
+    const source = rawSource.replace(/\r\n/g, '\n');
+    const start = source.indexOf(startMarker);
+    assert.notEqual(start, -1, `marker not found: ${startMarker}`);
+    const end = source.indexOf(endMarker, start + startMarker.length);
+    assert.notEqual(end, -1, `end marker not found after ${startMarker}: ${endMarker}`);
+    return source.slice(start, end);
+}
+
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const T9C1 = {
+    "template": "admin/board/list.html",
+    "loadFn": "loadBoards",
+    "columnCountVar": "COLUMN_COUNT",
+    "columnCount": 4,
+    "firstTheadColumns": 4,
+    "tableCount": 1,
+    "emptyMessageExpr": "emptyMessage()",
+    "errorMessage": "게시글 목록을 불러오지 못했습니다.",
+    "deleteSuccess": "삭제되었습니다.",
+    "deleteErrorVar": "DELETE_ERROR",
+    "patchActions": [
+        {
+            "marker": "visibilityButton.addEventListener('click'",
+            "errorVar": "STATUS_CHANGE_ERROR"
+        }
+    ]
+};
+
+test(`${T9C1.template} uses the shared #admin-list-status instead of a list-local #errorMessage/showError`, () => {
+    const html = readTemplate(T9C1.template);
+    assert.match(html, /<div id="admin-list-status" hidden><\/div>/);
+    assert.match(html, /var listStatus = document\.getElementById\('admin-list-status'\);/);
+    assert.doesNotMatch(html, /id="errorMessage"/);
+    assert.doesNotMatch(html, /function showError/);
+    assert.doesNotMatch(html, /function clearError/);
+    assert.doesNotMatch(html, /text-bg-/);
+});
+
+test(`${T9C1.template} marks every column header with scope="col" and the list table matches ${T9C1.columnCountVar}`, () => {
+    const html = readTemplate(T9C1.template);
+    assert.doesNotMatch(html, /<th>/);
+    assert.match(html, new RegExp(`var ${T9C1.columnCountVar} = ${T9C1.columnCount};`));
+    const listThead = sliceBetween(html, `<thead>`, '</thead>');
+    assert.equal((listThead.match(/<th scope="col">/g) || []).length, T9C1.firstTheadColumns);
+});
+
+test(`${T9C1.template} wraps every table in .table-responsive`, () => {
+    const html = readTemplate(T9C1.template);
+    const tables = html.match(/<table class="table">/g) || [];
+    const wrapped = html.match(/<div class="table-responsive">\s*<table class="table">/g) || [];
+    assert.equal(tables.length, T9C1.tableCount);
+    assert.equal(wrapped.length, T9C1.tableCount);
+});
+
+test(`${T9C1.template} ${T9C1.loadFn}() checks response.ok, renders an empty row, and replaces rows with an error row on failure`, () => {
+    const html = readTemplate(T9C1.template);
+    const body = sliceBetween(html, `function ${T9C1.loadFn}() {`, '\n        }\n');
+    assert.match(body, /if \(!response\.ok\) \{\s*throw new Error\('HTTP ' \+ response\.status\);\s*\}\s*return response\.json\(\);/);
+    assert.match(body, new RegExp(`AdminDisplay\\.renderEmptyRow\\(document, tbody, ${T9C1.columnCountVar}, ${escapeRegExp(T9C1.emptyMessageExpr)}\\);`));
+    assert.match(body, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.renderErrorRow\\(document, tbody, ${T9C1.columnCountVar}, '${escapeRegExp(T9C1.errorMessage)}'\\);`));
+    // 목록 재조회는 inline status를 절대 건드리지 않는다(삭제 성공 메시지가 reload 성공/실패 후에도 남는 계약).
+    assert.doesNotMatch(body, /clearStatus|showStatus/);
+});
+
+test(`${T9C1.template} reads failed-response messages safely (non-JSON body falls back) via AdminDisplay.apiErrorMessage`, () => {
+    const html = readTemplate(T9C1.template);
+    const body = sliceBetween(html, 'function showResponseError(response, fallback) {', '\n        }\n');
+    assert.match(body, /return response\.json\(\)\s*\.catch\(function \(\) \{\s*return null;\s*\}\)/);
+    assert.match(body, /AdminDisplay\.showStatus\(listStatus, AdminDisplay\.apiErrorMessage\(body, fallback\), 'error'\);/);
+});
+
+test(`${T9C1.template} delete clears status first, then on 2xx reloads and shows "${T9C1.deleteSuccess}"; failures show an error status`, () => {
+    const html = readTemplate(T9C1.template);
+    const handler = sliceBetween(html, "deleteButton.addEventListener('click'", '\n            });\n');
+    const clearIndex = handler.indexOf('AdminDisplay.clearStatus(listStatus);');
+    const deleteIndex = handler.indexOf("{method: 'DELETE'}");
+    assert.ok(clearIndex !== -1 && clearIndex < deleteIndex, 'clearStatus must run before the DELETE request');
+    assert.match(handler, new RegExp(`if \\(response\\.ok\\) \\{\\s*(?:\\/\\/[^\\n]*\\s*)?${T9C1.loadFn}\\(\\);\\s*(?:\\/\\/[^\\n]*\\s*)?AdminDisplay\\.showStatus\\(listStatus, '${escapeRegExp(T9C1.deleteSuccess)}', 'success'\\);`));
+    assert.match(handler, new RegExp(`return showResponseError\\(response, ${T9C1.deleteErrorVar}\\);`));
+    assert.match(handler, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.showStatus\\(listStatus, ${T9C1.deleteErrorVar}, 'error'\\);`));
+});
+
+test(`${T9C1.template} PATCH actions check response.ok and surface failures instead of blindly reloading`, () => {
+    const html = readTemplate(T9C1.template);
+    assert.doesNotMatch(html, new RegExp(`\\.then\\(${T9C1.loadFn}\\)`));
+    if (T9C1.patchActions.length === 0) {
+        assert.doesNotMatch(html, /method: 'PATCH'/);
+        return;
+    }
+    const reload = sliceBetween(html, 'function reloadOrShowError(response, fallback) {', '\n        }\n');
+    assert.match(reload, new RegExp(`if \\(response\\.ok\\) \\{\\s*${T9C1.loadFn}\\(\\);\\s*return undefined;\\s*\\}\\s*return showResponseError\\(response, fallback\\);`));
+    assert.equal((html.match(/method: 'PATCH'/g) || []).length, T9C1.patchActions.length);
+    for (const action of T9C1.patchActions) {
+        const handler = sliceBetween(html, action.marker, '\n            });\n');
+        const clearIndex = handler.indexOf('AdminDisplay.clearStatus(listStatus);');
+        const patchIndex = handler.indexOf("method: 'PATCH'");
+        assert.ok(clearIndex !== -1 && patchIndex !== -1 && clearIndex < patchIndex, `${action.marker}: clearStatus must run before PATCH`);
+        assert.match(handler, new RegExp(`return reloadOrShowError\\(response, ${action.errorVar}\\);`));
+        assert.match(handler, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.showStatus\\(listStatus, ${action.errorVar}, 'error'\\);`));
+    }
+});
+
+// P14-T9C-1: 구분은 관리자 공통 표시명 neutral badge(REVIEW는 강의 후기(정규 강좌)/강의 후기(특강)), 공개 여부는 state badge.
+test('templates/admin/board/list.html renders boardType (with REVIEW subtype) as a neutral badge and visibility as a state badge', () => {
+    const html = readTemplate('admin/board/list.html');
+    assert.match(html, /typeTd\.appendChild\(AdminDisplay\.createBadge\(document,\s*AdminDisplay\.boardTypeLabel\(board\.boardType, board\.programType\), 'neutral'\)\);/);
+    assert.match(html, /publicTd\.appendChild\(AdminDisplay\.createStateBadge\(document, board\.isPublic, '공개', '비공개'\)\);/);
+    assert.doesNotMatch(html, /reviewSubtypeLabel/);
+    assert.doesNotMatch(html, /수강 후기|특강 후기|미지정/);
+    assert.doesNotMatch(html, /typeTd\.textContent = board\.boardType/);
+});
+
+test('templates/admin/board/list.html keeps the title as a textContent link to the admin detail without a return query', () => {
+    const html = readTemplate('admin/board/list.html');
+    assert.match(html, /titleLink\.href = '\/admin\/boards\/' \+ board\.id;/);
+    assert.match(html, /titleLink\.textContent = board\.title;/);
+    // P14-T9C-1은 URL/list state를 다루지 않는다(T9C-2).
+    assert.doesNotMatch(html, /location\.search|replaceState|pushState|popstate/);
+});
+
+test('templates/admin/board/list.html distinguishes a filtered empty result from an empty board list', () => {
+    const html = readTemplate('admin/board/list.html');
+    assert.match(html, /return state\.boardType \|\| state\.keyword \? '조건에 맞는 게시글이 없습니다\.' : '등록된 게시글이 없습니다\.';/);
+    assert.match(html, /<nav id="pagination" class="d-flex gap-2" aria-label="페이지 이동">/);
+});

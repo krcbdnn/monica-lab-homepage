@@ -3852,11 +3852,12 @@ test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
     await expect(allReviewRow.locator('td').nth(3)).toHaveText('강의 후기');
   });
 
-  // P13-T33: BOARD_LIST+REVIEW+targetSubvalue 조합의 "강의 후기(수강)" 표시는 seed row가 아니라
+  // P13-T33: BOARD_LIST+REVIEW+targetSubvalue 조합의 "강의 후기(정규 강좌)" 표시는 seed row가 아니라
   // Menu UI의 범용 formatter 기능이다 - 관리자가 이 조합의 메뉴를 새로 만들 가능성은 여전히 남아있고
   // (예: 과거처럼 REVIEW를 다시 세분화하고 싶어질 경우), 이 능력 자체가 seed 구조 변경으로 사라져서는
   // 안 되므로 자체 임시 Menu 1개로 formatter 동작을 직접 검증한다(seed 데이터는 건드리지 않음).
-  test('/admin/menus: BOARD_LIST+REVIEW+targetSubvalue 조합은 "강의 후기(수강)"처럼 조합 표시된다(범용 formatter, seed와 무관)', async ({ page, context, baseURL, tracker }) => {
+  // P14-T9C-1: 관리자 REVIEW 하위유형 표시를 "강의 후기(정규 강좌)"로 통일했다("강의 후기(수강)"은 더 이상 쓰지 않는다).
+  test('/admin/menus: BOARD_LIST+REVIEW+targetSubvalue 조합은 "강의 후기(정규 강좌)"처럼 조합 표시된다(범용 formatter, seed와 무관)', async ({ page, context, baseURL, tracker }) => {
     const res = await context.request.post(`${baseURL}/api/admin/menus`, {
       headers: { 'X-XSRF-TOKEN': xsrfToken },
       data: {
@@ -3876,7 +3877,7 @@ test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
     await page.goto('/admin/menus');
     const row = page.locator('#menu-list-body tr')
       .filter({ has: page.locator('.admin-menu-row__label', { hasText: 'P13-T33 formatter 확인용' }) });
-    await expect(row.locator('td').nth(3)).toHaveText('강의 후기(수강)');
+    await expect(row.locator('td').nth(3)).toHaveText('강의 후기(정규 강좌)');
   });
 
   test('/admin/menus/new: targetType을 바꾸면 targetValue datalist 후보가 그에 맞게 갱신된다', async ({ page }) => {
@@ -4868,7 +4869,8 @@ test.describe('P14-T10: Admin Content Read View', () => {
     await page.goto('/admin/programs');
     await page.locator(`#program-list-body a[href="/admin/programs/${program.id}"]`).click();
     await expect(page).toHaveURL(new RegExp(`/admin/programs/${program.id}$`));
-    await expect(page.locator('#admin-detail-recruit-status')).toHaveText('CLOSED');
+    // P14-T9C-1: 상세의 모집 상태도 목록과 같은 관리자 표시명(CLOSED → 마감)이다.
+    await expect(page.locator('#admin-detail-recruit-status')).toHaveText('마감');
     await expect(page.locator('#admin-detail-public-link')).toHaveAttribute('href', `/programs/${program.id}`);
   });
 
@@ -4896,5 +4898,287 @@ test.describe('P14-T10: Admin Content Read View', () => {
     const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflowX).toBeLessThanOrEqual(0);
     expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+  });
+});
+
+// P14-T9C-1: Admin List Presentation & Feedback. 공통 helper(admin-display.js)는 Node 단위 테스트에서 깊게 검증하므로,
+// 여기서는 대표 화면(Board/Program 목록·상세, Popup)으로 실제 브라우저의 표시명/semantic badge/empty·error row/
+// 삭제·전환 feedback/XSS 안전성을 확인한다. 실패 경로는 page.route로 해당 요청만 mock한다(서버 데이터 무변경).
+test.describe('P14-T9C-1: Admin List Presentation & Feedback', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  // route mock이 일부러 만든 실패 응답에 대해 브라우저가 스스로 남기는 네트워크 로그만 허용한다(JS 오류는 허용하지 않음).
+  const EXPECTED_MOCK_NETWORK_ERROR = /^Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)$/;
+
+  let xsrfToken;
+  let runId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    runId = `T9C1-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  });
+
+  function trackErrors(page) {
+    const consoleErrors = [];
+    const pageErrors = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    return {
+      assertClean({ allowMockNetworkError = false } = {}) {
+        const unexpected = consoleErrors.filter((text) => !(allowMockNetworkError && EXPECTED_MOCK_NETWORK_ERROR.test(text)));
+        expect(unexpected, `console error: ${unexpected.join(' | ')}`).toEqual([]);
+        expect(pageErrors, `pageerror: ${pageErrors.join(' | ')}`).toEqual([]);
+      },
+    };
+  }
+
+  async function createBoard(context, baseURL, data) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { content: '<p>T9C-1</p>', ...data },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data;
+  }
+
+  async function createProgram(context, baseURL, data) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { content: '<p>T9C-1</p>', ...data },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data;
+  }
+
+  // 현재 검색 UI 그대로(검색어 입력 → 검색) 이번 테스트가 만든 행만 남긴다. URL state는 쓰지 않는다(T9C-2 범위).
+  async function searchList(page, path, keyword) {
+    await page.goto(path);
+    await page.locator('#searchKeyword').fill(keyword);
+    await Promise.all([
+      page.waitForResponse((response) => new URL(response.url()).searchParams.get('keyword') === keyword),
+      page.locator('#searchForm button[type="submit"]').click(),
+    ]);
+  }
+
+  function rowByTitle(page, tbodySelector, title) {
+    return page.locator(`${tbodySelector} tr`).filter({ has: page.locator('a', { hasText: title }) });
+  }
+
+  test('Board 목록: 표시명(REVIEW 하위유형 포함)/semantic badge, 사용자 제목은 textContent로만 표시된다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const xssTitle = `<img src=x onerror="window.__t9c1Xss=1">${runId}`;
+    const review = await createBoard(context, baseURL, {
+      boardType: 'REVIEW', programType: 'COURSE', title: xssTitle, isPublic: true,
+    });
+    tracker.track('board', review.id);
+    const notice = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `공지 ${runId}`, isPublic: false });
+    tracker.track('board', notice.id);
+
+    await searchList(page, '/admin/boards', runId);
+
+    const reviewRow = page.locator('#board-list-body tr').filter({ has: page.locator(`a[href="/admin/boards/${review.id}"]`) });
+    await expect(reviewRow.locator('a').first()).toHaveText(xssTitle);
+    await expect(reviewRow.locator('img')).toHaveCount(0);
+    await expect(reviewRow.locator('td').nth(1).locator('.badge.admin-badge.admin-badge--neutral')).toHaveText('강의 후기(정규 강좌)');
+    await expect(reviewRow.locator('td').nth(2).locator('.admin-badge--positive')).toHaveText('공개');
+
+    const noticeRow = rowByTitle(page, '#board-list-body', `공지 ${runId}`);
+    await expect(noticeRow.locator('td').nth(1).locator('.admin-badge--neutral')).toHaveText('공지사항');
+    await expect(noticeRow.locator('td').nth(2).locator('.admin-badge--muted')).toHaveText('비공개');
+
+    await expect(page.locator('#board-list-body')).not.toContainText(/REVIEW|NOTICE|COURSE|수강 후기/);
+    await expect(page.locator('[class*="text-bg-"]')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__t9c1Xss)).toBeUndefined();
+    errors.assertClean();
+  });
+
+  test('Program 목록: 유형(neutral)/모집 상태(모집중 positive·마감 muted)/공개 여부 badge', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const course = await createProgram(context, baseURL, {
+      programType: 'COURSE', title: `정규 ${runId}`, recruitStatus: 'OPEN', isPublic: true,
+    });
+    tracker.track('program', course.id);
+    const special = await createProgram(context, baseURL, {
+      programType: 'SPECIAL', title: `특강 ${runId}`, recruitStatus: 'CLOSED', isPublic: false,
+    });
+    tracker.track('program', special.id);
+
+    await searchList(page, '/admin/programs', runId);
+
+    const courseCells = rowByTitle(page, '#program-list-body', `정규 ${runId}`).locator('td');
+    await expect(courseCells.nth(1).locator('.admin-badge--neutral')).toHaveText('정규 강좌');
+    await expect(courseCells.nth(2).locator('.admin-badge--positive')).toHaveText('모집중');
+    await expect(courseCells.nth(3).locator('.admin-badge--positive')).toHaveText('공개');
+
+    const specialCells = rowByTitle(page, '#program-list-body', `특강 ${runId}`).locator('td');
+    await expect(specialCells.nth(1).locator('.admin-badge--neutral')).toHaveText('특강');
+    await expect(specialCells.nth(2).locator('.admin-badge--muted')).toHaveText('마감');
+    await expect(specialCells.nth(3).locator('.admin-badge--muted')).toHaveText('비공개');
+
+    await expect(page.locator('#program-list-body')).not.toContainText(/COURSE|SPECIAL|OPEN|CLOSED/);
+    errors.assertClean();
+  });
+
+  test('상세: Board REVIEW+SPECIAL은 "강의 후기(특강)", Program COURSE/CLOSED는 "정규 강좌"/"마감" badge로 표시된다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, {
+      boardType: 'REVIEW', programType: 'SPECIAL', title: `상세 후기 ${runId}`, isPublic: true,
+    });
+    tracker.track('board', board.id);
+    const program = await createProgram(context, baseURL, {
+      programType: 'COURSE', title: `상세 프로그램 ${runId}`, recruitStatus: 'CLOSED', isPublic: false,
+    });
+    tracker.track('program', program.id);
+
+    await page.goto(`/admin/boards/${board.id}`);
+    await expect(page.locator('#admin-detail-board-type .admin-badge--neutral')).toHaveText('강의 후기(특강)');
+    await expect(page.locator('#admin-detail-board-type')).toHaveText('강의 후기(특강)');
+    await expect(page.locator('#admin-detail-visibility .admin-badge--positive')).toHaveText('공개');
+
+    await page.goto(`/admin/programs/${program.id}`);
+    await expect(page.locator('#admin-detail-program-type .admin-badge--neutral')).toHaveText('정규 강좌');
+    await expect(page.locator('#admin-detail-recruit-status .admin-badge--muted')).toHaveText('마감');
+    await expect(page.locator('#admin-detail-visibility .admin-badge--muted')).toHaveText('비공개');
+    errors.assertClean();
+  });
+
+  test('Empty: 조건 검색 결과 0건과 목록 0건은 서로 다른 문구의 단일 empty row로 표시된다', async ({ page }) => {
+    const errors = trackErrors(page);
+    await searchList(page, '/admin/boards', `없는검색어-${runId}`);
+    const emptyCell = page.locator('#board-list-body td.admin-list-empty');
+    await expect(emptyCell).toHaveText('조건에 맞는 게시글이 없습니다.');
+    await expect(emptyCell).toHaveAttribute('colspan', '4');
+    await expect(page.locator('#board-list-body tr')).toHaveCount(1);
+
+    // 실제 팝업 데이터를 지우지 않고, 목록 조회 응답만 빈 배열로 대체한다.
+    await page.route('**/api/admin/popups', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [], error: null }),
+    }));
+    await page.goto('/admin/popups');
+    await expect(page.locator('#popup-list-body td.admin-list-empty')).toHaveText('등록된 팝업이 없습니다.');
+    await expect(page.locator('#popup-list-body tr')).toHaveCount(1);
+    errors.assertClean();
+  });
+
+  test('Fetch 실패: 이전 행을 지우고 오류 행만 남기며 pageerror가 없다(Board 500 / Popup HTML 200)', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `실패 확인 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+    await expect(rowByTitle(page, '#board-list-body', `실패 확인 ${runId}`)).toHaveCount(1);
+
+    await page.route((url) => url.pathname === '/api/admin/boards', (route) => route.fulfill({
+      status: 500, contentType: 'application/json',
+      body: JSON.stringify({ success: false, data: null, error: { code: 'INTERNAL_SERVER_ERROR', message: '서버 오류' } }),
+    }));
+    await page.locator('#searchBoardType').selectOption('NOTICE');
+    const errorCell = page.locator('#board-list-body td.admin-list-empty--error');
+    await expect(errorCell).toHaveText('게시글 목록을 불러오지 못했습니다.');
+    await expect(page.locator('#board-list-body tr')).toHaveCount(1);
+    await expect(page.locator('#next-page')).toBeDisabled();
+
+    // 세션 만료 등으로 JSON이 아닌 HTML이 200으로 오는 경우.
+    await page.route('**/api/admin/popups', (route) => route.fulfill({
+      status: 200, contentType: 'text/html', body: '<!DOCTYPE html><html><body>login</body></html>',
+    }));
+    await page.goto('/admin/popups');
+    await expect(page.locator('#popup-list-body td.admin-list-empty--error')).toHaveText('팝업 목록을 불러오지 못했습니다.');
+    await expect(page.locator('#popup-list-body tr')).toHaveCount(1);
+    errors.assertClean({ allowMockNetworkError: true });
+  });
+
+  test('삭제 성공: role=status 성공 메시지가 목록 재조회 후에도 남고 행이 사라진다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `삭제 성공 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowByTitle(page, '#board-list-body', `삭제 성공 ${runId}`).locator('button', { hasText: '삭제' }).click();
+
+    const status = page.locator('#admin-list-status');
+    await expect(status).toHaveAttribute('role', 'status');
+    await expect(status).toHaveText('삭제되었습니다.');
+    await expect(page.locator('#board-list-body td.admin-list-empty')).toHaveText('조건에 맞는 게시글이 없습니다.');
+    await expect(status).toBeVisible();
+    await expect(status).toHaveText('삭제되었습니다.');
+    errors.assertClean();
+  });
+
+  test('삭제 성공 후 목록 재조회 실패: 성공 메시지는 유지되고 표에는 오류 행이 표시된다(서로 덮어쓰지 않음)', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `재조회 실패 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    // DELETE(/api/admin/boards/{id})는 실제 서버로 보내고, 그 뒤의 목록 GET만 500으로 바꾼다.
+    await page.route((url) => url.pathname === '/api/admin/boards', (route) => route.fulfill({
+      status: 500, contentType: 'application/json', body: '{}',
+    }));
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowByTitle(page, '#board-list-body', `재조회 실패 ${runId}`).locator('button', { hasText: '삭제' }).click();
+
+    await expect(page.locator('#board-list-body td.admin-list-empty--error')).toHaveText('게시글 목록을 불러오지 못했습니다.');
+    await expect(page.locator('#admin-list-status')).toHaveAttribute('role', 'status');
+    await expect(page.locator('#admin-list-status')).toHaveText('삭제되었습니다.');
+    errors.assertClean({ allowMockNetworkError: true });
+  });
+
+  test('삭제 실패: role=alert 오류 메시지(비 JSON 응답은 일반 문구)가 보이고 행은 유지된다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `삭제 실패 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    await page.route((url) => url.pathname === `/api/admin/boards/${board.id}`, (route) => (
+      route.request().method() === 'DELETE'
+        ? route.fulfill({ status: 500, contentType: 'text/html', body: '<html>error</html>' })
+        : route.continue()
+    ));
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowByTitle(page, '#board-list-body', `삭제 실패 ${runId}`).locator('button', { hasText: '삭제' }).click();
+
+    const status = page.locator('#admin-list-status');
+    await expect(status).toHaveAttribute('role', 'alert');
+    await expect(status).toHaveText('삭제 중 오류가 발생했습니다.');
+    await expect(rowByTitle(page, '#board-list-body', `삭제 실패 ${runId}`)).toHaveCount(1);
+    errors.assertClean({ allowMockNetworkError: true });
+  });
+
+  test('PATCH 전환 실패: 서버 사용자 메시지(없으면 일반 문구)를 role=alert로 표시하고 기존 상태 badge를 유지한다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `전환 실패 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    await page.route((url) => url.pathname === `/api/admin/boards/${board.id}/visibility`, (route) => route.fulfill({
+      status: 500, contentType: 'text/html', body: '<html>error</html>',
+    }));
+    const boardRow = rowByTitle(page, '#board-list-body', `전환 실패 ${runId}`);
+    await boardRow.locator('button', { hasText: '비공개로 전환' }).click();
+    await expect(page.locator('#admin-list-status')).toHaveAttribute('role', 'alert');
+    await expect(page.locator('#admin-list-status')).toHaveText('상태 변경 중 오류가 발생했습니다.');
+    await expect(boardRow.locator('td').nth(2).locator('.admin-badge--positive')).toHaveText('공개');
+
+    const program = await createProgram(context, baseURL, {
+      programType: 'SPECIAL', title: `모집 전환 실패 ${runId}`, recruitStatus: 'OPEN', isPublic: true,
+    });
+    tracker.track('program', program.id);
+    await searchList(page, '/admin/programs', runId);
+    await page.route((url) => url.pathname === `/api/admin/programs/${program.id}/status`, (route) => route.fulfill({
+      status: 500, contentType: 'application/json',
+      body: JSON.stringify({ success: false, data: null, error: { code: 'TEST', message: '모집 상태를 바꿀 수 없습니다.' } }),
+    }));
+    const programRow = rowByTitle(page, '#program-list-body', `모집 전환 실패 ${runId}`);
+    await programRow.locator('button', { hasText: '마감으로 전환' }).click();
+    await expect(page.locator('#admin-list-status')).toHaveAttribute('role', 'alert');
+    await expect(page.locator('#admin-list-status')).toHaveText('모집 상태를 바꿀 수 없습니다.');
+    await expect(programRow.locator('td').nth(2).locator('.admin-badge--positive')).toHaveText('모집중');
+    errors.assertClean({ allowMockNetworkError: true });
   });
 });

@@ -169,3 +169,148 @@ test('templates/admin/homepinned/list.html initializes subtype options for the d
     assert.notEqual(loadPinnedCallIndex, -1);
     assert.ok(initCallIndex < loadPinnedCallIndex, 'populateSubtypeOptions() must run once at load time, before loadPinned()');
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// P14-T9C-1: Admin List Presentation & Feedback 공통 계약(7개 목록이 같은 형태로 검증된다).
+// ---------------------------------------------------------------------------------------------------------------
+// 작업 트리(CRLF, Windows autocrlf)와 CI(LF) 어디서나 같은 marker로 자르도록 줄바꿈을 LF로 정규화한다.
+function sliceBetween(rawSource, startMarker, endMarker) {
+    const source = rawSource.replace(/\r\n/g, '\n');
+    const start = source.indexOf(startMarker);
+    assert.notEqual(start, -1, `marker not found: ${startMarker}`);
+    const end = source.indexOf(endMarker, start + startMarker.length);
+    assert.notEqual(end, -1, `end marker not found after ${startMarker}: ${endMarker}`);
+    return source.slice(start, end);
+}
+
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const T9C1 = {
+    "template": "admin/homepinned/list.html",
+    "loadFn": "loadPinned",
+    "columnCountVar": "PINNED_COLUMN_COUNT",
+    "columnCount": 6,
+    "firstTheadColumns": 4,
+    "tableCount": 2,
+    "emptyMessageExpr": "'고정된 콘텐츠가 없습니다.'",
+    "errorMessage": "고정 콘텐츠 목록을 불러오지 못했습니다.",
+    "deleteSuccess": "고정이 해제되었습니다.",
+    "deleteErrorVar": "UNPIN_ERROR",
+    "patchActions": [
+        {
+            "marker": "orderButton.addEventListener('click'",
+            "errorVar": "ORDER_CHANGE_ERROR"
+        },
+        {
+            "marker": "visibilityButton.addEventListener('click'",
+            "errorVar": "STATUS_CHANGE_ERROR"
+        }
+    ]
+};
+
+test(`${T9C1.template} uses the shared #admin-list-status instead of a list-local #errorMessage/showError`, () => {
+    const html = readTemplate(T9C1.template);
+    assert.match(html, /<div id="admin-list-status" hidden><\/div>/);
+    assert.match(html, /var listStatus = document\.getElementById\('admin-list-status'\);/);
+    assert.doesNotMatch(html, /id="errorMessage"/);
+    assert.doesNotMatch(html, /function showError/);
+    assert.doesNotMatch(html, /function clearError/);
+    assert.doesNotMatch(html, /text-bg-/);
+});
+
+test(`${T9C1.template} marks every column header with scope="col" and the list table matches ${T9C1.columnCountVar}`, () => {
+    const html = readTemplate(T9C1.template);
+    assert.doesNotMatch(html, /<th>/);
+    assert.match(html, new RegExp(`var ${T9C1.columnCountVar} = ${T9C1.columnCount};`));
+    const listThead = sliceBetween(html, `<thead>`, '</thead>');
+    assert.equal((listThead.match(/<th scope="col">/g) || []).length, T9C1.firstTheadColumns);
+});
+
+test(`${T9C1.template} wraps every table in .table-responsive`, () => {
+    const html = readTemplate(T9C1.template);
+    const tables = html.match(/<table class="table">/g) || [];
+    const wrapped = html.match(/<div class="table-responsive">\s*<table class="table">/g) || [];
+    assert.equal(tables.length, T9C1.tableCount);
+    assert.equal(wrapped.length, T9C1.tableCount);
+});
+
+test(`${T9C1.template} ${T9C1.loadFn}() checks response.ok, renders an empty row, and replaces rows with an error row on failure`, () => {
+    const html = readTemplate(T9C1.template);
+    const body = sliceBetween(html, `function ${T9C1.loadFn}() {`, '\n        }\n');
+    assert.match(body, /if \(!response\.ok\) \{\s*throw new Error\('HTTP ' \+ response\.status\);\s*\}\s*return response\.json\(\);/);
+    assert.match(body, new RegExp(`AdminDisplay\\.renderEmptyRow\\(document, tbody, ${T9C1.columnCountVar}, ${escapeRegExp(T9C1.emptyMessageExpr)}\\);`));
+    assert.match(body, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.renderErrorRow\\(document, tbody, ${T9C1.columnCountVar}, '${escapeRegExp(T9C1.errorMessage)}'\\);`));
+    // 목록 재조회는 inline status를 절대 건드리지 않는다(삭제 성공 메시지가 reload 성공/실패 후에도 남는 계약).
+    assert.doesNotMatch(body, /clearStatus|showStatus/);
+});
+
+test(`${T9C1.template} reads failed-response messages safely (non-JSON body falls back) via AdminDisplay.apiErrorMessage`, () => {
+    const html = readTemplate(T9C1.template);
+    const body = sliceBetween(html, 'function showResponseError(response, fallback) {', '\n        }\n');
+    assert.match(body, /return response\.json\(\)\s*\.catch\(function \(\) \{\s*return null;\s*\}\)/);
+    assert.match(body, /AdminDisplay\.showStatus\(listStatus, AdminDisplay\.apiErrorMessage\(body, fallback\), 'error'\);/);
+});
+
+test(`${T9C1.template} delete clears status first, then on 2xx reloads and shows "${T9C1.deleteSuccess}"; failures show an error status`, () => {
+    const html = readTemplate(T9C1.template);
+    const handler = sliceBetween(html, "deleteButton.addEventListener('click'", '\n            });\n');
+    const clearIndex = handler.indexOf('AdminDisplay.clearStatus(listStatus);');
+    const deleteIndex = handler.indexOf("{method: 'DELETE'}");
+    assert.ok(clearIndex !== -1 && clearIndex < deleteIndex, 'clearStatus must run before the DELETE request');
+    assert.match(handler, new RegExp(`if \\(response\\.ok\\) \\{\\s*(?:\\/\\/[^\\n]*\\s*)?${T9C1.loadFn}\\(\\);\\s*(?:\\/\\/[^\\n]*\\s*)?AdminDisplay\\.showStatus\\(listStatus, '${escapeRegExp(T9C1.deleteSuccess)}', 'success'\\);`));
+    assert.match(handler, new RegExp(`return showResponseError\\(response, ${T9C1.deleteErrorVar}\\);`));
+    assert.match(handler, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.showStatus\\(listStatus, ${T9C1.deleteErrorVar}, 'error'\\);`));
+});
+
+test(`${T9C1.template} PATCH actions check response.ok and surface failures instead of blindly reloading`, () => {
+    const html = readTemplate(T9C1.template);
+    assert.doesNotMatch(html, new RegExp(`\\.then\\(${T9C1.loadFn}\\)`));
+    if (T9C1.patchActions.length === 0) {
+        assert.doesNotMatch(html, /method: 'PATCH'/);
+        return;
+    }
+    const reload = sliceBetween(html, 'function reloadOrShowError(response, fallback) {', '\n        }\n');
+    assert.match(reload, new RegExp(`if \\(response\\.ok\\) \\{\\s*${T9C1.loadFn}\\(\\);\\s*return undefined;\\s*\\}\\s*return showResponseError\\(response, fallback\\);`));
+    assert.equal((html.match(/method: 'PATCH'/g) || []).length, T9C1.patchActions.length);
+    for (const action of T9C1.patchActions) {
+        const handler = sliceBetween(html, action.marker, '\n            });\n');
+        const clearIndex = handler.indexOf('AdminDisplay.clearStatus(listStatus);');
+        const patchIndex = handler.indexOf("method: 'PATCH'");
+        assert.ok(clearIndex !== -1 && patchIndex !== -1 && clearIndex < patchIndex, `${action.marker}: clearStatus must run before PATCH`);
+        assert.match(handler, new RegExp(`return reloadOrShowError\\(response, ${action.errorVar}\\);`));
+        assert.match(handler, new RegExp(`\\.catch\\(function \\(\\) \\{\\s*AdminDisplay\\.showStatus\\(listStatus, ${action.errorVar}, 'error'\\);`));
+    }
+});
+
+// P14-T9C-1: 타입은 neutral, 노출 여부는 positive/muted, 원본 상태는 공개(positive) 외에는 관리자 확인이 필요한
+// attention이다(유형별 다색 badge 없음).
+test('templates/admin/homepinned/list.html maps target type/visibility/source status to semantic badge tones', () => {
+    const source = html();
+    assert.match(source, /return AdminDisplay\.createBadge\(document, TARGET_TYPE_LABELS\[targetType\] \|\| targetType, 'neutral'\);/);
+    assert.match(source, /return AdminDisplay\.createStateBadge\(document, visible, '노출', '숨김'\);/);
+    assert.match(source, /PUBLIC: \{text: '공개', tone: 'positive'\}/);
+    assert.match(source, /PRIVATE: \{text: '비공개', tone: 'attention'\}/);
+    assert.match(source, /DELETED: \{text: '원본 없음', tone: 'attention'\}/);
+    assert.match(source, /SOURCE_STATUS_LABELS\[sourceStatus\] \|\| \{text: sourceStatus, tone: 'neutral'\}/);
+    assert.match(source, /publicTd\.appendChild\(AdminDisplay\.createStateBadge\(document, item\.isPublic, '공개', '비공개'\)\);/);
+});
+
+test('templates/admin/homepinned/list.html runSearch() checks response.ok and renders empty/error rows in the search table', () => {
+    const source = html().replace(/\r\n/g, '\n');
+    const body = source.slice(source.indexOf('function runSearch() {'), source.indexOf("document.getElementById('toggleAddPanel')"));
+    assert.match(body, /if \(!response\.ok\) \{\s*throw new Error\('HTTP ' \+ response\.status\);/);
+    assert.match(body, /AdminDisplay\.renderEmptyRow\(document, tbody, SEARCH_COLUMN_COUNT, '검색 결과가 없습니다\.'\);/);
+    assert.match(body, /\.catch\(function \(\) \{\s*AdminDisplay\.renderErrorRow\(document, tbody, SEARCH_COLUMN_COUNT, '검색 결과를 불러오지 못했습니다\.'\);/);
+    assert.match(source, /var SEARCH_COLUMN_COUNT = 4;/);
+});
+
+test('templates/admin/homepinned/list.html pin (POST) checks response.ok and shows an error status on failure', () => {
+    const source = html().replace(/\r\n/g, '\n');
+    const handler = source.slice(source.indexOf("addButton.addEventListener('click'"), source.indexOf('actionTd.appendChild(addButton);'));
+    const clearIndex = handler.indexOf('AdminDisplay.clearStatus(listStatus);');
+    assert.ok(clearIndex !== -1 && clearIndex < handler.indexOf("method: 'POST'"));
+    assert.match(handler, /if \(response\.ok\) \{\s*loadPinned\(\);\s*runSearch\(\);\s*return undefined;\s*\}\s*return showResponseError\(response, PIN_ERROR\);/);
+    assert.match(handler, /\.catch\(function \(\) \{\s*AdminDisplay\.showStatus\(listStatus, PIN_ERROR, 'error'\);/);
+});
