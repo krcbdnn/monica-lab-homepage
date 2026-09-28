@@ -511,55 +511,6 @@ main a:not(.btn):not(.page-link):hover,
     text-underline-offset: 3px;
 }
 
-/* P14-T9B(4차): Dashboard quick menu(#quick-menus, JS가 만드는 <a class="me-3">)는 사용자가 "파란
-   기본 링크"로 지적한 요소다. dashboard.html/JS는 바꾸지 않고 이 nav id로만 scope해 작은 outline
-   바로가기 버튼처럼 보이게 한다(구조/데이터 재설계는 T9E). 다른 링크에는 영향이 없다. */
-#quick-menus {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-
-#quick-menus a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 36px;
-    margin-right: 0 !important;
-    padding: 0 0.875rem;
-    border: 1px solid var(--admin-border);
-    border-radius: var(--admin-radius);
-    background-color: var(--admin-surface);
-    color: var(--admin-primary);
-    font-size: 0.875rem;
-    font-weight: 600;
-    text-decoration: none;
-}
-
-#quick-menus a:hover {
-    border-color: var(--admin-primary);
-    background-color: var(--admin-primary-soft);
-    text-decoration: none;
-}
-
-/* ===== List group ===== */
-/* P14-T9B(3차 보강): Dashboard 최근 게시글(list-group, markup/data 무변경)이 Bootstrap 기본 컴포넌트로
-   보이지 않도록 warm border, 넉넉한 padding, 옅은 hover만 준다. raw enum([NOTICE] 등) 표시는 T9E/T9C. */
-.list-group {
-    --bs-list-group-border-color: var(--admin-border);
-    --bs-list-group-border-radius: 10px;
-    --bs-list-group-color: var(--admin-text);
-    --bs-list-group-item-padding-x: 1rem;
-    --bs-list-group-item-padding-y: 0.75rem;
-}
-
-.list-group-item {
-    font-size: 0.90625rem;
-}
-
-.list-group-item:hover {
-    background-color: var(--admin-bg);
-}
-
 /* ===== Forms ===== */
 .form-label {
     margin-bottom: 0.375rem;
@@ -803,6 +754,116 @@ textarea.form-control {
     max-width: 200px;
     max-height: 150px;
     display: block;
+}
+
+/* ===== Dashboard ===== */
+/* P14-T9E: 관리자 dashboard(요약 카드 3개 + 최근 게시글/프로그램). 예전 dashboard 전용 #quick-menus/.list-group 규칙은
+   해당 markup이 없어져 제거했다(공개 화면 list-group은 home.css 담당, admin.css 미로드). T9B token/기존 breakpoint
+   (1199.98px/767.98px)만 쓰고 차트/아이콘/새 색상은 없다. 표/badge/empty·error 행은 공통 .table/AdminDisplay 규칙. */
+.admin-dashboard__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.admin-dashboard-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+/* 카드 전체가 해당 관리 화면으로 가는 링크다(라벨/숫자/설명 텍스트가 링크 이름이 된다). */
+.admin-dashboard-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    padding: 1.125rem 1.25rem;
+    border: 1px solid var(--admin-border);
+    border-radius: 10px;
+    background-color: var(--admin-bg);
+    text-decoration: none;
+}
+
+.admin-dashboard-card:hover {
+    border-color: var(--admin-primary);
+    background-color: var(--admin-primary-soft);
+}
+
+.admin-dashboard-card:focus-visible {
+    outline: none;
+    border-color: var(--admin-primary);
+    box-shadow: 0 0 0 0.2rem var(--admin-focus);
+}
+
+.admin-dashboard-card__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--admin-text-muted);
+}
+
+.admin-dashboard-card__value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--admin-text);
+}
+
+.admin-dashboard-card__note {
+    font-size: 0.78125rem;
+    color: var(--admin-text-muted);
+}
+
+.admin-dashboard-recent {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+}
+
+.admin-dashboard-section {
+    min-width: 0;
+}
+
+.admin-dashboard-section__header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.admin-dashboard-section__more {
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+/* 최근 목록 셀은 한글을 공백에서만 줄바꿈하되, 공백 없는 아주 긴 제목은 제목 칸 안에서 끊어 공개 여부/등록일 열을 밀어내지
+   않게 한다(제목 칸 최소 폭 확보). 등록일은 한 줄로 유지한다. */
+.admin-dashboard-section .table td {
+    word-break: keep-all;
+}
+
+.admin-dashboard-section .table .admin-dashboard-title {
+    min-width: 8rem;
+    overflow-wrap: anywhere;
+}
+
+.admin-dashboard-section .table .admin-dashboard-date {
+    white-space: nowrap;
+}
+
+@media (max-width: 1199.98px) {
+    .admin-dashboard-recent {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 767.98px) {
+    .admin-dashboard-summary {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* ===== Content detail ===== */

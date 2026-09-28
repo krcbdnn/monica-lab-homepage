@@ -114,11 +114,18 @@ Response 200 `DashboardResponse.data`
 | field | type | 설명 |
 |---|---|---|
 | recentBoards | Array<BoardSummaryResponse> | 공개/비공개 전체 게시글 중 `createdAt DESC` 최대 5건 |
-| programStatus.OPEN | Long | 모집중 프로그램 수 |
-| programStatus.CLOSED | Long | 마감 프로그램 수 |
+| programStatus.OPEN | Long | 모집중 프로그램 수(공개/비공개 전체) |
+| programStatus.CLOSED | Long | 마감 프로그램 수(공개/비공개 전체) |
 | quickMenus | Array<QuickMenuResponse> | 아래 고정 관리자 내부 링크 6개. 각 항목은 `label`, `url` |
+| recentPrograms | Array<ProgramSummaryResponse> | 공개/비공개 전체 프로그램 중 `createdAt DESC` 최대 5건(본문 `content` 미포함) |
+| visiblePopupCount | long | 현재 노출 중인 팝업 수 - `isVisible = true`이고 `startDate ≤ 서버 현재 시각 ≤ endDate`(공개 팝업 조회와 같은 조건) |
+| visibleBannerCount | long | 노출(`isVisible = true`) 메인 배너 수(공개 배너 조회와 같은 조건) |
 
-`BoardSummaryResponse`: `id`, `boardType`, `title`, `isPublic`, `createdAt`.
+`BoardSummaryResponse`: `id`, `boardType`, `title`, `isPublic`, `createdAt`, `programType`(nullable - `REVIEW`의 후기 대상 `COURSE`/`SPECIAL`, 그 외 게시판 또는 대상 미지정 후기는 `null`).
+
+`ProgramSummaryResponse`: `id`, `programType`, `title`, `recruitStatus`, `isPublic`, `createdAt`.
+
+P14-T9E에서 `recentBoards[].programType`/`recentPrograms`/`visiblePopupCount`/`visibleBannerCount`를 **추가만** 했다(기존 필드 이름·의미 무변경). 관리자 대시보드 화면은 `quickMenus`를 더 이상 렌더링하지 않지만(sidebar와 중복) 호환을 위해 응답 필드는 유지한다.
 
 `quickMenus`는 별도 Entity/DB 설정 없이 다음 고정 순서로 반환한다.
 

@@ -71,6 +71,12 @@ class AdminLayoutScriptOrderIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
+    // P14-T9E: dashboard도 진입 즉시 AdminDisplay로 최근 게시글/프로그램 표시명·badge·empty/error 행을 그린다.
+    @Test
+    void dashboardLoadsAdminDisplayBeforeItUsesIt() throws Exception {
+        assertScriptLoadsBeforeFirstInlineUsage("/admin/dashboard", ADMIN_DISPLAY_SRC, "AdminDisplay");
+    }
+
     // P14-T9C-2: URL state가 있는 목록은 진입 즉시 AdminListState로 URL을 읽으므로, layout이 아니라 각 template이
     // 인라인 스크립트 바로 앞에서 admin-list-state.js를 로드해야 한다(다른 admin 화면에는 로드하지 않는다).
     @Test
