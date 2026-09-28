@@ -53,4 +53,21 @@ class PageViewControllerTest extends AbstractIntegrationTest {
         assertThat(link.attr("target")).isEqualTo("_blank");
         assertThat(link.attr("rel")).isEqualTo("noopener noreferrer");
     }
+
+    // P14-T5: 페이지 제목이 유일한 h1이고, renderedContent는 기존대로 .ckeditor-content에 렌더링된다.
+    @Test
+    void detailRendersTitleAsTheOnlyH1AndKeepsRenderedContent() throws Exception {
+        CmsPage page = pageRepository.findByPageType(PageType.GREETING).orElseThrow();
+        page.update("인사말 h1 제목", "<h2>본문 소제목</h2><p>인사말 본문</p>");
+        pageRepository.saveAndFlush(page);
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/pages/{type}", PageType.GREETING))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertThat(document.select("h1")).hasSize(1);
+        assertThat(document.select("#page-detail-content > h1.detail-title").text()).isEqualTo("인사말 h1 제목");
+        assertThat(document.select("#page-detail-content .ckeditor-content h2").text()).isEqualTo("본문 소제목");
+        assertThat(document.select("#page-detail-content .ckeditor-content p").text()).isEqualTo("인사말 본문");
+    }
 }

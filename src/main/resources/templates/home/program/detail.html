@@ -6,12 +6,17 @@
 </head>
 <body>
 <div id="program-detail-content" class="container">
-    <div class="mb-2">
-        <span class="badge bg-secondary" th:text="${program.programType()}"></span>
-        <span class="badge bg-info" th:text="${program.recruitStatus()}"></span>
+    <!-- P14-T5: raw enum 대신 Program 목록(P14-T4A)과 동일한 한글 표시명 삼항 매핑을 재사용한다
+         (domain enum/DB/API 무변경). 배지 시각은 detail 전용 .detail-meta__badge(home.css)로 scope한다. -->
+    <div class="detail-meta">
+        <span class="badge detail-meta__badge"
+              th:text="${program.programType().name() == 'COURSE'} ? '수강' : '특강'"></span>
+        <span class="badge detail-meta__badge"
+              th:classappend="${program.recruitStatus().name() == 'OPEN'} ? ' is-open'"
+              th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
     </div>
 
-    <h2 th:text="${program.title()}"></h2>
+    <h1 class="detail-title" th:text="${program.title()}"></h1>
 
     <!-- P13-T41: 대표 이미지(thumbnail)는 목록/홈/HomePinnedContent 카드 전용 메타데이터다.
          상세 본문의 실제 이미지는 CKEditor content가 표현하므로 여기서 별도로 자동 출력하지 않는다
@@ -23,12 +28,12 @@
         <a th:href="${program.attachment()}" target="_blank" rel="noopener noreferrer">첨부파일 다운로드</a>
     </div>
 
-    <div class="mt-4">
+    <!-- P14-T5: 신청하기/목록으로를 하나의 action 행으로 묶는다(id/href/조건 무변경). -->
+    <div class="detail-actions">
         <a id="apply-link" th:if="${program.googleFormUrl() != null}" th:href="${program.googleFormUrl()}"
            target="_blank" rel="noopener noreferrer" class="btn btn-primary">신청하기</a>
+        <a th:href="@{/programs}" class="btn btn-secondary">목록으로</a>
     </div>
-
-    <a th:href="@{/programs}" class="btn btn-secondary mt-3">목록으로</a>
 </div>
 </body>
 </html>

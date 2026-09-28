@@ -210,6 +210,51 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#attachment-link")).isEmpty();
     }
 
+    // P14-T5: 상세 배지도 목록(P14-T4B)과 같은 한글 표시명을 쓰고 raw boardType을 노출하지 않는다.
+    // REVIEW는 programType 세부 구분 없이 "강의 후기" 하나로 표시한다(T4B 결정 유지).
+    @Test
+    void detailShowsKoreanLabelForEveryBoardTypeInsteadOfRawEnumName() throws Exception {
+        String[][] expectations = {
+                {"NOTICE", "공지사항"}, {"GALLERY", "갤러리"}, {"ARCHIVE", "자료실"}, {"REVIEW", "강의 후기"}};
+
+        for (String[] expectation : expectations) {
+            Long id = boardRepository.saveAndFlush(Board.builder()
+                    .boardType(BoardType.valueOf(expectation[0]))
+                    .title(expectation[0] + " 상세 배지")
+                    .content("내용")
+                    .isPublic(true)
+                    .build()).getId();
+
+            Document document = Jsoup.parse(mockMvc.perform(get("/boards/{id}", id))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+            Elements badge = document.select("#board-detail-content .detail-meta__badge");
+            assertThat(badge.eachText()).containsExactly(expectation[1]);
+            assertThat(document.select("#board-detail-content .detail-meta").text())
+                    .doesNotContain("NOTICE", "GALLERY", "ARCHIVE", "REVIEW");
+        }
+    }
+
+    // P14-T5: 상세 제목이 페이지의 유일한 h1이다(본문 CKEditor heading은 h2 이하).
+    @Test
+    void detailRendersTitleAsTheOnlyH1() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE)
+                .title("h1 제목 공지")
+                .content("<h2>본문 소제목</h2><p>내용</p>")
+                .isPublic(true)
+                .build()).getId();
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertThat(document.select("h1")).hasSize(1);
+        assertThat(document.select("#board-detail-content > h1.detail-title").text()).isEqualTo("h1 제목 공지");
+        assertThat(document.select("#board-detail-content .ckeditor-content h2").text()).isEqualTo("본문 소제목");
+    }
+
     // P13-T19: 조회수 기능 완전 제거. 상세 페이지의 기존 조회수 메타 요소(뱃지 옆의
     // "조회 N" span)가 더 이상 렌더링되지 않는지 확인한다.
     @Test
