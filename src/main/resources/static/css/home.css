@@ -158,6 +158,27 @@ html {
     scroll-padding-top: 5rem;
 }
 
+/* P14-T6A: 본문 바로가기. 평소에는 화면 밖에 두고 keyboard focus 시에만 좌상단에 보인다. sticky header(z 10)와
+   popup(z 1000~, JS inline) 위에 표시되도록 z-index를 둔다. 이동 대상은 기존 #site-main(scroll-padding-top 적용). */
+.skip-link {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1100;
+    padding: var(--space-1) var(--space-2);
+    background: var(--color-primary);
+    color: var(--color-primary-contrast);
+    font-weight: 600;
+    text-decoration: none;
+    transform: translateY(-100%);
+}
+
+.skip-link:focus {
+    transform: translateY(0);
+    outline: 2px solid var(--color-primary-contrast);
+    outline-offset: -4px;
+}
+
 /* P13-T30B: dropdown이 뒤따르는 hero/banner 섹션에 가려지지 않도록 header를 별도 stacking context로
    승격한다. popup-modal의 z-index:1000(fixed)보다 훨씬 낮은 값이라 popup과 충돌하지 않는다. */
 #site-header {
@@ -1903,6 +1924,13 @@ html {
 .pagination-bar__nav:focus-visible,
 .pagination-bar__number:focus-visible {
     background: var(--color-surface);
+}
+
+/* P14-T6A: 한 자리 숫자("1")가 23.5px로 WCAG 2.2 2.5.8 target 최소 24px에 못 미쳤다(axe 실측). 좌우 padding만
+   0.5rem → 0.625rem으로 늘려 약 27.5px을 확보한다(높이·이전/다음 링크 무변경). */
+.pagination-bar__number {
+    padding-left: 0.625rem;
+    padding-right: 0.625rem;
 }
 
 .pagination-bar__number.is-active {
