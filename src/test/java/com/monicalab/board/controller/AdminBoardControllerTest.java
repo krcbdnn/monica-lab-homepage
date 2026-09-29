@@ -79,6 +79,39 @@ class AdminBoardControllerTest extends AbstractIntegrationTest {
                         org.hamcrest.Matchers.containsString("<script"))));
     }
 
+    // P15-T4: CKEditor 목록/중첩 목록/인용/기울임/표 머리글/셀 병합이 실제 저장 API(→ BoardService →
+    // HtmlSanitizer → DB)를 거쳐 보존되고, 목록 안 script와 범위 밖 span은 제거되는지 대표 1건으로 확인한다.
+    // Program/Page/Popup은 같은 HtmlSanitizer.sanitize를 호출하므로 복제하지 않는다.
+    @Test
+    void createPreservesCkeditorListQuoteItalicAndTableStructureWhileRemovingScript() throws Exception {
+        String content = "<ul><li>a<ul><li>b<ol><li>c</li></ol></li></ul></li>"
+                + "<li><script>alert(1)</script>safe</li></ul>"
+                + "<ol><li>one</li></ol>"
+                + "<blockquote><p><i>quoted</i></p></blockquote>"
+                + "<figure class=\"table\"><table><thead><tr><th>h1</th><th>h2</th></tr></thead>"
+                + "<tbody><tr><td colspan=\"2\" rowspan=\"2\">merged</td></tr>"
+                + "<tr><td colspan=\"51\">tooWide</td></tr></tbody></table></figure>";
+        String expected = "<ul><li>a<ul><li>b<ol><li>c</li></ol></li></ul></li>"
+                + "<li>safe</li></ul>"
+                + "<ol><li>one</li></ol>"
+                + "<blockquote><p><i>quoted</i></p></blockquote>"
+                + "<figure><table><thead><tr><th>h1</th><th>h2</th></tr></thead>"
+                + "<tbody><tr><td colspan=\"2\" rowspan=\"2\">merged</td></tr>"
+                + "<tr><td>tooWide</td></tr></tbody></table></figure>";
+        String body = objectMapper.writeValueAsString(java.util.Map.of(
+                "boardType", "NOTICE", "title", "서식 보존", "content", content));
+
+        String response = mockMvc.perform(admin(post("/api/admin/boards")).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.content").value(expected))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        long id = objectMapper.readTree(response).path("data").path("id").asLong();
+
+        mockMvc.perform(admin(get("/api/admin/boards/{id}", id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value(expected));
+    }
+
     @Test
     void adminListAndDetailReturnPrivateBoards() throws Exception {
         Board privateBoard = boardRepository.saveAndFlush(Board.builder()

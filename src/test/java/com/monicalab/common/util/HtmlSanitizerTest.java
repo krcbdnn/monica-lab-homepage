@@ -506,4 +506,225 @@ class HtmlSanitizerTest {
 
         assertThat(second).isEqualTo(first);
     }
+
+    // ===== P15-T4: CKEditor 41.4.2 실제 출력(목록/인용/기울임/표 머리글/셀 병합) 보존 =====
+    // 기대값은 41.4.2 classic CDN build의 getData() 실측 출력(툴바/Autoformat/붙여넣기)을 기준으로 한다.
+
+    @Test
+    void preservesItalicAndExistingEm() {
+        assertThat(HtmlSanitizer.sanitize("<p><i><strong>abc</strong></i></p>"))
+                .isEqualTo("<p><i><strong>abc</strong></i></p>");
+        assertThat(HtmlSanitizer.sanitize("<p><em>legacy</em></p>")).isEqualTo("<p><em>legacy</em></p>");
+    }
+
+    @Test
+    void preservesUnorderedList() {
+        assertThat(HtmlSanitizer.sanitize("<ul><li>a</li><li>b</li></ul>"))
+                .isEqualTo("<ul><li>a</li><li>b</li></ul>");
+    }
+
+    @Test
+    void preservesOrderedList() {
+        assertThat(HtmlSanitizer.sanitize("<ol><li>a</li><li>b</li></ol>"))
+                .isEqualTo("<ol><li>a</li><li>b</li></ol>");
+    }
+
+    // CKEditor indent는 하위 목록을 부모 li 안에 중첩한다(IndentBlock 없음 - 목록 중첩 전용).
+    @Test
+    void preservesNestedListStructure() {
+        String html = "<ul><li>a<ul><li>b<ol><li>c</li></ol></li></ul></li></ul>";
+
+        assertThat(HtmlSanitizer.sanitize(html)).isEqualTo(html);
+    }
+
+    @Test
+    void preservesBlockquoteWithParagraphsAndInnerList() {
+        assertThat(HtmlSanitizer.sanitize("<blockquote><p>q1</p><p>q2</p></blockquote>"))
+                .isEqualTo("<blockquote><p>q1</p><p>q2</p></blockquote>");
+        assertThat(HtmlSanitizer.sanitize("<blockquote><ul><li>x</li></ul><h2>h</h2></blockquote>"))
+                .isEqualTo("<blockquote><ul><li>x</li></ul><h2>h</h2></blockquote>");
+    }
+
+    // 표 머리글 행(thead > th)과 머리글 열(tbody 안 행 첫 칸 th) 구조를 모두 유지한다.
+    @Test
+    void preservesTableHeadBodyAndRowHeaderCells() {
+        String html = "<table><thead><tr><th>h1</th><th>h2</th></tr></thead>"
+                + "<tbody><tr><th>r1</th><td>d1</td></tr></tbody></table>";
+
+        assertThat(HtmlSanitizer.sanitize(html)).isEqualTo(html);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1", "2", "50"})
+    void preservesValidColspan(String value) {
+        String html = "<table><tbody><tr><td colspan=\"" + value + "\">c</td></tr></tbody></table>";
+
+        assertThat(HtmlSanitizer.sanitize(html)).isEqualTo(html);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1", "2", "50"})
+    void preservesValidRowspan(String value) {
+        String html = "<table><tbody><tr><th rowspan=\"" + value + "\">c</th></tr></tbody></table>";
+
+        assertThat(HtmlSanitizer.sanitize(html)).isEqualTo(html);
+    }
+
+    @Test
+    void preservesColspanAndRowspanTogether() {
+        String html = "<table><tbody><tr><td colspan=\"2\" rowspan=\"2\">m</td><td>x</td></tr>"
+                + "<tr><td>y</td></tr></tbody></table>";
+
+        assertThat(HtmlSanitizer.sanitize(html)).isEqualTo(html);
+    }
+
+    // CKEditor getData() 실측 형태: 표는 <figure class="table">로 감싸진다. figure의 "table" class
+    // 토큰은 기존 ALLOWED_FIGURE_CLASS_TOKENS 대상이 아니라 제거되는 기존 동작(P15-T4 범위 밖)이고,
+    // 표 구조(thead/tbody/th/병합 span)와 셀 안 목록/인용/기울임은 보존된다.
+    @Test
+    void preservesRealCkeditorTableFixtureWithMergedCellsAndRichCellContent() {
+        String html = "<figure class=\"table\"><table>"
+                + "<thead><tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th></tr></thead>"
+                + "<tbody><tr><th>r</th><td colspan=\"2\" rowspan=\"2\">merged</td></tr>"
+                + "<tr><th>r2</th></tr>"
+                + "<tr><th>r3</th><td><ul><li>x</li></ul><blockquote><p>q</p></blockquote></td>"
+                + "<td><p><i>i</i></p></td></tr>"
+                + "</tbody></table></figure>";
+
+        String result = HtmlSanitizer.sanitize(html);
+
+        assertThat(result).isEqualTo(html.replace("<figure class=\"table\">", "<figure>"));
+    }
+
+    // 기존 이미지 계약(resize style/figure class/alt/figcaption)과 새 구조가 한 문서에 섞여도 서로 간섭하지 않는다.
+    @Test
+    void preservesNewStructuresAlongsideResizedCaptionedImage() {
+        String html = "<ul><li>a</li></ul>"
+                + "<figure class=\"image image-style-side image_resized\" style=\"width:50%;\">"
+                + "<img src=\"/api/files/1\" alt=\"대체\"><figcaption>캡션</figcaption></figure>"
+                + "<blockquote><p><i>q</i></p></blockquote>"
+                + "<figure class=\"table\"><table><tbody><tr><td rowspan=\"2\">m</td><td>x</td></tr>"
+                + "<tr><td>y</td></tr></tbody></table></figure>"
+                + "<figure class=\"image image_resized\" style=\"width:25%;\"><img src=\"/api/files/2\"></figure>";
+
+        String result = HtmlSanitizer.sanitize(html);
+
+        assertThat(result).isEqualTo(html.replace("<figure class=\"table\">", "<figure>"));
+        assertThat(HtmlSanitizer.sanitize(result)).isEqualTo(result);
+    }
+
+    // 정확히 ASCII 10진 정수 1~50만 허용한다. 공백/부호/선행 0/지수/전각 숫자/단위 등은 attribute만 제거하고
+    // 셀(td/th)과 셀 텍스트, 같은 셀의 다른 유효 span은 그대로 유지한다.
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "51", "-1", "1.5", "abc", "", " 2", "2 ", "02", "+2", "1e1", "９", "2;x", "50%"})
+    void removesOnlyInvalidColspanAttributeAndKeepsCell(String value) {
+        String result = HtmlSanitizer.sanitize(
+                "<table><tbody><tr><td colspan=\"" + value + "\" rowspan=\"2\">cell</td>"
+                        + "<th colspan=\"" + value + "\">head</th></tr></tbody></table>");
+
+        assertThat(result).as("colspan=[%s]", value).isEqualTo(
+                "<table><tbody><tr><td rowspan=\"2\">cell</td><th>head</th></tr></tbody></table>");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "51", "-1", "1.5", "abc", "", " 2", "2 ", "02", "+2", "1e1", "９", "2;x", "50%"})
+    void removesOnlyInvalidRowspanAttributeAndKeepsCell(String value) {
+        String result = HtmlSanitizer.sanitize(
+                "<table><tbody><tr><td rowspan=\"" + value + "\" colspan=\"2\">cell</td>"
+                        + "<th rowspan=\"" + value + "\">head</th></tr></tbody></table>");
+
+        assertThat(result).as("rowspan=[%s]", value).isEqualTo(
+                "<table><tbody><tr><td colspan=\"2\">cell</td><th>head</th></tr></tbody></table>");
+    }
+
+    // colspan/rowspan은 td/th 전용이다. 다른 태그에 붙은 동일 이름 attribute는 Safelist에서 제거된다.
+    @Test
+    void doesNotAllowSpanAttributesOnNonCellElements() {
+        String result = HtmlSanitizer.sanitize(
+                "<table colspan=\"2\"><tbody rowspan=\"2\"><tr colspan=\"2\"><td>c</td></tr></tbody></table>"
+                        + "<p colspan=\"2\">p</p>");
+
+        assertThat(result).isEqualTo("<table><tbody><tr><td>c</td></tr></tbody></table><p>p</p>");
+    }
+
+    @Test
+    void removesAllAttributesFromNewStructuralTags() {
+        String result = HtmlSanitizer.sanitize(
+                "<ul onclick=\"alert(1)\" style=\"color:red\" class=\"x\" id=\"i\">"
+                        + "<li onmouseover=\"alert(1)\" value=\"3\" class=\"y\">a</li></ul>"
+                        + "<ol start=\"5\" type=\"a\" reversed><li>b</li></ol>"
+                        + "<blockquote cite=\"javascript:alert(1)\" onclick=\"x\" style=\"a\"><p>q</p></blockquote>"
+                        + "<p><i class=\"c\" style=\"s\" onclick=\"x\">i</i></p>"
+                        + "<table><thead onclick=\"x\" style=\"a\" class=\"c\">"
+                        + "<tr><th scope=\"col\" style=\"width:1px\" onclick=\"x\" id=\"h\">h</th></tr></thead>"
+                        + "<tbody id=\"b\"><tr><td>d</td></tr></tbody></table>");
+
+        assertThat(result).isEqualTo("<ul><li>a</li></ul><ol><li>b</li></ol><blockquote><p>q</p></blockquote>"
+                + "<p><i>i</i></p><table><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>");
+    }
+
+    @Test
+    void removesDangerousElementsNestedInsideNewStructures() {
+        String result = HtmlSanitizer.sanitize(
+                "<ul><li><script>alert(1)</script>x<img src=x onerror=alert(1)></li>"
+                        + "<li><iframe src=\"https://evil.example\"></iframe>"
+                        + "<iframe srcdoc=\"<script>alert(1)</script>\"></iframe>y</li></ul>"
+                        + "<blockquote><svg onload=alert(1)><script>alert(1)</script></svg><math><mi>m</mi></math></blockquote>"
+                        + "<ol><li><i><object data=\"x\"></object><embed src=\"x\">"
+                        + "<form action=\"javascript:alert(1)\"><input autofocus onfocus=alert(1)></form>z</i></li></ol>");
+
+        Document doc = Jsoup.parseBodyFragment(result);
+
+        assertThat(doc.select("script, iframe, svg, math, object, embed, form, input")).isEmpty();
+        assertThat(result).doesNotContain("alert(1)").doesNotContain("srcdoc").doesNotContain("onerror")
+                .doesNotContain("onload").doesNotContain("onfocus");
+        assertThat(doc.select("li")).hasSize(3);
+        assertThat(doc.select("blockquote")).hasSize(1);
+        assertThat(doc.selectFirst("img").hasAttr("src")).isFalse();
+    }
+
+    @Test
+    void removesUnsafeLinkSchemesInsideListItems() {
+        String result = HtmlSanitizer.sanitize("<ol><li><a href=\"javascript:alert(1)\">x</a>"
+                + "<a href=\"JaVaScRiPt:alert(1)\">y</a><a href=\"data:text/html,alert(1)\">z</a>"
+                + "<a href=\"https://example.com\">ok</a></li></ol>");
+
+        assertThat(result).isEqualTo(
+                "<ol><li><a>x</a><a>y</a><a>z</a><a href=\"https://example.com\">ok</a></li></ol>");
+    }
+
+    // colspan 값 안에서 attribute 경계를 탈출하려는 입력은 jsoup이 하나의 값으로 확정하므로 새 attribute가
+    // 생기지 않고, 그 값은 1~50 정수가 아니므로 colspan 자체가 제거된다.
+    @Test
+    void spanAttributeEscapeAttemptDoesNotCreateNewAttribute() {
+        String result = HtmlSanitizer.sanitize(
+                "<table><tbody><tr><td colspan='2\" onmouseover=\"alert(1)'>c</td></tr></tbody></table>");
+
+        assertThat(result).isEqualTo("<table><tbody><tr><td>c</td></tr></tbody></table>");
+    }
+
+    @Test
+    void malformedNestingIsNormalizedWithoutLeakingDisallowedMarkup() {
+        String result = HtmlSanitizer.sanitize("<ul><li>a<blockquote><li>b</ul></blockquote>"
+                + "<td colspan=5 onclick=x>orphan</td><i><b>x</i></b><script>alert(1)</script>");
+
+        Document doc = Jsoup.parseBodyFragment(result);
+
+        assertThat(doc.select("script, b")).isEmpty();
+        assertThat(result).doesNotContain("onclick").doesNotContain("alert(1)")
+                .contains("<ul><li>a<blockquote><li>b</li></blockquote></li></ul>")
+                .contains("orphan")
+                .contains("<i>x</i>");
+        assertThat(HtmlSanitizer.sanitize(result)).isEqualTo(result);
+    }
+
+    // MediaEmbed는 지원하지 않는다(P15-T4에서 editor plugin 제거). sanitizer도 oembed/iframe을 계속 허용하지 않는다.
+    @Test
+    void stillRemovesMediaEmbedAndIframeMarkup() {
+        String result = HtmlSanitizer.sanitize(
+                "<figure class=\"media\"><oembed url=\"https://www.youtube.com/watch?v=abc\"></oembed></figure>"
+                        + "<ul><li><iframe src=\"https://www.google.com/maps/embed?pb=x\"></iframe>map</li></ul>");
+
+        assertThat(result).isEqualTo("<figure></figure><ul><li>map</li></ul>");
+    }
 }
