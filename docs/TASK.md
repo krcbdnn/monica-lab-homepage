@@ -1829,6 +1829,164 @@ T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는�
 
 ---
 
+## Phase 15. Production Readiness (운영 배포 준비)
+
+Phase 14 이후 실제 운영 배포/발주처 전달을 위한 최소 작업 Phase다. READ-ONLY Production Readiness 감사(develop `edd5ed1`, 결론 C: "작은 개발 Phase + 별도 Deployment/Client Handoff 절차")와 P15-T0 계약 조사에서 확정한 결정(D1~D12)을 기준으로 한다. 새 사용자 기능 Phase가 아니며, 대규모 인프라(Kubernetes/Redis/CD/중앙 로그/다중 서버)는 도입하지 않는다.
+
+### P15 공통 계약
+
+- **DB migration 0건**: Phase 15의 어떤 Task도 Flyway migration을 추가하지 않는다(비밀번호 변경은 기존 `admin.password`/`updated_at`, sanitizer 변경은 저장 시점에만 적용, theme은 기존 V13).
+- **CURRENT / PLANNED 표기**: Phase 15 Task에서 구현할 동작은 PRD/FEATURES/API/ARCHITECTURE/CODING_RULES에 **PLANNED**(또는 "예정")로 표시되어 있다. 각 Task는 구현 완료 시 해당 문서의 PLANNED 표기를 CURRENT 설명으로 갱신하는 것을 DoD에 포함한다.
+- **canonical 문서**: 구조/보안/배포 계약은 ARCHITECTURE.md "운영 배포 계약(Phase 15)", release/tag/hotfix는 GIT_WORKFLOW.md §6-1/§6-2, 운영 명령/runbook은 `docs/OPERATIONS.md`(P15-T8에서 신규 작성)다.
+- **Task 분리 원칙**: 각 Task는 독립적으로 테스트/merge 가능하며, security/runtime/content 변경을 한 PR에 과도하게 섞지 않는다. CLIENT(발주처) 결정 대기 때문에 개발 Task가 멈추지 않도록 도메인/로고 의존 작업은 배포 단계 또는 P15-T7B로 분리한다.
+- **ID와 실행 순서**: Task ID는 감사 시 부여한 번호를 유지하므로 번호 순서와 실행 순서가 다르다(아래 "Phase 15 실행 순서").
+- **데이터 보호**: 모든 Task에서 `docker compose down -v`, Docker volume 삭제/이름 변경, 운영 DB 초기화를 하지 않는다. 사용자 소유 untracked 파일 `docker-compose.local-test.yml`은 수정/삭제/commit하지 않는다.
+
+### Phase 15 확정 결정 요약(P15-T0)
+
+| ID | 결정 | 구현 Task |
+|---|---|---|
+| D1 | 관리자 본인 비밀번호 변경 최소 기능 구현(현재 비밀번호 확인, 정책+최대 64자, 동일 비밀번호 거부, `INVALID_CURRENT_PASSWORD` 400, 성공 시 세션 ID 교체, `/admin/password`, header 로그아웃 근처 진입). 찾기/이메일/재설정 UI·복수 관리자 없음. 분실 시 재설정은 OPERATIONS | P15-T6, P15-T8 |
+| D2 | 혼합 전략: `ul`/`ol`/`li`/`blockquote`/`i`/`thead`/`tbody` + `colspan`/`rowspan`(정수 1~50만) 허용, `mergeTableCells` 유지, MediaEmbed는 툴바 제외 + `removePlugins`, 툴바 명시 선언, 목록/인용 CSS 최소 추가, 지도 embed 미지원(이미지+외부 지도 링크) | P15-T4 |
+| D3 | `/api/**` JSON 유지, 공개 HTML 경로와 `/api/` 외 미매핑 경로는 독립 HTML 오류 템플릿(4xx/5xx), 관리자 HTML 상세 404는 범위 밖(JSON 유지) | P15-T5 |
+| D4 | nginx :80(ACME webroot + 301) / :443(TLS, HSTS 단독 담당, includeSubDomains·preload 없음), 인증서는 host `./data/certs` 고정 파일명 → `/etc/nginx/certs`, host certbot webroot(컨테이너 없음), Spring forward headers native + relative redirects + SameSite=Lax, Spring HSTS 비활성화 | P15-T1, P15-T3, P15-T8 |
+| D5 | `db_data` volume 이름을 기존 실제 이름 `monica-lab-homepage_db_data`로 명시 고정 | P15-T2 |
+| D6 | 운영 compose `UPLOAD_ROOT=/app/uploads` 고정(.env 치환 제거), prod yml override 능력은 유지 | P15-T2 |
+| D7 | 백업/복원은 코드·스크립트 없이 OPERATIONS 절차(매일 dump+uploads, 서버 외부 보관 1곳 필수, 분기 1회 복원 리허설 권장) | P15-T8 |
+| D8 | prod `show-sql`/`format_sql` false, Docker json-file `max-size 10m`/`max-file 3`(3개 service), 4xx `CustomException` stacktrace 없는 WARN, 5xx stacktrace 유지 | P15-T1, P15-T2 |
+| D9 | nginx `limit_req`를 정확히 `/api/admin/login`에만(`5r/m`, `burst=5`, `nodelay`, 429), 로그인 화면 429 안내, CAPTCHA/app dependency 없음 | P15-T3 |
+| D10 | P15-T7A: robots.txt + 공통 meta description + 기본 OG(title/description/type/site_name/locale). P15-T7B: favicon/og:image/og:url(발주처 asset·도메인 의존). sitemap/canonical 범위 밖 | P15-T7A, P15-T7B |
+| D11 | tag 기반 release: develop→main PR(merge commit) → main `v1.0.0` tag → 서버 tag checkout. mutable 브랜치 pull 금지 | GIT_WORKFLOW §6-1, P15-T8 |
+| D12 | 정적 리소스 현재 구조 유지, "tag checkout → `up -d --build`"를 배포 단위로 계약(checkout만 하고 rebuild 생략 금지, app image만 rollback 금지) | ARCHITECTURE, P15-T8 |
+
+### P15-T0. Production Readiness Contract / Documentation
+- 의존성: P14 완료(P14-T7)
+- CLIENT 의존성: 없음
+- 산출물: `docs/PRD.md`, `docs/FEATURES.md`, `docs/ERD.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/CODING_RULES.md`, `docs/TASK.md`, `docs/GIT_WORKFLOW.md`, `README.md`, `CLAUDE.md`
+- 작업 내용: D1~D12를 canonical 문서에 반영한다. 문서 누락/불일치를 해소한다(Theme의 PRD/FEATURES/ERD/API/ARCHITECTURE 누락, Menu의 PRD/FEATURES 누락, sanitizer 정책과 실제 구현 불일치, README 저장소 placeholder/패키지 구조/설정 설명, ARCHITECTURE의 존재하지 않는 `security` 패키지·`FileUtil`/`DateUtil`, Logging 설명, 정적 리소스 배포 미결정 항목, 비밀번호 관리 정책 부재). 미래 구현 내용은 PLANNED로 표시한다.
+- 범위 제외: production source/config/infra/test 변경, `.env.example` 변경(P15-T2), `docs/OPERATIONS.md` 작성(P15-T8).
+- DB migration: 없음
+- DoD: 문서만 변경(`src/**`, `frontend-tests/**`, compose/nginx/`.env.example`/dependency 변경 0), `git diff --check` 통과, stale reference 검색 결과 분류 완료, CURRENT/PLANNED 구분, Task ID/의존성 일관성.
+
+### P15-T1. Prod Runtime & Logging
+- 의존성: P15-T0
+- CLIENT 의존성: 없음
+- 산출물(예상): `src/main/resources/application-prod.yml`, `config/SecurityConfig.java`, `common/exception/GlobalExceptionHandler.java`, 관련 테스트(prod 설정/forwarded header 통합 테스트, 필요 시 `GlobalExceptionHandlerTest`), 문서 PLANNED→CURRENT 갱신
+- 작업 내용: prod profile에 `spring.jpa.show-sql=false`, `spring.jpa.properties.hibernate.format_sql=false`, `server.forward-headers-strategy=native`, `server.tomcat.use-relative-redirects=true`, `server.servlet.session.cookie.same-site=lax`를 적용한다. Spring Security HSTS header를 비활성화한다(Nginx 단독 담당). `CustomException` 4xx는 stacktrace 없는 WARN 한 줄, 5xx는 stacktrace를 유지한다.
+- 범위 제외: nginx/compose, 세션 timeout 변경, 로그 포맷 변경/중앙 수집.
+- backend: 설정 + `SecurityConfig` 1곳 + `GlobalExceptionHandler` 로그 분기 / frontend: 없음 / infra: 없음 / DB migration: 없음
+- 보안 영향: HTTPS 인식 시 `JSESSIONID`/`XSRF-TOKEN` `Secure` 자동 적용 기반, redirect `Location` 상대 경로화.
+- 검증: 실제 Tomcat(`RANDOM_PORT`) 통합 테스트로 `X-Forwarded-Proto: https` 요청 시 `JSESSIONID`/`XSRF-TOKEN` `Secure`, `SameSite=Lax`, `/admin/**` 미인증 redirect `Location` 상대 경로, Spring 응답에 HSTS 없음 확인. prod yml 속성 값 로딩 테스트. `./gradlew build`.
+- DoD: 위 테스트 통과, 기존 테스트 무회귀(정당한 계약 갱신 제외), 해당 문서 PLANNED 표기 갱신.
+
+### P15-T2. Compose Operational Hardening
+- 의존성: P15-T0
+- CLIENT 의존성: 없음
+- 산출물(예상): `docker-compose.yml`, `.env.example`, 문서 PLANNED→CURRENT 갱신
+- 작업 내용: 3개 service에 `logging`(`json-file`, `max-size: 10m`, `max-file: 3`, YAML anchor 허용)을 적용한다. `volumes.db_data.name: monica-lab-homepage_db_data`로 고정한다. app `UPLOAD_ROOT: /app/uploads`를 고정값으로 선언한다. `ADMIN_LOGIN_ID`/`ADMIN_PASSWORD`/`ADMIN_NAME`/`MARIADB_PASSWORD`/`MARIADB_ROOT_PASSWORD`를 `${VAR:?VAR is required}`로 필수화한다. `.env.example`에서 정책을 통과하는 예시 비밀번호를 제거(`ADMIN_PASSWORD=` 빈 값)하고 `UPLOAD_ROOT` 항목을 제거하며, 비밀번호 생성 방법을 주석으로 안내한다.
+- 범위 제외: 443/TLS/certs mount(P15-T3), container non-root, resource limit, image digest 고정.
+- backend/frontend: 없음 / infra: compose, `.env.example` / DB migration: 없음
+- 보안 영향: 공개 예시 비밀번호 사용 위험 제거, 필수 secret 누락 시 fail-fast.
+- 검증: `docker compose config`로 logging/volume name/UPLOAD_ROOT 확인, 필수 변수 누락 시 compose 실패 확인, `-v` 없이 app/db 재생성 후 기존 DB 데이터(게시글 수 등)와 업로드 파일 유지 확인(volume 삭제/`down -v` 금지).
+- DoD: 위 확인 기록, 기존 local volume 연결 유지, 문서 갱신.
+
+### P15-T4. CKEditor / Sanitizer Contract Alignment
+- 의존성: P15-T0
+- CLIENT 의존성: 없음
+- 산출물(예상): `common/util/HtmlSanitizer.java`, `HtmlSanitizerTest`, `static/js/admin/ckeditor-config.js`, `src/test/js/admin/ckeditor-config.test.js`, `static/css/home.css`, `static/css/admin/admin.css`, 필요 시 Playwright 1건, 문서 갱신
+- 작업 내용: Safelist에 `ul`/`ol`/`li`/`blockquote`/`i`/`thead`/`tbody`(속성 없음)와 `td`/`th`의 `colspan`/`rowspan`을 추가하고, clean 이후 정수 1~50만 유지하는 후처리를 둔다. `EDITOR_CONFIG`에 `toolbar.items`를 명시 선언(`mediaEmbed` 제외)하고 `removePlugins: ['MediaEmbed']`를 적용하며, 표 툴바 `mergeTableCells`는 유지한다. 목록/인용 표시 스타일을 `.ckeditor-content`/`.popup-modal__body`/관리자 읽기 전용 상세에 최소 추가한다.
+- 범위 제외: iframe/지도/미디어 embed, 새 CKEditor plugin/npm/번들러/self-host, 기존 저장 콘텐츠 복구, 이미지 alt 입력 강제.
+- backend: `HtmlSanitizer` / frontend: CKEditor config, CSS / infra: 없음 / DB migration: 없음
+- 보안 영향: 속성 없는 구조 태그와 숫자 검증 속성만 추가한다. 기존 XSS 제거 규칙(`script`/`iframe`/`on*`/`javascript:`/`img src`/`figure class`·`style`) 무회귀 필수.
+- 검증: 기존 `HtmlSanitizerTest` 전체 무회귀 + 목록/중첩 목록/인용/기울임/thead/병합 보존, colspan 비정상 값(0, 51, 음수, 문자, 공백) 제거, 목록 내부 XSS 벡터 제거. Node `ckeditor-config.test.js`(툴바에 mediaEmbed 없음, removePlugins 존재). 실제 관리자 에디터 입력→저장→공개 상세 렌더링 확인, admin console error 0.
+- DoD: 위 검증 통과, FEATURES "편집 서식 보존 계약"/ARCHITECTURE XSS 정책 CURRENT 갱신.
+
+### P15-T5. Public HTML Error Pages
+- 의존성: P15-T0, P15-T1(`GlobalExceptionHandler` 동시 수정 충돌 방지)
+- CLIENT 의존성: 없음
+- 산출물(예상): 공개 View Controller 전용 `@ControllerAdvice` 1개(신규), `GlobalExceptionHandler`, `templates/error/4xx.html`, `templates/error/5xx.html`, 최소 CSS, `GlobalExceptionHandlerTest`/`BoardViewControllerTest` 등 기대값 갱신 + 신규 테스트, 문서 갱신
+- 작업 내용: ARCHITECTURE.md "Exception > 오류 응답 경로 분리"의 PLANNED 구조대로 구현한다. 템플릿은 DB 조회 model/fragment 없이 독립 렌더링하고, 내부 정보를 노출하지 않으며, 홈 링크를 제공한다.
+- 범위 제외: 관리자 HTML 상세 404, `/api/**` 응답 변경, 공통 layout/header 재사용.
+- backend: advice + handler 분기 / frontend: 템플릿 2 + CSS / infra: 없음 / DB migration: 없음
+- 보안 영향: 내부 예외/경로/SQL 비노출 유지.
+- 검증: 공개 없는/비공개 게시글·프로그램, `/pages/NOPE`, 잘못된 query, `/no-such-path` → HTML(상태 코드 유지), `/api/**` 미존재·도메인 404 → 기존 JSON 유지, 관리자 API/화면 무회귀, 오류 페이지 console error 0.
+- DoD: 위 검증 통과, API.md/FEATURES/ARCHITECTURE CURRENT 갱신.
+
+### P15-T6. Admin Password Change
+- 의존성: P15-T0
+- CLIENT 의존성: 없음
+- 산출물(예상): `admin/dto/AdminPasswordChangeRequest`, `AdminService`, `Admin`(비밀번호 갱신 메서드), `AdminController`(`PUT /api/admin/me/password`), `AdminViewController`(`GET /admin/password`), 비밀번호 변경 템플릿(경로는 기존 admin 템플릿 관례를 따름), `admin/layout/header.html`, `ErrorCode`(`INVALID_CURRENT_PASSWORD`), 테스트, 문서 갱신
+- 작업 내용: API.md `PUT /api/admin/me/password`와 CODING_RULES 비밀번호 정책 계약대로 구현한다. 진입 링크는 header 로그아웃 근처에 둔다(sidebar 링크 순서 계약 보호).
+- 범위 제외: 비밀번호 찾기/이메일/재설정 UI, 복수 관리자, `AdminInitializer` 동작 변경, 다른 세션 강제 만료.
+- backend: DTO/Service/Entity/Controller 2/ErrorCode / frontend: 템플릿 + header / infra: 없음 / DB migration: 없음
+- 보안 영향: 현재 비밀번호 재확인, CSRF 필수, 성공 시 세션 ID 교체, 비밀번호 로그 금지.
+- 검증: Service/MockMvc - 성공, 현재 비밀번호 불일치 400 `INVALID_CURRENT_PASSWORD`, 정책 위반/64자 초과/동일 비밀번호 400, 미인증 401, CSRF 누락 403. 변경 후 새 비밀번호 로그인 성공·이전 비밀번호 로그인 실패. admin console error 0.
+- DoD: 위 검증 통과, PRD/FEATURES/API/CODING_RULES CURRENT 갱신.
+
+### P15-T3. Nginx TLS-ready + Login Rate Limit
+- 의존성: P15-T1, P15-T2
+- CLIENT 의존성: 없음(실제 도메인 DNS/Let's Encrypt 발급/최종 host/운영 smoke는 배포 단계)
+- 산출물(예상): `nginx/nginx.conf`, `docker-compose.yml`(443 port, `./data/certs:/etc/nginx/certs:ro`, `./data/certbot` webroot mount), `templates/admin/login.html`(429 안내), 로컬 자체서명 인증서 생성 절차 기록, 문서 갱신
+- 작업 내용: ARCHITECTURE.md "운영 배포 계약(Phase 15)"의 TLS/HSTS/rate limit 계약을 구현한다. `:80`은 `/.well-known/acme-challenge/`만 제공하고 나머지는 301 https, `:443`은 TLS termination, HSTS(`max-age=31536000`, includeSubDomains/preload 없음)를 정적 location 포함 모든 응답에 적용, `server_tokens off`, `location = /api/admin/login`에 `limit_req`.
+- 범위 제외: 실제 인증서 발급, certbot 컨테이너, gzip, CSP, SRI, nginx image 변경, 정적 리소스 image bake.
+- backend: 없음 / frontend: `login.html` 429 분기 / infra: nginx, compose / DB migration: 없음
+- 보안 영향: 큼(관리자 credential/세션 보호의 핵심, 감사 P0 해소).
+- 검증: `nginx -t`, 로컬 자체서명 인증서로 https smoke(HTTP→301, HSTS 존재, 로그인/로그아웃, `JSESSIONID`/`XSRF-TOKEN` Secure, redirect 상대 경로 유지), 연속 로그인 요청 시 429와 로그인 화면 안내 확인, Playwright를 HTTPS base URL로 전체 1회 실행. 로컬 Playwright 실행 방식 변경(https base URL, 자체서명 허용)을 문서에 기록.
+- DoD: 위 검증 기록, ARCHITECTURE/API CURRENT 갱신. 사용자 소유 `docker-compose.local-test.yml`의 포트 조정이 필요하면 사용자에게 안내만 한다(직접 수정 금지).
+
+### P15-T7A. SEO Basics
+- 의존성: P15-T0
+- CLIENT 의존성: 없음(meta description 문구는 구현 단계에서 기존 코드/문서의 연구소 소개·브랜드 문구를 조사해 과장 없는 보수적 초안을 제안하고 사용자 승인 후 반영)
+- 산출물(예상): `src/main/resources/static/robots.txt`, `templates/home/layout/default.html`, 관련 테스트
+- 작업 내용: robots.txt(도메인 비의존, `/admin/`·`/api/admin/` disallow, sitemap 줄 없음), 공개 공통 meta description, 기본 OG(`og:title`, `og:description`, `og:type`, `og:site_name`, `og:locale`).
+- 범위 제외: favicon/og:image/og:url(P15-T7B), sitemap, canonical, 페이지별 description.
+- backend: 없음 / frontend: layout head, static 파일 / infra: 없음 / DB migration: 없음
+- 검증: `/robots.txt` 200, 공개 화면 head에 meta/OG 존재(뷰 테스트), 기존 공개 화면 무회귀.
+- DoD: 위 검증 통과.
+
+### P15-T8. Operations Runbook
+- 의존성: P15-T1, P15-T2, P15-T3, P15-T6
+- CLIENT 의존성: 백업 외부 보관 위치/책임자가 미정이면 TBD로 두고 배포 단계에서 채운다
+- 산출물: `docs/OPERATIONS.md`(신규 - 운영 명령/runbook의 canonical 문서), README 링크 갱신
+- 작업 내용: 서버 준비(docker 부팅 시 자동 시작, 방화벽 80/443), release tag 배포(GIT_WORKFLOW §6-1), `.env` 작성과 강한 비밀번호 생성, TLS bootstrap(자체서명 placeholder → host certbot webroot 발급 → deploy-hook 복사/reload)과 갱신 확인, Cloudflare/LB 사용 시 real IP 설정 주의, 백업/복원(D7) 명령과 cron 예시, 복원 리허설, 관리자 비밀번호 분실 재설정 절차, rollback(이전 tag checkout → 전체 `up -d --build`, Flyway forward-only 주의), 배포 후 smoke checklist, 로그 확인, **금지 명령**(`down -v`, volume 삭제, checkout만 하고 rebuild 생략, app image 단독 rollback), 관리자 운영 안내(이미지 대체 텍스트 입력, 지원 서식, 세션 만료 시 대응).
+- 범위 제외: 백업 자동화 스크립트/코드, 모니터링 스택.
+- DB migration: 없음
+- 검증: 로컬 환경에서 백업 → 별도 확인용 복원 리허설 1회 수행 기록(기존 개발 volume을 파괴하지 않는 방식).
+- DoD: runbook 완성, 리허설 기록, README/ARCHITECTURE의 "OPERATIONS 예정" 표기 갱신.
+
+### P15-T7B. Client-dependent Final Brand / Domain Metadata
+- 분류: **CLIENT-DEPENDENT LAUNCH ITEM** - 일반 Phase 15 개발 Task와 동일하게 취급하지 않는다.
+- 의존성: P15-T7A
+- CLIENT 의존성: **발주처 로고 원본(favicon/대표 이미지용), 최종 도메인**
+- 산출물(예상): favicon 파일, `og:image`, `og:url`(`home/layout/default.html`)
+- 작업 내용: 발주처가 제공한 asset/도메인으로 favicon, `og:image`, `og:url`을 적용한다. asset을 받기 전에 임의의 최종 favicon/og:image를 만들지 않는다.
+- 완료 판정: asset을 일찍 받으면 Phase 15 중 처리하고, 늦으면 Release/Launch 직전에 처리한다. **P15-T7B 미완료는 P15-T0~T8(P15-T7B 제외)의 production-readiness engineering 완료 판정을 막지 않는다.** 단, 실제 공개 launch checklist에서는 favicon 등 최종 asset 적용 여부를 확인한다.
+- DB migration: 없음
+
+### Phase 15 의존성 그래프
+
+```
+P15-T0 ─┬─ P15-T1 ─┬──────────── P15-T5
+        │          └─┐
+        ├─ P15-T2 ───┴─ P15-T3 ─┐
+        ├─ P15-T4               ├─ P15-T8 ── Release/Launch
+        ├─ P15-T6 ──────────────┘               ↑
+        └─ P15-T7A ── P15-T7B(CLIENT asset) ────┘ (launch checklist에서 확인)
+```
+
+### Phase 15 실행 순서
+
+**P15-T0 → P15-T1 → P15-T2 → P15-T4 → P15-T5 → P15-T6 → P15-T3 → P15-T7A → P15-T8 → P15-T7B(asset 준비 시) → Release/Launch**
+
+- P15-T3을 앱/콘텐츠 변경(P15-T4~T6) 뒤에 두는 이유: HTTPS/자체서명 인증서 전환이 로컬 Docker/Playwright 실행 방식을 바꾸므로, infra 전환을 한 번만 하고 앞선 Task의 테스트 흐름을 흔들지 않기 위함이다.
+- Release/Launch는 개발 Task가 아니라 GIT_WORKFLOW.md §6-1 + OPERATIONS 절차다(도메인 DNS, Let's Encrypt 발급, 운영 `.env`, 운영 smoke 포함).
+
+### Phase 15 범위 밖(deferred, 운영 가능하나 후속 개선)
+
+비공개 게시글 첨부 URL 접근 제어, 업로드 Content-Type을 확장자 기준으로 도출, 파일 참조 확인/orphan 정리, 이미지 응답 캐시 헤더, container non-root, CKEditor self-host, Node 테스트 CI 추가, docker build CI, 관리자 세션 timeout 조정, 관리자 HTML 상세 404, 로그인 응답 시간 기반 계정 존재 추정 완화, popup focus trap/Escape focus 복귀/본문 tabindex, 이미지 대체 텍스트 입력 강제 UI(운영 안내로 대체), sitemap, canonical, gzip, CSP, SRI, image digest 고정, nginx 413 JSON 응답, CSS 구조 정리, Firefox/WebKit 전체 QA, public-console-errors 상세 화면 확대. P0/P1과 반드시 함께 처리해야 하는 예외 항목은 없다.
+
+---
+
 # 완료 기준 (Definition of Done) — 자동 검증 가능한 형태로 재기술
 
 | 항목 | 기존 표현 | 자동 검증 방법 |
@@ -1850,6 +2008,7 @@ T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는�
 | 테스트 완료 | 테스트 완료 | `./gradlew test` 성공 + 커버리지 리포트 |
 | 운영 런타임/배포 완료 | Flyway/prod/영속성/CI | P1-T7 + P12-T1~T3 통과, 헬스체크 200 |
 | 공개 UI 디자인 적용 완료 | 공개 UI/UX 개선 | Phase13(P13-T0~T7) 통과, 기존 뷰 통합 테스트 + Playwright 반응형 유지 |
+| 운영 배포 준비 완료 | Production Readiness | P15-T0~T6, P15-T7A, P15-T8 DoD 통과(P15-T7B는 CLIENT-DEPENDENT LAUNCH ITEM으로 launch checklist에서 별도 확인) |
 
 ---
 
@@ -1858,7 +2017,7 @@ T1부터는 코드/CSS 검토만으로 디자인 완료를 판단하지 않는�
 ```
                            ┌→ Phase4 ─┐
                            ├→ Phase5 ─┤
-Phase1 → Phase2 → Phase3 ─┼→ Phase6 ─┼→ Phase8 → Phase9 → Phase10 → Phase11 → Phase12 → Phase13
+Phase1 → Phase2 → Phase3 ─┼→ Phase6 ─┼→ Phase8 → Phase9 → Phase10 → Phase11 → Phase12 → Phase13 → Phase14 → Phase15
                            └→ Phase7 ─┘
 ```
 
