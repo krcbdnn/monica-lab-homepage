@@ -46,6 +46,11 @@ Version 2.0
 - 도메인 리소스 없음: `{DOMAIN}_NOT_FOUND` 404
 - 정의되지 않은 서버 오류: `INTERNAL_SERVER_ERROR` 500
 
+## 오류 응답 형식: API와 HTML 화면 분리
+
+- **CURRENT**: 이 문서의 `/api/**` 오류는 모두 JSON `ApiResponse`다. 현재는 공개 HTML 화면 경로(`/`, `/pages/**`, `/programs/**`, `/boards/**`)와 매핑되지 않은 경로에서 발생한 오류도 같은 JSON 본문으로 응답한다.
+- **PLANNED(Phase 15, P15-T5)**: `/api/**`는 JSON `ApiResponse`를 그대로 유지한다. 공개 HTML 화면 경로와 `/api/`로 시작하지 않는 매핑되지 않은 경로는 HTML 오류 페이지(4xx/5xx)로 응답한다. 관리자 HTML 상세 화면(`/admin/**`)의 404는 Phase 15 범위 밖이며 JSON을 유지한다. 구조는 ARCHITECTURE.md "Exception"을 따른다.
+
 ---
 
 # Authentication
@@ -71,6 +76,8 @@ Request `AdminLoginRequest`
 Response 200: `data`는 `id`, `loginId`, `name`, `role`을 가진 관리자 정보 객체. 성공 시 세션을 생성한다.
 
 Errors: `INVALID_INPUT_VALUE`(400), `AUTHENTICATION_FAILED`(401). 로그인 실패 사유로 계정 존재 여부를 노출하지 않는다.
+
+로그인 시도 제한(**PLANNED** — Phase 15, P15-T3): 운영 Nginx가 이 경로(정확히 `/api/admin/login`)에만 클라이언트 IP 기준 요청 제한(`5r/m`, `burst=5`, `nodelay`)을 적용한다. 제한을 넘으면 애플리케이션까지 전달되지 않고 Nginx가 HTTP `429`로 응답하며, 이 응답 본문은 `ApiResponse` JSON이 아니다(ErrorCode 카탈로그에 추가하지 않는다). 관리자 로그인 화면은 `429` 상태를 별도로 판별해 "로그인 시도가 너무 많다"는 안내를 표시한다. 애플리케이션 레벨 rate limiter/CAPTCHA는 두지 않는다. 현재(CURRENT)는 제한이 없다.
 
 ## POST /api/admin/logout
 
@@ -100,6 +107,38 @@ Response 200 `AdminResponse`
 ```
 
 다른 관리자 계정을 조회/등록/수정하는 API는 제공하지 않는다.
+
+## PUT /api/admin/me/password (PLANNED — P15-T6)
+
+**현재 존재하지 않는 endpoint다. Phase 15 계약으로 확정되어 P15-T6에서 구현한다.**
+
+인증: ROLE_ADMIN + CSRF(`X-XSRF-TOKEN`)
+
+로그인한 관리자 본인의 비밀번호만 변경한다. 대상 계정 id를 요청으로 받지 않는다.
+
+Request `AdminPasswordChangeRequest`
+
+| field | type | required | Validation |
+|---|---|---:|---|
+| currentPassword | String | Y | `@NotBlank` |
+| newPassword | String | Y | `@NotBlank`, 8~64자, 영문/숫자/특수문자 중 2종 이상(CODING_RULES.md 비밀번호 정책) |
+
+```json
+{
+  "currentPassword": "********",
+  "newPassword": "********"
+}
+```
+
+Response 200: `ApiResponse.success(null)`. 성공 시 현재 세션은 유지하되 세션 ID를 교체한다.
+
+Errors:
+
+- `INVALID_INPUT_VALUE`(400): Validation 실패, 또는 `newPassword`가 현재 비밀번호와 같은 경우
+- `INVALID_CURRENT_PASSWORD`(400): `currentPassword` 불일치(세션 만료로 오인하지 않도록 401을 쓰지 않는다)
+- `UNAUTHORIZED`(401), `ACCESS_DENIED`(403, CSRF 토큰 누락 포함)
+
+비밀번호 찾기/재설정 API는 제공하지 않는다(분실 시 운영 절차, `docs/OPERATIONS.md`).
 
 ---
 
@@ -603,6 +642,31 @@ Request: `HomePinnedContentRequest`. `targetId`가 존재하지 않거나 비공
 
 ---
 
+# Theme(P14-T8B)
+
+공개 홈페이지 디자인 설정(포인트 컬러 프리셋 + 메인 섹션 노출 여부) 조회/저장 API다. 설정은 `SITE_THEME` 1건뿐이며 요청으로 key/id를 받지 않는다. 공개 JSON API는 없다(공개 화면은 서버사이드 렌더링에서 `ThemeControllerAdvice`가 공급하는 값을 사용).
+
+`SiteThemeSettingView`(응답) / `SiteThemeSettingRequest`(요청)
+
+| field | type | required(PUT) | 설명 |
+|---|---|---:|---|
+| accentPreset | String(enum) | Y | `TERRACOTTA`/`BURGUNDY`/`FOREST` |
+| showPinned | Boolean | Y | 메인 "주요 소식" 섹션 노출 |
+| showPrograms | Boolean | Y | 메인 프로그램 섹션 노출 |
+| showReviews | Boolean | Y | 메인 강의 후기 섹션 노출 |
+| showNotices | Boolean | Y | 메인 공지사항 섹션 노출 |
+| showGallery | Boolean | Y | 메인 갤러리 섹션 노출 |
+
+## GET /api/admin/theme
+
+인증: ROLE_ADMIN. Response 200: `SiteThemeSettingView`. 설정 행이 없으면 DB write 없이 기본값(`TERRACOTTA`, 5개 노출 모두 `true`)을 반환한다.
+
+## PUT /api/admin/theme
+
+인증: ROLE_ADMIN. Request: `SiteThemeSettingRequest`(6개 필드 모두 필수, 누락/잘못된 enum이면 `INVALID_INPUT_VALUE` 400). Response 200: 저장된 `SiteThemeSettingView`. 설정 행이 없으면 자동 생성하지 않고 `SITE_THEME_SETTING_NOT_FOUND`(404).
+
+---
+
 # Public / Admin 조회 차이 요약
 
 | Domain | Public GET | Admin GET |
@@ -614,6 +678,7 @@ Request: `HomePinnedContentRequest`. `targetId`가 존재하지 않거나 비공
 | Popup | `isVisible=true` + 노출기간 내 | 노출/비노출/기간 외 모두 |
 | File | id 기반 다운로드만 | 업로드 이력 목록 + 업로드/삭제 |
 | Menu | 없음(P13-T30A 기준 공개 API 미제공) | 노출 여부와 관계없이 전체 반환 |
+| Theme | 없음(공개 화면은 서버사이드 렌더링) | `SITE_THEME` 설정 1건 |
 
 ---
 
@@ -624,7 +689,8 @@ Request: `HomePinnedContentRequest`. `targetId`가 존재하지 않거나 비공
 - 마이페이지
 - 상담 신청
 - 신청 데이터 저장
-- 관리자 계정 등록/수정/목록 API
+- 관리자 계정 등록/수정/목록 API(단, 로그인한 관리자 본인의 비밀번호 변경 `PUT /api/admin/me/password`는 PLANNED 예외 - P15-T6)
+- 관리자 비밀번호 찾기/재설정 API
 - Page POST/DELETE
 
 프로그램 신청은 저장하지 않고 `googleFormUrl`로 이동한다.

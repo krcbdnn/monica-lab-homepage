@@ -62,19 +62,23 @@ src/main/java/com/monicalab/
 ├── admin/      (관리자 로그인)
 ├── page/       (기관소개: 인사말, 연혁, 오시는 길 등)
 ├── program/    (Program Entity, ProgramType: COURSE / SPECIAL)
-├── board/      (Board Entity, BoardType: NOTICE / GALLERY / ARCHIVE)
+├── board/      (Board Entity, BoardType: NOTICE / GALLERY / ARCHIVE / REVIEW)
 ├── banner/     (메인 배너)
 ├── popup/      (팝업 관리)
 ├── file/       (파일 관리)
+├── menu/       (공개 헤더 메뉴 관리)
+├── pinned/     (메인 고정 콘텐츠)
+├── theme/      (사이트 테마 설정)
 ├── home/       (공개 메인 화면 GET /, 자체 Entity 없이 다른 도메인 Service 조합, ARCHITECTURE.md 기준)
-├── common/     (BaseEntity, ApiResponse, GlobalExceptionHandler 등)
-├── config/
-└── security/
+├── common/     (BaseEntity, ApiResponse, GlobalExceptionHandler, HtmlSanitizer 등)
+└── config/     (SecurityConfig. 별도 security/ 패키지는 없음)
 
 src/main/resources/
 ├── templates/  (Thymeleaf)
 ├── static/
-└── application.yml
+├── db/migration/  (Flyway)
+├── application.yml
+└── application-prod.yml
 ```
 
 MVC + Layered Architecture: `Controller → Service → Repository → MariaDB`

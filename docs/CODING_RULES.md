@@ -162,6 +162,12 @@ Controller에서 try-catch를 작성하지 않는다.
 | BANNER_NOT_FOUND | 404 | Banner 리소스 없음 |
 | POPUP_NOT_FOUND | 404 | Popup 리소스 없음 |
 | FILE_NOT_FOUND | 404 | File 리소스 없음 |
+| MENU_NOT_FOUND | 404 | Menu 리소스 없음(P13-T30A) |
+| HOME_PINNED_CONTENT_NOT_FOUND | 404 | 메인 고정 콘텐츠 리소스 없음(P13-T38A) |
+| SITE_THEME_SETTING_NOT_FOUND | 404 | 사이트 테마 설정 행 없음 - 저장(PUT) 시에만 사용, 조회는 기본값 fallback(P14-T8B) |
+| MENU_HAS_CHILDREN | 409 | 하위 메뉴가 있는 메뉴의 삭제 또는 GROUP 외 유형으로 변경(P13-T30A) |
+| HOME_PINNED_CONTENT_DUPLICATE | 409 | 이미 고정된 `(targetType, targetId)` 재고정(P13-T38A) |
+| INVALID_CURRENT_PASSWORD | 400 | **PLANNED(P15-T6, 현재 `ErrorCode`에 없음)** - 관리자 비밀번호 변경 시 현재 비밀번호 불일치. 세션 만료(401)로 오인되지 않도록 400을 사용한다 |
 | RESOURCE_NOT_FOUND | 404 | 매핑된 컨트롤러가 없는 요청(정의되지 않은 엔드포인트) 등 특정 도메인 리소스에 속하지 않는 404 공통 fallback |
 | DUPLICATE_LOGIN_ID | 409 | login_id 중복 (본 프로젝트 범위에는 관리자 계정 등록 API가 없어 seed 데이터 검증 등 내부 용도로만 예약됨. 향후 관리자 계정 관리 API가 추가되기 전까지는 API 응답으로 노출되지 않는다) |
 | INVALID_FILE_TYPE | 400 | 허용되지 않은 확장자 업로드 |
@@ -187,6 +193,8 @@ Controller에서 try-catch를 작성하지 않는다.
 
 - 최소 8자 이상, 영문/숫자/특수문자 중 2종 이상 조합
 - Request DTO에 `@Pattern` 또는 커스텀 Validator로 적용
+- 관리자 비밀번호 변경(**PLANNED — P15-T6**, API.md `PUT /api/admin/me/password`): 새 비밀번호에 위 정책 + **최대 64자**(BCrypt 입력 72byte 제한 이내)를 적용한다. 현재 비밀번호 확인은 필수이며, 불일치 시 `INVALID_CURRENT_PASSWORD`(400)를 반환한다. 새 비밀번호가 현재 비밀번호와 같으면 `INVALID_INPUT_VALUE`(400)로 거부한다. 성공 시 세션 ID를 교체한다. 비밀번호 원문/해시는 로그에 남기지 않는다.
+- 비밀번호 분실 시 재설정은 코드 기능(찾기/이메일/재설정 UI)으로 제공하지 않고 운영 절차(`docs/OPERATIONS.md`, P15-T8)로 처리한다.
 - 초기 관리자 계정은 ARCHITECTURE.md 기준 `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수를 읽어 미존재 시에만 생성한다. 비밀번호는 BCrypt 해시로 저장하며 `data.sql`/소스에 운영 비밀번호를 두지 않는다. 별도 회원가입 화면/API는 제공하지 않는다.
 
 ---
@@ -231,6 +239,12 @@ Controller에서 try-catch를 작성하지 않는다.
 - 예외 발생
 
 비밀번호 등 민감한 정보는 로그에 남기지 않는다.
+
+예외 로그 레벨 원칙(**PLANNED — P15-T1**, 현재 `GlobalExceptionHandler`는 `CustomException`을 4xx/5xx 구분 없이 stacktrace 포함 WARN으로 남긴다):
+
+- 4xx `CustomException`(Validation, 404, 409 등 클라이언트 요청 문제): stacktrace 없이 `ErrorCode`만 포함한 WARN 한 줄
+- 5xx `CustomException`(예: `FILE_UPLOAD_FAILED`) 및 미처리 예외: stacktrace 포함(미처리 예외는 기존대로 ERROR)
+- 운영(prod) profile에서는 SQL 로그(`show-sql`/`format_sql`)를 출력하지 않는다. 실제 현재 구현 범위와 운영 로그 설정은 ARCHITECTURE.md "Logging"/"운영 배포 계약(Phase 15)"을 따른다.
 
 ---
 

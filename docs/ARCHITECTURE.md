@@ -37,7 +37,6 @@ src/main/java
 └── com.monicalab
     │
     ├── config
-    ├── security
     ├── common
     │   ├── config
     │   ├── dto
@@ -64,21 +63,22 @@ src/main/java
     │
     ├── pinned
     │
+    ├── theme
+    │
     └── home
 ```
 
 패키지 설명
 
-- `config` : 애플리케이션 전역 설정(WebConfig, SecurityConfig 등 프로젝트 전체에 적용되는 구성)
-- `security` : Spring Security 인증/인가 관련 클래스(로그인 처리, 접근 제어 등)
+- `config` : 애플리케이션 전역 설정. 현재 `SecurityConfig`(Spring Security 인증/인가, CSRF, 인증 실패 EntryPoint 연결)가 위치한다. 별도 `security` 패키지는 두지 않는다 - 로그인 처리는 `admin`(`AdminAuthController`/`AdminService`), BCrypt `PasswordEncoder` Bean은 `admin.config.AdminPasswordConfig`, 인증/인가 실패 응답은 `common.exception`(`CustomAuthenticationEntryPoint`/`CustomAccessDeniedHandler`)에 있다.
 - `common` : 여러 도메인에서 공통으로 사용하는 클래스 모음
   - `common.config` : common 패키지 내부에서 사용하는 설정(QueryDSL 설정, 공통 리소스 설정 등). 최상위 `config`와 달리 common 모듈 범위에 한정된 설정을 담당한다.
   - `dto` : 공통으로 사용하는 Request/Response DTO
   - `entity` : BaseEntity 등 공통 Entity
   - `exception` : CustomException, ErrorCode 등 예외 관련 클래스
   - `response` : ApiResponse 등 공통 응답 포맷
-  - `util` : FileUtil, DateUtil 등 공통 유틸리티
-- `admin`, `page`, `program`, `board`, `banner`, `popup`, `file`, `menu`, `pinned` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
+  - `util` : 공통 유틸리티(`HtmlSanitizer`, `ContentLinkRenderer`, `PaginationSupport`)
+- `admin`, `page`, `program`, `board`, `banner`, `popup`, `file`, `menu`, `pinned`, `theme` : 도메인별 패키지. 각 패키지는 Controller, Service, Repository로 구성되는 Layered Architecture를 따른다.
 - `home` : 공개 메인 화면(`GET /`) 전용 패키지. 자체 Entity/Repository 없이 Page, Program, Board, Banner, Popup Service를 조합하여 메인 화면 데이터를 구성하는 Controller만 포함한다. `pinned`가 별도 최상위 패키지인 이유가 바로 이 제약이다 - HomePinnedContent는 Entity/Repository를 가지므로 `home` 아래에 둘 수 없다.
 
 ---
@@ -94,7 +94,7 @@ src/main/java
 | API | `Admin{Domain}Controller` | `@RestController`, `/api/admin/{domain}` 하위 CRUD/상태변경 API, `ApiResponse` 반환 | `AdminProgramController` |
 | View | `Admin{Domain}ViewController` | `@Controller`, `/admin/{domain}` 하위 화면(목록/등록/수정 폼) 렌더링, Thymeleaf View 이름 반환. 데이터는 자체 조회하지 않고 화면 진입만 담당하며, 실제 데이터는 화면의 JS가 P3-T5 공통 fetch 유틸로 `Admin{Domain}Controller`의 API를 호출해 채운다 | `AdminProgramViewController` |
 
-이 규칙은 Program, Board, Page, Banner, Popup, File, Menu, Admin(Dashboard 포함) 전 도메인에 동일하게 적용한다. 공개 영역의 `{Domain}Controller`(API) / `{Domain}ViewController`(View) 분리(Page/Program/Board)와 동일한 패턴이다.
+이 규칙은 Program, Board, Page, Banner, Popup, File, Menu, Theme, Admin(Dashboard 포함) 전 도메인에 동일하게 적용한다. 공개 영역의 `{Domain}Controller`(API) / `{Domain}ViewController`(View) 분리(Page/Program/Board)와 동일한 패턴이다.
 
 **예외 — CKEditor 본문을 표시하는 읽기 전용 관리자 상세 View(Board/Program)**: 관리자 목록/등록/수정 화면은 위 원칙을 그대로 따른다. 단, Board/Program의 읽기 전용 관리자 상세 View(`GET /admin/boards/{id}`, `GET /admin/programs/{id}`)는 CKEditor HTML 본문을 공개 상세와 동일한 안전한 렌더링 경로로 출력해야 하므로, 해당 `Admin{Domain}ViewController`가 기존 관리자 조회 Service(`getAdminById`, 공개 여부 무관)를 호출해 결과 DTO를 model로 전달한다. 본문은 저장 시 `HtmlSanitizer`로 정제된 값을 대상으로 조회 시 `ContentLinkRenderer.externalLinksOpenInNewTab`을 적용한 `renderedContent`로만 전달하고, 템플릿은 `th:utext`로 이 값만 출력한다(아래 "XSS 방지 정책", "콘텐츠 링크 처리 정책"과 동일). JS fetch + `innerHTML` 방식으로 HTML/링크 처리 정책을 별도로 중복 구현하지 않기 위한 예외이며, 다른 관리자 화면에는 일반화하지 않는다(P14-T10에서 도입).
 
@@ -104,6 +104,7 @@ src/main/java
 
 ```
 AdminController             (GET /api/admin/me — 로그인한 관리자 본인 정보 조회 전용. 타 관리자 계정 조회/등록/수정 API는 없음, API.md 기준)
+                            (PLANNED P15-T6: 같은 Controller에 PUT /api/admin/me/password 본인 비밀번호 변경 추가 예정, API.md 기준)
 AdminAuthController         (POST /api/admin/login, POST /api/admin/logout)
 AdminViewController         (GET /admin/login, GET /admin/dashboard 등 관리자 공통/대시보드 화면 렌더링, Thymeleaf)
 DashboardController         (GET /api/admin/dashboard, 위 명명 규칙의 API 컨트롤러 역할)
@@ -118,6 +119,7 @@ AdminRepository
 - 로그인
 - 로그아웃
 - 대시보드
+- 본인 비밀번호 변경(PLANNED — P15-T6, 화면 `GET /admin/password`는 `AdminViewController`에 추가 예정)
 
 비고: Admin 도메인은 로그인 화면과 대시보드 화면을 함께 다루므로 `AdminViewController` 하나가 두 화면(`/admin/login`, `/admin/dashboard`)을 모두 렌더링한다(로그인은 `AdminAuthController`가, 대시보드 데이터는 `DashboardController`가 API로 제공).
 
@@ -226,6 +228,8 @@ NOTICE
 GALLERY
 
 ARCHIVE
+
+REVIEW      (강의 후기, P13-T16)
 ```
 
 관리 항목
@@ -464,6 +468,30 @@ Page/Popup/Banner는 대상에 포함하지 않는다(구조상 썸네일/공개
 
 ---
 
+## Theme
+
+공개 홈페이지 디자인 설정(포인트 컬러 프리셋 + 메인 섹션 노출 여부) 도메인이다(P14-T8A~T8D). Entity를 가지므로 `home`이 아닌 독립 최상위 패키지 `com.monicalab.theme`에 둔다. 테이블은 ERD.md `# 10. SiteThemeSetting`, API는 API.md `# Theme`을 따른다.
+
+```
+AdminThemeController        (GET/PUT /api/admin/theme)
+AdminThemeViewController    (GET /admin/theme 설정 화면 렌더링, Thymeleaf)
+ThemeControllerAdvice       (공개 View Controller 4개에 siteTheme model attribute 공급)
+
+SiteThemeSettingService
+
+SiteThemeSettingRepository
+
+SiteThemeSetting
+
+AccentPreset                (TERRACOTTA / BURGUNDY / FOREST)
+```
+
+- `ThemeControllerAdvice`는 `HeaderMenuControllerAdvice`와 같은 4개 공개 View Controller(`HomeController`/`PageViewController`/`ProgramViewController`/`BoardViewController`)에만 `@ControllerAdvice(assignableTypes=...)`로 적용된다. `home/layout/default.html`의 `<html data-theme>`가 accent 프리셋을, `home/index.html`의 5개 섹션 `th:if`가 노출 여부를 반영한다.
+- 조회(`getSetting()`)는 행이 없으면 DB write 없이 기본값으로 fallback하고, 저장(`updateSetting()`)은 행이 없으면 404로 처리한다. 행 생성은 V13 migration 시드만 담당한다.
+- 실제 색상 값과 WCAG 대비 검증은 `home.css`에 있고, enum은 식별자 역할만 한다.
+
+---
+
 # CKEditor5
 
 모든 콘텐츠는 CKEditor5를 이용하여 수정한다.
@@ -495,13 +523,16 @@ POST /api/admin/files
 
 - CDN 사전빌드(`https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js`, classic build)를 그대로 사용하며, npm 패키지/번들러는 도입하지 않는다. 이 build에는 `FontFamily`/`FontSize`/`FontColor`/`FontBackgroundColor`/문단 `Alignment`/`ImageResize`/`LinkImage` 플러그인이 포함되어 있지 않다(실제 CDN 번들을 헤드리스로 직접 실행해 확인, 문자열 grep이 아닌 `editor.plugins.has()`/`editor.commands` 기준). `ImageStyle`/`ImageToolbar`는 포함되어 있고, `image.styles.options`에 `inline`/`alignLeft`/`alignRight`/`alignCenter`/`alignBlockLeft`/`alignBlockRight`/`block`/`side`가 이미 등록되어 있어, 이 중 toolbar에 노출할 항목은 새 plugin 없이 `image.toolbar` config만으로 선택할 수 있다.
 - `static/js/admin/ckeditor-config.js`가 Board/Program/Page/Popup 4개 관리자 폼이 공유하는 `EDITOR_CONFIG`를 제공하며, `ClassicEditor.create(el, AdminCkeditorConfig.EDITOR_CONFIG)`로 전달한다. 업로드 어댑터(`ckeditor-upload-adapter.js`)는 이 config와 독립적으로 `FileRepository.createUploadAdapter`를 교체하는 방식을 그대로 유지한다.
+- **CURRENT**: `EDITOR_CONFIG`는 `toolbar`를 선언하지 않아 CDN build 기본 툴바(`undo, redo, heading, bold, italic, link, uploadImage, insertTable, blockQuote, mediaEmbed, bulletedList, numberedList, outdent, indent`)와 기본 표 툴바(`tableColumn, tableRow, mergeTableCells`)가 그대로 노출된다. build에는 `Autoformat`(`* `, `1. `, `> `, `_text_` 입력 시 자동 서식)과 `PasteFromOffice`가 포함되어 있어, 툴바 버튼을 숨겨도 목록/인용/기울임은 생성될 수 있다. `IndentBlock`은 없으므로 indent/outdent는 목록 중첩에만 동작한다.
+- **PLANNED(P15-T4) — 툴바 ↔ sanitizer 계약**: "툴바/Autoformat/PasteFromOffice로 만들 수 있고 FEATURES.md가 지원한다고 표시한 서식 = 저장 후 보존되는 서식"을 원칙으로 한다. `EDITOR_CONFIG`에 `toolbar.items`를 명시적으로 선언해 `mediaEmbed`를 제외하고, `removePlugins: ['MediaEmbed']`로 플러그인 자체를 제거한다(플러그인만 제거하고 기본 툴바를 두면 존재하지 않는 항목 참조 경고가 발생하므로 둘 다 적용). 표 툴바의 `mergeTableCells`는 유지한다. 목록/인용의 표시 스타일은 공개 상세(`.ckeditor-content`), 공개 팝업 본문(`.popup-modal__body`), 관리자 읽기 전용 상세에 필요한 범위만 추가한다. 새 CKEditor plugin/npm 패키지/번들러/self-host는 도입하지 않는다.
 
 ## XSS 방지 정책
 
 CKEditor5로 작성된 콘텐츠는 HTML 형태로 저장되며, Thymeleaf에서 `th:utext`로 그대로 출력되므로 저장형 XSS(Stored XSS)에 노출될 수 있다. 다음 정책을 따른다.
 
 - 서버 저장 시점에 HTML 화이트리스트 정제(sanitize)를 수행한다(예: OWASP Java HTML Sanitizer 또는 jsoup의 `Safelist` 사용).
-- 허용 태그: 텍스트 서식(`p`, `br`, `strong`, `em`, `u`, `h1~h6`), 표(`table`, `tr`, `td`, `th`), 링크(`a[href]`), 이미지(`img[src]`), 이미지 wrapper(`figure[class]`) 등 CKEditor5 기본 툴바가 생성하는 태그로 한정한다.
+- 허용 태그(**CURRENT**, `HtmlSanitizer` 실제 구현): 텍스트 서식(`p`, `br`, `strong`, `em`, `u`, `h1~h6`), 표(`table`, `tr`, `td`, `th`), 링크(`a[href]`), 이미지(`img[src|alt]`), 이미지 wrapper(`figure[class]`, `figcaption`). 이 목록에는 CKEditor 기본 툴바가 실제로 생성하는 `ul`/`ol`/`li`/`blockquote`/`i`/`thead`/`tbody`와 `td`/`th`의 `colspan`/`rowspan`이 빠져 있어, 해당 서식은 저장 시 제거된다(목록은 항목 구분 없이 텍스트만 남음, `blockquote`는 내부 `p`만 남음, 미디어 embed는 빈 `figure`만 남음). 이 불일치는 P15-T4에서 아래 PLANNED 계약으로 해소한다.
+- 허용 태그 확장(**PLANNED — P15-T4**): 위 목록에 `ul`, `ol`, `li`, `blockquote`, `i`, `thead`, `tbody`를 **속성 없이** 추가한다. `td`/`th`에는 `colspan`/`rowspan`만 추가 허용하며, clean 이후 후처리 pass에서 값이 정수 `1`~`50` 범위일 때만 유지하고 그 외(숫자 아님, 0, 음수, 범위 초과, 공백 포함 등)는 해당 attribute만 제거한다(`img src` 후처리와 같은 패턴). `iframe`/`oembed`/`style` 일반 허용은 추가하지 않는다 - 미디어/지도 embed는 지원하지 않는다(FEATURES.md "편집 서식 보존 계약"). 기존 `img src`/`figure class`/`figure style` 정책과 XSS 제거 규칙은 그대로 유지한다.
 - `figure`의 `class` 속성은 값 전체를 정규식으로 검증하지 않고, whitespace로 분리한 토큰 단위로 화이트리스트(`image`, `image-style-side`, `image-style-align-left`, `image-style-align-right`, `image-style-align-center`, `image_resized`)와 대조해 안전한 토큰만 남긴다. `img`에는 class를 허용하지 않는다. `img`의 `width`/`height`, font 관련 속성·값은 허용하지 않는다.
 - `figure`의 `style` 속성은 Safelist 자체에는 추가하지 않는다(`style` 전체를 허용하지 않는 원칙 유지). 대신 이미지 크기 조절(P13-T40) 값만 별도의 "extract(clean 이전 원본에서 검증) → clean → reinject(검증된 값만 재적용)" 패턴으로 좁게 허용한다: `style`이 정확히 `width: 25%;`/`50%;`/`75%;`(공백·세미콜론 변형만 허용) 전체 일치일 때만 그 값을 clean 이후 다시 그려 넣고, 그 외 값이나 다른 property가 하나라도 섞이면 `style` 전체를 폐기한다. 향후 확장 시에도 이 좁은 값 단위 화이트리스트만 확장하고 `style` 속성을 Safelist에 일반 허용하지 않는 것을 원칙으로 한다.
 - `script`, `iframe`, `on*` 이벤트 속성, `javascript:` 스킴 링크는 모두 제거한다.
@@ -540,9 +571,11 @@ CustomException
 
 GlobalExceptionHandler
 
-FileUtil
+HtmlSanitizer
 
-DateUtil
+ContentLinkRenderer
+
+PaginationSupport
 ```
 
 BaseEntity
@@ -704,6 +737,13 @@ ROLE_ADMIN
 - `POST /api/admin/login`은 세션 수립 이전 최초 요청이므로 CSRF 토큰 없이도 호출 가능하도록 예외 처리하며, 로그인 성공 후 발급되는 세션에 새 CSRF 토큰이 결합된다.
 - `GET`으로 상태를 변경하는 API는 두지 않는다(RESTful 원칙 준수, CONVENTION.md 기준).
 
+## 쿠키 / HTTPS 인식 / HSTS
+
+- **CURRENT**: `JSESSIONID`는 `HttpOnly`만 설정되고 `Secure`/`SameSite`가 없다. `XSRF-TOKEN`은 `Secure`가 없다. Spring은 `X-Forwarded-*`를 해석하지 않아 redirect `Location`이 컨테이너 내부 기준 절대 URL(`http://{host}/admin/login`, 포트 유실)로 만들어진다.
+- **PLANNED(P15-T1)**: prod profile에 `server.forward-headers-strategy: native`(Tomcat RemoteIpValve, docker 내부망 proxy 신뢰)와 `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`를 적용한다. `Secure`는 별도 강제 설정 없이 Nginx가 전달한 `X-Forwarded-Proto: https`로 요청을 HTTPS로 인식할 때 `JSESSIONID`/`XSRF-TOKEN`에 자동 적용된다. HSTS는 Nginx가 단독으로 담당하므로 Spring Security의 HSTS header는 비활성화한다(Spring 기본값은 `includeSubDomains` 포함). 상세는 "운영 배포 계약(Phase 15)".
+- 관리자 로그인 시도 제한은 애플리케이션이 아니라 Nginx가 담당한다(PLANNED, P15-T3).
+- 관리자 본인 비밀번호 변경(PLANNED, P15-T6)은 기존 세션 인증 + CSRF + BCrypt를 그대로 사용하며, 성공 시 세션 ID를 교체한다(`changeSessionId`, 로그인과 동일한 세션 고정 방어).
+
 ---
 
 # DTO
@@ -744,16 +784,24 @@ GlobalExceptionHandler
 - File Upload
 - Business Exception
 
+## 오류 응답 경로 분리
+
+- **CURRENT**: `GlobalExceptionHandler`는 `@RestControllerAdvice`로 전역 적용되어, 공개 HTML View Controller(`HomeController`/`PageViewController`/`ProgramViewController`/`BoardViewController`)의 예외와 매핑되지 않은 경로(`NoResourceFoundException`, 예: `/favicon.ico`)까지 모두 JSON `ApiResponse`로 응답한다. Spring Security 단계의 401/403은 `CustomAuthenticationEntryPoint`/`CustomAccessDeniedHandler`가 JSON으로, `/admin/**` 화면 미인증은 `/admin/login` redirect로 처리한다.
+- **PLANNED(P15-T5) — 최소 구조**:
+  1. 공개 View Controller 4개에만 적용되는 작은 `@ControllerAdvice(assignableTypes = {...})`를 추가하고 `GlobalExceptionHandler`보다 우선 적용한다. `*_NOT_FOUND` 및 경로 변수 enum 변환 실패(예: `/pages/NOPE`)는 404, 잘못된 query 값은 400, 그 외 예외는 500의 HTML 오류 페이지로 응답한다.
+  2. `GlobalExceptionHandler`의 not-found 처리 한 곳에만 요청 경로 분기를 둔다: `/api/`로 시작하면 기존 JSON(`RESOURCE_NOT_FOUND`), 그 외 경로는 HTML 404.
+  3. 오류 템플릿은 Spring Boot 관례 이름 `templates/error/4xx.html`, `templates/error/5xx.html`의 **독립 템플릿**으로 둔다. `home/layout/default`, header 메뉴(`headerMenuItems`), `siteTheme` 등 DB 조회에 의존하는 model/fragment를 사용하지 않으며(DB 장애 시에도 렌더링 가능해야 함), 예외 메시지/stacktrace/경로/SQL을 출력하지 않는다. Filter 단계 오류(Boot 기본 `/error`)도 같은 템플릿을 사용한다.
+  4. `/api/**`의 JSON 계약, 관리자 API, 관리자 HTML 상세 404(JSON 유지)는 변경하지 않는다.
+
 ---
 
 # Logging
 
 로그 관리
 
-- 로그인
-- 예외
-- 파일 업로드
-- 관리자 작업
+- **CURRENT**: 초기 관리자/고정 페이지 생성은 INFO, 초기 관리자 환경변수 누락은 ERROR, 예외는 `GlobalExceptionHandler`가 기록한다(`CustomException`은 4xx/5xx 구분 없이 stacktrace 포함 WARN, 미처리 예외는 ERROR). 로그인 실패는 `AUTHENTICATION_FAILED` `CustomException` WARN으로만 남고, 로그인 성공/파일 업로드/관리자 작업 감사 로그는 별도로 남기지 않는다. 요청 단위 기록(IP/경로/상태)은 Nginx access log(컨테이너 stdout)가 담당한다. 비밀번호 등 민감 정보는 로그에 남기지 않는다.
+- **CURRENT(운영 문제)**: base `application.yml`의 `spring.jpa.show-sql: true`/`format_sql: true`가 prod profile에도 적용되고 Docker `json-file` 로그에 크기 제한이 없다.
+- **PLANNED(Phase 15)**: prod profile에서 `show-sql=false`, `format_sql=false`(P15-T1). `CustomException` 중 4xx는 stacktrace 없는 WARN 한 줄, 5xx는 stacktrace 유지(P15-T1). Docker 로그 rotation은 "운영 배포 계약(Phase 15)"을 따른다(P15-T2). 감사 로그/중앙 로그 수집은 Phase 15 범위 밖이다.
 
 ---
 
@@ -864,6 +912,12 @@ Admin
 /admin/menus
 /admin/menus/new
 /admin/menus/{id}/edit
+
+/admin/home-pinned-contents
+
+/admin/theme
+
+/admin/password        (PLANNED — P15-T6, 현재 없음)
 ```
 
 - `/new`, `/{id}/edit`은 각 도메인 `Admin{Domain}ViewController`가 등록/수정 폼 화면을 렌더링하는 경로이며, 실제 저장/수정은 화면의 JS가 `Admin{Domain}Controller`의 `POST`/`PUT` API를 호출한다.
@@ -902,6 +956,8 @@ Admin
 
 **운영 배포 전 결정 필요**: 현재 정적 리소스는 host checkout bind mount, application/template은 app image로 서로 다른 release lifecycle을 가진다. 그래서 `git pull` 시점에 정적 리소스만 먼저 바뀌거나, app image를 rollback해도 정적 리소스는 새 버전으로 남을 수 있어 atomic deployment/rollback이 보장되지 않는다. 운영 배포 전에 application/template/static asset을 동일 release version으로 묶는 방식, Nginx 정적 리소스의 image 기반 제공 여부, release directory/symlink 방식, versioned asset URL, long-lived cache + `immutable`을 함께 결정한다(현재 계약에서는 특정 방식을 확정하지 않는다).
 
+**결정(Phase 15, P15-T0 — 위 "운영 배포 전 결정 필요" 항목을 닫는다)**: 현재 구조(Nginx가 host checkout의 static을 직접 제공, app image는 같은 checkout에서 build)를 유지하고 재설계하지 않는다. 대신 **"release tag checkout → `docker compose up -d --build`"를 하나의 배포 단위**로 취급해 app/template과 static의 버전 일치를 보장한다. `git pull`/`git checkout`만 하고 rebuild하지 않는 것, app image만 별도로 rollback하는 것은 금지한다. rollback도 "이전 release tag checkout → 전체 `up -d --build`"로 수행한다. Nginx image bake, release directory/symlink, versioned asset URL, long-lived cache는 도입하지 않으며 `Cache-Control: no-cache` 재검증 정책을 유지한다. 상세 절차는 `docs/OPERATIONS.md`(P15-T8)와 GIT_WORKFLOW.md "develop → main 승격"을 따른다.
+
 ## DB 스키마 관리
 운영 재현성을 위해 Flyway migration을 사용한다. `ddl-auto`는 local/test에서 검증 목적 설정을 명시하고 prod에서는 `validate`를 사용한다. 스키마 변경은 migration 파일로 관리하며 운영에서 `update/create`로 자동 변경하지 않는다.
 
@@ -909,10 +965,73 @@ Admin
 `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수를 읽어 계정이 없을 때만 BCrypt 해시로 초기 관리자 1건을 생성한다. `PasswordEncoder` BCrypt Bean은 Admin 초기화 Task에서 함께 정의하고 SecurityConfig는 이를 주입받아 사용하여 초기화가 미래 Security Task에 의존하지 않게 한다. 운영용 기본 비밀번호를 소스/data.sql에 저장하지 않는다. 필수 환경변수가 없으면 운영 프로파일에서는 초기 계정을 생성하지 않고 명확한 오류 로그를 남긴다.
 
 ## 업로드 영속성
-업로드 루트는 `UPLOAD_ROOT` 환경변수로 설정하며 기본 Docker 경로는 `/app/uploads`다. `docker-compose.yml`은 `./data/uploads:/app/uploads` bind mount를 사용하여 컨테이너 재생성 후에도 파일을 유지한다. MariaDB는 `db_data:/var/lib/mysql` named volume을 사용하여 컨테이너 재생성 후에도 DB 데이터와 Flyway 적용 이력을 유지한다.
+업로드 루트는 `UPLOAD_ROOT` 환경변수로 설정하며 기본 Docker 경로는 `/app/uploads`다. `docker-compose.yml`은 `./data/uploads:/app/uploads` bind mount를 사용하여 컨테이너 재생성 후에도 파일을 유지한다. MariaDB는 `db_data:/var/lib/mysql` named volume을 사용하여 컨테이너 재생성 후에도 DB 데이터와 Flyway 적용 이력을 유지한다. Phase 15에서 확정한 volume 이름 고정과 `UPLOAD_ROOT` 고정 계약은 아래 "운영 배포 계약(Phase 15)"을 따른다.
 
 ## Health / 배포 자동화 범위
 헬스체크는 Spring Boot Actuator `/actuator/health`를 사용한다. GitHub Actions는 CI(test/build)까지만 자동화하고 실제 운영 배포는 Docker Compose 수동 배포를 기본 범위로 한다.
 
 ## 타임존
 모든 시각 컬럼은 타임존을 저장하지 않는 `DATETIME`이고 애플리케이션이 `LocalDateTime.now()`로 현재 시각을 판단하므로, `docker-compose.yml`의 `app`/`db` 컨테이너는 `TZ=Asia/Seoul`로 시간 기준을 통일한다.
+
+---
+
+# 운영 배포 계약(Phase 15)
+
+Phase 15 Production Readiness(P15-T0)에서 확정한 운영 배포 구조 계약이다. 각 항목은 **CURRENT**(현재 저장소 상태)와 **PLANNED**(Phase 15 해당 Task에서 구현 예정)를 구분한다. Task 상세는 `docs/TASK.md` "Phase 15", 실제 운영 명령/절차는 `docs/OPERATIONS.md`(P15-T8에서 작성, 운영 절차의 canonical 문서)를 따른다. 이 절은 구조/계약만 정의하고 명령어 runbook을 중복 기술하지 않는다.
+
+## 전체 구조
+
+```
+Internet
+  → nginx :80  (/.well-known/acme-challenge/ 만 응답, 그 외 → 301 https)
+  → nginx :443 (TLS termination, HSTS, 관리자 로그인 rate limit, 정적 리소스, reverse proxy)
+      → Spring Boot :8080 (docker 내부 HTTP, host 비노출)
+          → MariaDB :3306 (docker 내부, host 비노출)
+```
+
+- **CURRENT**: host에는 Nginx `:80`만 노출되고 HTTPS/TLS가 없다.
+- **PLANNED(P15-T3)**: 위 구조. Spring Boot와 MariaDB는 계속 host 포트를 노출하지 않는다.
+
+## TLS / 인증서 / HSTS (PLANNED — P15-T3, 실제 발급은 배포 단계)
+
+- 인증서/개인키는 저장소에 저장하지 않는다. host `./data/certs/`(`.gitignore`의 `data/` 대상)에 고정 파일명 `fullchain.pem`/`privkey.pem`으로 두고, 컨테이너 `/etc/nginx/certs/`에 read-only mount한다. Nginx 설정은 도메인과 무관한 이 고정 경로만 참조한다.
+- ACME: host에 설치한 certbot의 **webroot** 방식을 사용한다(certbot 컨테이너는 추가하지 않는다). Nginx `:80`은 `/.well-known/acme-challenge/`를 host webroot 디렉토리(`./data/certbot/`)에서 제공하고, 그 외 요청은 HTTPS로 301 redirect한다. certbot deploy-hook이 발급/갱신된 인증서를 `./data/certs/`에 실제 파일로 복사한 뒤 Nginx를 reload한다.
+- 최초 기동: 인증서가 없으면 Nginx가 기동하지 않으므로, 자체서명 placeholder 인증서로 먼저 기동한 뒤 webroot 발급으로 교체한다(절차는 OPERATIONS).
+- HSTS는 **Nginx가 단독으로 담당**한다: `Strict-Transport-Security: max-age=31536000`, `includeSubDomains` 없음, `preload` 없음. Nginx는 location에 `add_header`가 있으면 상위 `add_header`를 상속하지 않으므로, `Cache-Control`을 설정하는 정적 location에도 HSTS를 함께 선언한다. Spring Security HSTS는 비활성화한다(P15-T1).
+- 도메인 없이 Phase 15에서 검증하는 범위: 443/redirect/ACME location/HSTS/rate limit/forward header 구조와 로컬 자체서명 인증서 smoke. 실제 도메인 DNS, Let's Encrypt 발급, 최종 host 확인, 운영 smoke는 배포(Launch) 단계에서 수행한다.
+- `server_tokens off`로 Nginx 버전 노출을 끈다(P15-T3).
+
+## Forwarded header / 쿠키 (PLANNED — P15-T1)
+
+Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`를 전달한다. Spring은 `server.forward-headers-strategy: native`, `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`를 prod profile에 적용한다(위 Security "쿠키 / HTTPS 인식 / HSTS" 참고).
+
+## 관리자 로그인 rate limit (PLANNED — P15-T3)
+
+- Nginx `limit_req`를 정확히 `location = /api/admin/login`에만 적용한다: `limit_req_zone $binary_remote_addr zone=admin_login:1m rate=5r/m`, `limit_req zone=admin_login burst=5 nodelay`, `limit_req_status 429`.
+- Nginx가 인터넷에 직접 노출된 가장 바깥 proxy이므로 `$binary_remote_addr`가 실제 클라이언트 IP다. 앞단에 Cloudflare/로드밸런서를 두게 되면 `real_ip` 설정이 별도로 필요하다(OPERATIONS에 기록).
+- 애플리케이션 rate limiter dependency, CAPTCHA, 계정 잠금은 도입하지 않는다. 429 응답과 로그인 화면 처리는 API.md `POST /api/admin/login`을 따른다.
+
+## 데이터 영속성 / volume 이름 / 업로드 경로 (PLANNED — P15-T2)
+
+- MariaDB named volume은 `volumes.db_data.name: monica-lab-homepage_db_data`로 **이름을 명시 고정**한다. 이 값은 현재 compose project 이름에서 파생된 실제 volume 이름과 동일하므로 기존 volume에 그대로 연결된다. checkout 디렉토리/compose project 이름이 바뀌어도 새 빈 volume이 생성되지 않게 하기 위함이다.
+- `docker compose down -v`, volume 삭제, 다른 이름으로의 volume 이전은 금지한다.
+- 운영 compose의 app `UPLOAD_ROOT`는 `/app/uploads` **고정값**으로 선언하고 `.env` 치환(`${UPLOAD_ROOT...}`)을 제거한다. bind mount(`./data/uploads:/app/uploads`) 대상과 저장 경로가 어긋나 컨테이너 내부에 저장되는 실수를 원천 차단한다. `application-prod.yml`의 `${UPLOAD_ROOT:/app/uploads}` override 능력은 Docker 외 실행 호환을 위해 유지하며, test/local profile은 기존 별도 설정(`build/test-uploads`, gitignored local yml)을 유지한다.
+- 백업 대상: MariaDB 논리 dump(`mariadb-dump`, volume 파일 직접 복사는 사용하지 않음), `data/uploads`, `.env`, 배포 tag/commit 기록, (선택) TLS 파일. 코드/스크립트로 자동화하지 않고 OPERATIONS 절차로 관리한다: 매일 DB/업로드 백업, 서버 내부 단기 보관 + **서버 외부 보관 위치 최소 1곳 필수**, 분기 1회 복원 리허설 권장.
+
+## 환경변수 fail-fast (PLANNED — P15-T2)
+
+- 운영 compose는 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD`를 `${VAR:?VAR is required}` 형식으로 참조해, 값이 없으면 compose 단계에서 즉시 실패한다.
+- `.env.example`에는 실제 정책을 통과하는 예시 비밀번호를 두지 않는다(`ADMIN_PASSWORD`는 빈 값). **CURRENT**: `.env.example`에 정책을 통과하는 예시 비밀번호가 남아 있으며 P15-T2에서 제거한다.
+- `AdminInitializer`의 동작(필수 값이 비어 있으면 계정을 생성하지 않고 ERROR 로그)은 변경하지 않는다. 초기 관리자 생성 이후 `.env`의 `ADMIN_PASSWORD` 변경은 DB에 반영되지 않는다 - 비밀번호 변경은 관리자 화면(PLANNED, P15-T6), 분실 시 재설정은 OPERATIONS 절차를 따른다.
+
+## 로그 (PLANNED — P15-T1, P15-T2)
+
+- prod: `spring.jpa.show-sql=false`, `spring.jpa.properties.hibernate.format_sql=false`(P15-T1).
+- Docker: `app`/`db`/`nginx` 3개 service 모두 `logging.driver: json-file`, `max-size: 10m`, `max-file: 3`(service당 최대 약 30MB, P15-T2). 장기 로그 보관/중앙 수집은 범위 밖이다.
+- `CustomException` 4xx는 stacktrace 없는 WARN 한 줄, 5xx는 stacktrace 유지(P15-T1).
+
+## 배포 단위 / release
+
+- 운영 서버는 mutable 브랜치(develop/main)를 pull하지 않고 **release tag**(예: `v1.0.0`)를 checkout한다. 배포 단위는 "tag checkout → `docker compose up -d --build`"다(위 "Nginx 정적 리소스 공급" 결정). Flyway migration은 app 기동 시 자동 적용된다.
+- release/tag/hotfix Git 흐름은 GIT_WORKFLOW.md "develop → main 승격", 서버 명령은 OPERATIONS를 따른다.
+- Flyway migration은 forward-only다. 파괴적 migration이 포함된 release를 rollback하려면 배포 전 DB dump 복원이 필요하다(Phase 15 자체는 migration 0건).
