@@ -27,7 +27,7 @@ class AdminHomePinnedContentViewControllerTest extends AbstractIntegrationTest {
     void listWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
         mockMvc.perform(get("/admin/home-pinned-contents"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test

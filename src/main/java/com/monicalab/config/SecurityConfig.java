@@ -52,7 +52,11 @@ public class SecurityConfig {
                         .authenticationEntryPoint(authenticationEntryPoint())
                         .accessDeniedHandler(customAccessDeniedHandler))
                 .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
+                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                // P15-T1: HSTS는 운영 Nginx가 단독으로 담당한다(ARCHITECTURE.md "운영 배포 계약(Phase 15)").
+                // Spring 기본 HSTS는 includeSubDomains를 포함하므로 HSTS만 끄고 나머지 기본 보안 헤더는 유지한다.
+                .headers(headers -> headers
+                        .httpStrictTransportSecurity(hsts -> hsts.disable()));
 
         return http.build();
     }
@@ -64,7 +68,12 @@ public class SecurityConfig {
         entryPoints.put(apiAdminMatcher, customAuthenticationEntryPoint);
 
         DelegatingAuthenticationEntryPoint delegatingEntryPoint = new DelegatingAuthenticationEntryPoint(entryPoints);
-        delegatingEntryPoint.setDefaultEntryPoint(new LoginUrlAuthenticationEntryPoint("/admin/login"));
+        // P15-T1: 기본 LoginUrlAuthenticationEntryPoint는 요청 scheme/host/port로 절대 URL을 직접 조립하므로
+        // (Tomcat use-relative-redirects와 무관) reverse proxy 뒤에서 scheme/port가 어긋날 수 있다.
+        // 상대 URI(/admin/login)로 redirect해 proxy 구성과 무관하게 동작하게 한다.
+        LoginUrlAuthenticationEntryPoint loginEntryPoint = new LoginUrlAuthenticationEntryPoint("/admin/login");
+        loginEntryPoint.setFavorRelativeUris(true);
+        delegatingEntryPoint.setDefaultEntryPoint(loginEntryPoint);
         return delegatingEntryPoint;
     }
 

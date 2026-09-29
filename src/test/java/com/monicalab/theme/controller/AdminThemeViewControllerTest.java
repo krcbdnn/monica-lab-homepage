@@ -30,7 +30,7 @@ class AdminThemeViewControllerTest extends AbstractIntegrationTest {
     void getWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
         mockMvc.perform(get("/admin/theme"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test

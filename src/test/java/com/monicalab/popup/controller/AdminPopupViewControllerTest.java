@@ -28,7 +28,7 @@ class AdminPopupViewControllerTest extends AbstractIntegrationTest {
     void listWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
         mockMvc.perform(get("/admin/popups"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -43,7 +43,7 @@ class AdminPopupViewControllerTest extends AbstractIntegrationTest {
     void newFormWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
         mockMvc.perform(get("/admin/popups/new"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -58,7 +58,7 @@ class AdminPopupViewControllerTest extends AbstractIntegrationTest {
     void editFormWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
         mockMvc.perform(get("/admin/popups/{id}/edit", 999_999L))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test

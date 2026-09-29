@@ -6,8 +6,21 @@ spring:
     driver-class-name: org.mariadb.jdbc.Driver
 
   jpa:
+    show-sql: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+
+server:
+  forward-headers-strategy: native
+  tomcat:
+    use-relative-redirects: true
+  servlet:
+    session:
+      cookie:
+        same-site: lax
 
 app:
   upload:

@@ -240,10 +240,12 @@ Controller에서 try-catch를 작성하지 않는다.
 
 비밀번호 등 민감한 정보는 로그에 남기지 않는다.
 
-예외 로그 레벨 원칙(**PLANNED — P15-T1**, 현재 `GlobalExceptionHandler`는 `CustomException`을 4xx/5xx 구분 없이 stacktrace 포함 WARN으로 남긴다):
+예외 로그 레벨 원칙(**CURRENT — P15-T1 완료**, `GlobalExceptionHandler`가 `ErrorCode.getHttpStatus()` 기준으로 분기):
 
-- 4xx `CustomException`(Validation, 404, 409 등 클라이언트 요청 문제): stacktrace 없이 `ErrorCode`만 포함한 WARN 한 줄
-- 5xx `CustomException`(예: `FILE_UPLOAD_FAILED`) 및 미처리 예외: stacktrace 포함(미처리 예외는 기존대로 ERROR)
+- 5xx가 아닌 `CustomException`(4xx: Validation 성격, 404, 409 등 클라이언트 요청 문제): `CustomException: code={}, status={}` 형식의 WARN 한 줄, stacktrace 없음. 요청 URL/본문/예외 메시지/비밀번호/토큰/세션 값은 넣지 않는다(요청 경로는 Nginx access log 담당)
+- 5xx `CustomException`(예: `FILE_UPLOAD_FAILED`): 같은 형식의 ERROR + stacktrace
+- 미처리 예외(generic 5xx): 기존대로 `Unhandled exception` ERROR + stacktrace
+- 로그 레벨 변경은 API 응답(`ApiResponse` JSON) 계약에 영향을 주지 않는다
 - 운영(prod) profile에서는 SQL 로그(`show-sql`/`format_sql`)를 출력하지 않는다. 실제 현재 구현 범위와 운영 로그 설정은 ARCHITECTURE.md "Logging"/"운영 배포 계약(Phase 15)"을 따른다.
 
 ---

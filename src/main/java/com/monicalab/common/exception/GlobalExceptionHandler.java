@@ -23,8 +23,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CustomException.class)
     public ResponseEntity<ApiResponse<Void>> handleCustomException(CustomException e) {
-        log.warn("CustomException: {}", e.getErrorCode(), e);
-        return response(e.getErrorCode());
+        ErrorCode errorCode = e.getErrorCode();
+        int status = errorCode.getHttpStatus().value();
+        // P15-T1: 5xx(서버 장애)만 stacktrace와 함께 ERROR로 남기고, 그 외(4xx 등 클라이언트 요청 문제)는
+        // stacktrace 없는 WARN 한 줄로 남긴다. 요청 경로는 Nginx access log가 담당한다.
+        if (errorCode.getHttpStatus().is5xxServerError()) {
+            log.error("CustomException: code={}, status={}", errorCode, status, e);
+        } else {
+            log.warn("CustomException: code={}, status={}", errorCode, status);
+        }
+        return response(errorCode);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
