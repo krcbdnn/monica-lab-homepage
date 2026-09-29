@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   app:
     build:
@@ -8,11 +14,11 @@ services:
       TZ: Asia/Seoul
       DB_URL: jdbc:mariadb://db:3306/monica_lab?characterEncoding=UTF-8
       DB_USERNAME: monica
-      DB_PASSWORD: ${MARIADB_PASSWORD}
-      UPLOAD_ROOT: ${UPLOAD_ROOT:-/app/uploads}
-      ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      ADMIN_NAME: ${ADMIN_NAME}
+      DB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
+      UPLOAD_ROOT: /app/uploads
+      ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_NAME: ${ADMIN_NAME:?ADMIN_NAME is required}
     volumes:
       - ./data/uploads:/app/uploads
     depends_on:
@@ -25,6 +31,7 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    logging: *default-logging
 
   db:
     image: mariadb:11.4.12
@@ -32,8 +39,8 @@ services:
       TZ: Asia/Seoul
       MARIADB_DATABASE: monica_lab
       MARIADB_USER: monica
-      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
@@ -43,6 +50,7 @@ services:
       retries: 10
       start_period: 10s
     restart: unless-stopped
+    logging: *default-logging
 
   nginx:
     image: nginx:1.27-alpine
@@ -55,6 +63,8 @@ services:
       app:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   db_data:
+    name: monica-lab-homepage_db_data

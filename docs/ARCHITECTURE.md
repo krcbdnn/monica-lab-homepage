@@ -803,7 +803,7 @@ GlobalExceptionHandler
 - **CURRENT**: 초기 관리자/고정 페이지 생성은 INFO, 초기 관리자 환경변수 누락은 ERROR, 예외는 `GlobalExceptionHandler`가 기록한다. 로그인 실패는 `AUTHENTICATION_FAILED` `CustomException` WARN으로만 남고, 로그인 성공/파일 업로드/관리자 작업 감사 로그는 별도로 남기지 않는다. 요청 단위 기록(IP/경로/상태)은 Nginx access log(컨테이너 stdout)가 담당한다. 비밀번호 등 민감 정보는 로그에 남기지 않는다. 별도 logback 설정 파일/file appender는 없고 stdout만 사용한다.
 - **CURRENT(P15-T1) — 예외 로그 레벨**: `CustomException`은 `ErrorCode.getHttpStatus()` 기준으로 분기한다. 5xx(예: `FILE_UPLOAD_FAILED`)는 `CustomException: code={}, status={}` ERROR + stacktrace, 그 외(4xx 등)는 같은 형식의 stacktrace 없는 WARN 한 줄이다(요청 URL/본문/메시지는 넣지 않음). 미처리 예외는 기존대로 ERROR + stacktrace, Validation/Bind/ConstraintViolation/NoResourceFound 등 나머지 handler는 기존대로 stacktrace 없는 WARN이며 응답 JSON 계약은 변경하지 않았다. 참고: `FileService`가 `FILE_UPLOAD_FAILED`를 던질 때 원인 `IOException`을 cause로 전달하지 않아 5xx stacktrace에 root cause가 남지 않는다(Phase 15 범위 밖 후속 후보).
 - **CURRENT(P15-T1) — SQL 로그**: base `application.yml`의 `spring.jpa.show-sql: true`/`format_sql: true`는 local/test용으로 유지하고, prod profile(`application-prod.yml`)에서 둘 다 `false`로 override한다. `show-sql`은 logger가 아니라 Hibernate가 stdout에 직접 출력하므로 logging level이 아닌 이 설정으로 끈다.
-- **PLANNED(P15-T2)**: Docker `json-file` 로그 rotation은 "운영 배포 계약(Phase 15)"을 따른다(현재 크기 제한 없음). 감사 로그/중앙 로그 수집은 Phase 15 범위 밖이다.
+- **CURRENT(P15-T2) — 컨테이너 로그 보관량**: Docker `json-file` 로그 rotation(`app`/`db`/`nginx` 모두 `max-size: 10m`, `max-file: 3`)이 적용되어 있다("운영 배포 계약(Phase 15)" 참고). 이는 컨테이너 stdout/stderr 보관량 제한일 뿐 애플리케이션 로그 레벨(P15-T1)과는 별개다. 감사 로그/중앙 로그 수집은 Phase 15 범위 밖이다.
 
 ---
 
@@ -967,7 +967,7 @@ Admin
 `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수를 읽어 계정이 없을 때만 BCrypt 해시로 초기 관리자 1건을 생성한다. `PasswordEncoder` BCrypt Bean은 Admin 초기화 Task에서 함께 정의하고 SecurityConfig는 이를 주입받아 사용하여 초기화가 미래 Security Task에 의존하지 않게 한다. 운영용 기본 비밀번호를 소스/data.sql에 저장하지 않는다. 필수 환경변수가 없으면 운영 프로파일에서는 초기 계정을 생성하지 않고 명확한 오류 로그를 남긴다.
 
 ## 업로드 영속성
-업로드 루트는 `UPLOAD_ROOT` 환경변수로 설정하며 기본 Docker 경로는 `/app/uploads`다. `docker-compose.yml`은 `./data/uploads:/app/uploads` bind mount를 사용하여 컨테이너 재생성 후에도 파일을 유지한다. MariaDB는 `db_data:/var/lib/mysql` named volume을 사용하여 컨테이너 재생성 후에도 DB 데이터와 Flyway 적용 이력을 유지한다. Phase 15에서 확정한 volume 이름 고정과 `UPLOAD_ROOT` 고정 계약은 아래 "운영 배포 계약(Phase 15)"을 따른다.
+업로드 루트는 `UPLOAD_ROOT` 환경변수로 설정하며 기본 Docker 경로는 `/app/uploads`다. `docker-compose.yml`은 `./data/uploads:/app/uploads` bind mount를 사용하여 컨테이너 재생성 후에도 파일을 유지한다. MariaDB는 `db_data:/var/lib/mysql` named volume을 사용하여 컨테이너 재생성 후에도 DB 데이터와 Flyway 적용 이력을 유지한다. Phase 15에서 적용한 volume 이름 고정과 compose `UPLOAD_ROOT` 고정(P15-T2)은 아래 "운영 배포 계약(Phase 15)"을 따른다.
 
 ## Health / 배포 자동화 범위
 헬스체크는 Spring Boot Actuator `/actuator/health`를 사용한다. GitHub Actions는 CI(test/build)까지만 자동화하고 실제 운영 배포는 Docker Compose 수동 배포를 기본 범위로 한다.
@@ -1013,23 +1013,23 @@ Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto
 - Nginx가 인터넷에 직접 노출된 가장 바깥 proxy이므로 `$binary_remote_addr`가 실제 클라이언트 IP다. 앞단에 Cloudflare/로드밸런서를 두게 되면 `real_ip` 설정이 별도로 필요하다(OPERATIONS에 기록).
 - 애플리케이션 rate limiter dependency, CAPTCHA, 계정 잠금은 도입하지 않는다. 429 응답과 로그인 화면 처리는 API.md `POST /api/admin/login`을 따른다.
 
-## 데이터 영속성 / volume 이름 / 업로드 경로 (PLANNED — P15-T2)
+## 데이터 영속성 / volume 이름 / 업로드 경로 (CURRENT — P15-T2 완료, 백업은 PLANNED — P15-T8)
 
-- MariaDB named volume은 `volumes.db_data.name: monica-lab-homepage_db_data`로 **이름을 명시 고정**한다. 이 값은 현재 compose project 이름에서 파생된 실제 volume 이름과 동일하므로 기존 volume에 그대로 연결된다. checkout 디렉토리/compose project 이름이 바뀌어도 새 빈 volume이 생성되지 않게 하기 위함이다.
-- `docker compose down -v`, volume 삭제, 다른 이름으로의 volume 이전은 금지한다.
-- 운영 compose의 app `UPLOAD_ROOT`는 `/app/uploads` **고정값**으로 선언하고 `.env` 치환(`${UPLOAD_ROOT...}`)을 제거한다. bind mount(`./data/uploads:/app/uploads`) 대상과 저장 경로가 어긋나 컨테이너 내부에 저장되는 실수를 원천 차단한다. `application-prod.yml`의 `${UPLOAD_ROOT:/app/uploads}` override 능력은 Docker 외 실행 호환을 위해 유지하며, test/local profile은 기존 별도 설정(`build/test-uploads`, gitignored local yml)을 유지한다.
+- MariaDB named volume은 `volumes.db_data.name: monica-lab-homepage_db_data`로 **이름이 명시 고정**되어 있다. 이 값은 기존 compose project 이름에서 파생되던 실제 volume 이름과 동일하고, Compose가 volume label에 기록하는 설정 hash(`com.docker.compose.config-hash` = 정규화된 `{name, driver: local}`의 sha256)도 이전과 같아 기존 volume에 그대로 연결된다(재생성/이전 불필요). checkout 디렉토리/compose project 이름이 바뀌어도 새 빈 volume이 생성되지 않는다. `external: true`는 사용하지 않는다(신규 서버에서 `docker volume create` 사전 절차가 필요 없도록).
+- **`name:`을 지정해도 `docker compose down -v`는 이 volume을 삭제한다**(external이 아닌 선언 volume). `down -v`, volume 삭제, 다른 이름으로의 volume 이전은 금지이며, 이 금지는 compose 파일이 아니라 운영 절차(`docs/OPERATIONS.md`, PLANNED — P15-T8)가 담당한다.
+- 운영 compose의 app `UPLOAD_ROOT`는 `/app/uploads` **고정값**이다(`.env` 치환 없음). bind mount(`./data/uploads:/app/uploads`) 대상과 저장 경로가 어긋나 컨테이너 내부에 저장되는 실수를 차단한다. `application-prod.yml`의 `${UPLOAD_ROOT:/app/uploads}` override 능력은 Docker 외 실행 호환을 위해 유지하며, test/local profile은 기존 별도 설정(`build/test-uploads`, gitignored local yml)을 유지한다.
 - 백업 대상: MariaDB 논리 dump(`mariadb-dump`, volume 파일 직접 복사는 사용하지 않음), `data/uploads`, `.env`, 배포 tag/commit 기록, (선택) TLS 파일. 코드/스크립트로 자동화하지 않고 OPERATIONS 절차로 관리한다: 매일 DB/업로드 백업, 서버 내부 단기 보관 + **서버 외부 보관 위치 최소 1곳 필수**, 분기 1회 복원 리허설 권장.
 
-## 환경변수 fail-fast (PLANNED — P15-T2)
+## 환경변수 fail-fast (CURRENT — P15-T2 완료)
 
-- 운영 compose는 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD`를 `${VAR:?VAR is required}` 형식으로 참조해, 값이 없으면 compose 단계에서 즉시 실패한다.
-- `.env.example`에는 실제 정책을 통과하는 예시 비밀번호를 두지 않는다(`ADMIN_PASSWORD`는 빈 값). **CURRENT**: `.env.example`에 정책을 통과하는 예시 비밀번호가 남아 있으며 P15-T2에서 제거한다.
+- 운영 compose는 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD`를 `${VAR:?VAR is required}` 형식으로 참조한다(app의 `DB_PASSWORD`도 같은 형식으로 `MARIADB_PASSWORD`를 참조). 값이 unset이거나 빈 문자열이면 `docker compose config`/`up` 단계에서 즉시 실패한다. 이 5개 외 환경변수는 필수화하지 않았다.
+- `.env.example`은 변수 이름과 계약만 보여주는 template이다. 필수 5개는 모두 빈 값이며(`changeme`/정책 통과 예시 비밀번호/기본 관리자 ID·이름 없음), 그대로 복사하면 compose가 실패한다. `UPLOAD_ROOT` 항목은 없다(compose에서 고정). 비밀번호 생성 방법만 주석으로 안내한다.
 - `AdminInitializer`의 동작(필수 값이 비어 있으면 계정을 생성하지 않고 ERROR 로그)은 변경하지 않는다. 초기 관리자 생성 이후 `.env`의 `ADMIN_PASSWORD` 변경은 DB에 반영되지 않는다 - 비밀번호 변경은 관리자 화면(PLANNED, P15-T6), 분실 시 재설정은 OPERATIONS 절차를 따른다.
 
-## 로그 (P15-T1 CURRENT, P15-T2 PLANNED)
+## 로그 (CURRENT — P15-T1, P15-T2 완료)
 
 - prod: `spring.jpa.show-sql=false`, `spring.jpa.properties.hibernate.format_sql=false`(CURRENT, P15-T1 완료).
-- Docker: `app`/`db`/`nginx` 3개 service 모두 `logging.driver: json-file`, `max-size: 10m`, `max-file: 3`(service당 최대 약 30MB, PLANNED — P15-T2). 장기 로그 보관/중앙 수집은 범위 밖이다.
+- Docker: `app`/`db`/`nginx` 3개 service 모두 `logging.driver: json-file`, `max-size: "10m"`, `max-file: "3"`(service당 최대 약 30MB, CURRENT — P15-T2 완료). compose top-level extension `x-logging: &default-logging` anchor 1곳에 정의하고 각 service가 `logging: *default-logging`으로 참조한다. 설정은 컨테이너가 (재)생성될 때 적용된다. Nginx 공식 이미지는 access/error log를 stdout/stderr로 symlink하고 MariaDB도 stderr로 출력하므로 세 service 로그 모두 이 rotation 대상이다. 장기 로그 보관/중앙 수집은 범위 밖이다.
 - `CustomException` 5xx는 ERROR + stacktrace, 그 외(4xx 등)는 stacktrace 없는 WARN 한 줄(CURRENT, P15-T1 완료). 미처리 예외는 ERROR + stacktrace.
 
 ## 배포 단위 / release
