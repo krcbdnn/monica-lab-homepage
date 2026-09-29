@@ -22,6 +22,12 @@ public class ExceptionTestController {
         throw new CustomException(ErrorCode.PROGRAM_NOT_FOUND);
     }
 
+    // P15-T1: 5xx CustomException 로그(ERROR + stacktrace) 검증용.
+    @GetMapping("/test/exceptions/custom-server-error")
+    public ApiResponse<Void> customServerError() {
+        throw new CustomException(ErrorCode.FILE_UPLOAD_FAILED);
+    }
+
     @GetMapping("/test/exceptions/unhandled")
     public ApiResponse<Void> unhandled() {
         throw new IllegalStateException("boom");

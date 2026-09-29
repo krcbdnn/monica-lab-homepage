@@ -739,8 +739,9 @@ ROLE_ADMIN
 
 ## 쿠키 / HTTPS 인식 / HSTS
 
-- **CURRENT**: `JSESSIONID`는 `HttpOnly`만 설정되고 `Secure`/`SameSite`가 없다. `XSRF-TOKEN`은 `Secure`가 없다. Spring은 `X-Forwarded-*`를 해석하지 않아 redirect `Location`이 컨테이너 내부 기준 절대 URL(`http://{host}/admin/login`, 포트 유실)로 만들어진다.
-- **PLANNED(P15-T1)**: prod profile에 `server.forward-headers-strategy: native`(Tomcat RemoteIpValve, docker 내부망 proxy 신뢰)와 `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`를 적용한다. `Secure`는 별도 강제 설정 없이 Nginx가 전달한 `X-Forwarded-Proto: https`로 요청을 HTTPS로 인식할 때 `JSESSIONID`/`XSRF-TOKEN`에 자동 적용된다. HSTS는 Nginx가 단독으로 담당하므로 Spring Security의 HSTS header는 비활성화한다(Spring 기본값은 `includeSubDomains` 포함). 상세는 "운영 배포 계약(Phase 15)".
+- **CURRENT(P15-T1 구현)**: prod profile(`application-prod.yml`)에 `server.forward-headers-strategy: native`(Tomcat RemoteIpValve, docker 내부망 proxy 신뢰), `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`가 적용되어 있다. `Secure`는 별도 강제 설정 없이 Nginx가 전달한 `X-Forwarded-Proto: https`로 요청을 HTTPS로 인식할 때 `JSESSIONID`/`XSRF-TOKEN`에 자동 적용된다(forward header가 없는 평문 HTTP 요청에는 붙지 않음). `JSESSIONID`는 `HttpOnly` + `SameSite=Lax`다.
+- **CURRENT(P15-T1) — 관리자 login redirect**: `/admin/**` 미인증 요청의 redirect `Location`은 상대 URI `/admin/login`이다(모든 profile). Spring Security `LoginUrlAuthenticationEntryPoint`는 기본적으로 요청 scheme/host/port로 절대 URL을 직접 조립하므로 Tomcat `use-relative-redirects`만으로는 상대 URI가 되지 않는다 - `SecurityConfig`의 기본 EntryPoint에 `setFavorRelativeUris(true)`를 적용해 구현했다. `server.tomcat.use-relative-redirects: true`는 운영 runtime 계약을 명시하는 설정으로 유지한다. `/api/admin/**` 미인증은 기존대로 redirect 없이 401 JSON(`UNAUTHORIZED`)이다.
+- **CURRENT(P15-T1) — HSTS**: HSTS는 Nginx가 단독으로 담당하므로 `SecurityConfig`에서 Spring Security HSTS header만 비활성화했다(Spring 기본값은 `includeSubDomains` 포함). `X-Content-Type-Options`, `X-Frame-Options` 등 나머지 Spring Security 기본 보안 헤더는 유지한다. 상세는 "운영 배포 계약(Phase 15)".
 - 관리자 로그인 시도 제한은 애플리케이션이 아니라 Nginx가 담당한다(PLANNED, P15-T3).
 - 관리자 본인 비밀번호 변경(PLANNED, P15-T6)은 기존 세션 인증 + CSRF + BCrypt를 그대로 사용하며, 성공 시 세션 ID를 교체한다(`changeSessionId`, 로그인과 동일한 세션 고정 방어).
 
@@ -799,9 +800,10 @@ GlobalExceptionHandler
 
 로그 관리
 
-- **CURRENT**: 초기 관리자/고정 페이지 생성은 INFO, 초기 관리자 환경변수 누락은 ERROR, 예외는 `GlobalExceptionHandler`가 기록한다(`CustomException`은 4xx/5xx 구분 없이 stacktrace 포함 WARN, 미처리 예외는 ERROR). 로그인 실패는 `AUTHENTICATION_FAILED` `CustomException` WARN으로만 남고, 로그인 성공/파일 업로드/관리자 작업 감사 로그는 별도로 남기지 않는다. 요청 단위 기록(IP/경로/상태)은 Nginx access log(컨테이너 stdout)가 담당한다. 비밀번호 등 민감 정보는 로그에 남기지 않는다.
-- **CURRENT(운영 문제)**: base `application.yml`의 `spring.jpa.show-sql: true`/`format_sql: true`가 prod profile에도 적용되고 Docker `json-file` 로그에 크기 제한이 없다.
-- **PLANNED(Phase 15)**: prod profile에서 `show-sql=false`, `format_sql=false`(P15-T1). `CustomException` 중 4xx는 stacktrace 없는 WARN 한 줄, 5xx는 stacktrace 유지(P15-T1). Docker 로그 rotation은 "운영 배포 계약(Phase 15)"을 따른다(P15-T2). 감사 로그/중앙 로그 수집은 Phase 15 범위 밖이다.
+- **CURRENT**: 초기 관리자/고정 페이지 생성은 INFO, 초기 관리자 환경변수 누락은 ERROR, 예외는 `GlobalExceptionHandler`가 기록한다. 로그인 실패는 `AUTHENTICATION_FAILED` `CustomException` WARN으로만 남고, 로그인 성공/파일 업로드/관리자 작업 감사 로그는 별도로 남기지 않는다. 요청 단위 기록(IP/경로/상태)은 Nginx access log(컨테이너 stdout)가 담당한다. 비밀번호 등 민감 정보는 로그에 남기지 않는다. 별도 logback 설정 파일/file appender는 없고 stdout만 사용한다.
+- **CURRENT(P15-T1) — 예외 로그 레벨**: `CustomException`은 `ErrorCode.getHttpStatus()` 기준으로 분기한다. 5xx(예: `FILE_UPLOAD_FAILED`)는 `CustomException: code={}, status={}` ERROR + stacktrace, 그 외(4xx 등)는 같은 형식의 stacktrace 없는 WARN 한 줄이다(요청 URL/본문/메시지는 넣지 않음). 미처리 예외는 기존대로 ERROR + stacktrace, Validation/Bind/ConstraintViolation/NoResourceFound 등 나머지 handler는 기존대로 stacktrace 없는 WARN이며 응답 JSON 계약은 변경하지 않았다. 참고: `FileService`가 `FILE_UPLOAD_FAILED`를 던질 때 원인 `IOException`을 cause로 전달하지 않아 5xx stacktrace에 root cause가 남지 않는다(Phase 15 범위 밖 후속 후보).
+- **CURRENT(P15-T1) — SQL 로그**: base `application.yml`의 `spring.jpa.show-sql: true`/`format_sql: true`는 local/test용으로 유지하고, prod profile(`application-prod.yml`)에서 둘 다 `false`로 override한다. `show-sql`은 logger가 아니라 Hibernate가 stdout에 직접 출력하므로 logging level이 아닌 이 설정으로 끈다.
+- **PLANNED(P15-T2)**: Docker `json-file` 로그 rotation은 "운영 배포 계약(Phase 15)"을 따른다(현재 크기 제한 없음). 감사 로그/중앙 로그 수집은 Phase 15 범위 밖이다.
 
 ---
 
@@ -997,13 +999,13 @@ Internet
 - 인증서/개인키는 저장소에 저장하지 않는다. host `./data/certs/`(`.gitignore`의 `data/` 대상)에 고정 파일명 `fullchain.pem`/`privkey.pem`으로 두고, 컨테이너 `/etc/nginx/certs/`에 read-only mount한다. Nginx 설정은 도메인과 무관한 이 고정 경로만 참조한다.
 - ACME: host에 설치한 certbot의 **webroot** 방식을 사용한다(certbot 컨테이너는 추가하지 않는다). Nginx `:80`은 `/.well-known/acme-challenge/`를 host webroot 디렉토리(`./data/certbot/`)에서 제공하고, 그 외 요청은 HTTPS로 301 redirect한다. certbot deploy-hook이 발급/갱신된 인증서를 `./data/certs/`에 실제 파일로 복사한 뒤 Nginx를 reload한다.
 - 최초 기동: 인증서가 없으면 Nginx가 기동하지 않으므로, 자체서명 placeholder 인증서로 먼저 기동한 뒤 webroot 발급으로 교체한다(절차는 OPERATIONS).
-- HSTS는 **Nginx가 단독으로 담당**한다: `Strict-Transport-Security: max-age=31536000`, `includeSubDomains` 없음, `preload` 없음. Nginx는 location에 `add_header`가 있으면 상위 `add_header`를 상속하지 않으므로, `Cache-Control`을 설정하는 정적 location에도 HSTS를 함께 선언한다. Spring Security HSTS는 비활성화한다(P15-T1).
+- HSTS는 **Nginx가 단독으로 담당**한다: `Strict-Transport-Security: max-age=31536000`, `includeSubDomains` 없음, `preload` 없음. Nginx는 location에 `add_header`가 있으면 상위 `add_header`를 상속하지 않으므로, `Cache-Control`을 설정하는 정적 location에도 HSTS를 함께 선언한다. Spring Security HSTS는 비활성화되어 있다(CURRENT, P15-T1 완료). Nginx HSTS 자체는 PLANNED(P15-T3)다.
 - 도메인 없이 Phase 15에서 검증하는 범위: 443/redirect/ACME location/HSTS/rate limit/forward header 구조와 로컬 자체서명 인증서 smoke. 실제 도메인 DNS, Let's Encrypt 발급, 최종 host 확인, 운영 smoke는 배포(Launch) 단계에서 수행한다.
 - `server_tokens off`로 Nginx 버전 노출을 끈다(P15-T3).
 
-## Forwarded header / 쿠키 (PLANNED — P15-T1)
+## Forwarded header / 쿠키 (CURRENT — P15-T1 완료)
 
-Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`를 전달한다. Spring은 `server.forward-headers-strategy: native`, `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`를 prod profile에 적용한다(위 Security "쿠키 / HTTPS 인식 / HSTS" 참고).
+Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`를 전달한다. Spring은 `server.forward-headers-strategy: native`, `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`를 prod profile에 적용하고, 관리자 login redirect는 `SecurityConfig`의 `LoginUrlAuthenticationEntryPoint.setFavorRelativeUris(true)`로 상대 URI(`/admin/login`)를 사용한다(위 Security "쿠키 / HTTPS 인식 / HSTS" 참고). 실제 HTTPS 요청 경로(Nginx TLS)는 PLANNED(P15-T3)다.
 
 ## 관리자 로그인 rate limit (PLANNED — P15-T3)
 
@@ -1024,11 +1026,11 @@ Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto
 - `.env.example`에는 실제 정책을 통과하는 예시 비밀번호를 두지 않는다(`ADMIN_PASSWORD`는 빈 값). **CURRENT**: `.env.example`에 정책을 통과하는 예시 비밀번호가 남아 있으며 P15-T2에서 제거한다.
 - `AdminInitializer`의 동작(필수 값이 비어 있으면 계정을 생성하지 않고 ERROR 로그)은 변경하지 않는다. 초기 관리자 생성 이후 `.env`의 `ADMIN_PASSWORD` 변경은 DB에 반영되지 않는다 - 비밀번호 변경은 관리자 화면(PLANNED, P15-T6), 분실 시 재설정은 OPERATIONS 절차를 따른다.
 
-## 로그 (PLANNED — P15-T1, P15-T2)
+## 로그 (P15-T1 CURRENT, P15-T2 PLANNED)
 
-- prod: `spring.jpa.show-sql=false`, `spring.jpa.properties.hibernate.format_sql=false`(P15-T1).
-- Docker: `app`/`db`/`nginx` 3개 service 모두 `logging.driver: json-file`, `max-size: 10m`, `max-file: 3`(service당 최대 약 30MB, P15-T2). 장기 로그 보관/중앙 수집은 범위 밖이다.
-- `CustomException` 4xx는 stacktrace 없는 WARN 한 줄, 5xx는 stacktrace 유지(P15-T1).
+- prod: `spring.jpa.show-sql=false`, `spring.jpa.properties.hibernate.format_sql=false`(CURRENT, P15-T1 완료).
+- Docker: `app`/`db`/`nginx` 3개 service 모두 `logging.driver: json-file`, `max-size: 10m`, `max-file: 3`(service당 최대 약 30MB, PLANNED — P15-T2). 장기 로그 보관/중앙 수집은 범위 밖이다.
+- `CustomException` 5xx는 ERROR + stacktrace, 그 외(4xx 등)는 stacktrace 없는 WARN 한 줄(CURRENT, P15-T1 완료). 미처리 예외는 ERROR + stacktrace.
 
 ## 배포 단위 / release
 
