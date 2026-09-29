@@ -5419,3 +5419,245 @@ test.describe('P14-T7: 목록 검색 버튼 public primary', () => {
     });
   }
 });
+
+// P15-T4: CKEditor 툴바(mediaEmbed 제거) ↔ HtmlSanitizer 보존 ↔ 공개/관리자/팝업 렌더링 계약을 대표 1건으로
+// 검증한다. Program/Page/Popup 폼은 같은 ckeditor-config.js와 HtmlSanitizer를 공유하므로 편집 round-trip은
+// Board에서만 확인하고(P13-T23/T29와 같은 관례), 팝업은 blockquote CSS 적용만 API 저장으로 확인한다.
+test.describe('P15-T4: CKEditor 목록/인용/기울임/표 머리글/셀 병합 저장 보존', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+  });
+
+  function toLocalIsoString(date) {
+    return date.getFullYear() + '-' + popupPad2(date.getMonth() + 1) + '-' + popupPad2(date.getDate())
+      + 'T' + popupPad2(date.getHours()) + ':' + popupPad2(date.getMinutes()) + ':' + popupPad2(date.getSeconds());
+  }
+
+  async function expectNoDocumentOverflow(page, label) {
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `${label} 문서 가로 overflow`).toBeLessThanOrEqual(0);
+  }
+
+  test('Board 편집기에 mediaEmbed가 없고, Autoformat/표 머리글/셀 병합 결과가 저장·재조회·공개/관리자 상세까지 보존된다', async ({ page, context, baseURL, tracker }) => {
+    const pageErrors = [];
+    const ckeditorWarnings = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    page.on('console', (message) => {
+      // CKEditor 경고/오류는 "Read more: https://ckeditor.com/docs/..." 링크를 포함한다(toolbarview-item-unavailable 등).
+      if ((message.type() === 'warning' || message.type() === 'error') && /ckeditor/i.test(message.text())) {
+        ckeditorWarnings.push(message.text());
+      }
+    });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/admin/boards/new');
+    await page.locator('#boardType').selectOption('NOTICE');
+    const title = 'P15-T4 서식 보존 확인 ' + Date.now();
+    await page.locator('#title').fill(title);
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+
+    // 툴바: 미디어 삽입 버튼 없음, 지원 버튼 존재. 순서/구분선 정확성은 ckeditor-config.test.js가 고정한다.
+    const toolbar = page.locator('.ck-editor__top');
+    await expect(toolbar.locator('[data-cke-tooltip-text="Insert media"]')).toHaveCount(0);
+    for (const label of ['Heading', 'Bold (Ctrl+B)', 'Italic (Ctrl+I)', 'Link (Ctrl+K)', 'Upload image from computer',
+      'Insert table', 'Block quote', 'Bulleted List', 'Numbered List', 'Decrease indent', 'Increase indent']) {
+      await expect(toolbar.locator(`[data-cke-tooltip-text="${label}"]`), label).toHaveCount(1);
+    }
+    const editorState = await page.evaluate(() => ({
+      mediaEmbedPlugin: contentEditor.plugins.has('MediaEmbed'),
+      mediaEmbedCommand: !!contentEditor.commands.get('mediaEmbed'),
+      mergeTableCellsCommand: !!contentEditor.commands.get('mergeTableCells'),
+      tableContentToolbar: contentEditor.config.get('table.contentToolbar'),
+    }));
+    expect(editorState).toEqual({
+      mediaEmbedPlugin: false,
+      mediaEmbedCommand: false,
+      mergeTableCellsCommand: true,
+      tableContentToolbar: ['tableColumn', 'tableRow', 'mergeTableCells'],
+    });
+
+    // 실제 키보드 입력으로 Autoformat을 사용한다(빈 항목에서 Enter는 목록/인용을 빠져나온다).
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('* bullet item');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('nested item');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('1. numbered item');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('> quoted text');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('_italic_ tail');
+    await page.keyboard.press('Enter');
+
+    // 기존 업로드 어댑터(POST /api/admin/files)와 P13-T40 resize 버튼이 새 config에서도 그대로 동작하는지 회귀 확인.
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await toolbar.locator('[data-cke-tooltip-text="Upload image from computer"]').click();
+    await (await fileChooserPromise).setFiles({ name: 'p15-t4.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER });
+    await uploadedFileId;
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable figure.image img');
+      return !!(img && (img.getAttribute('src') || '').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+    await page.locator('.ck-editor__editable figure.image img').click();
+    await page.locator('#content-resize-controls [data-resize-value="50"]').click();
+    await page.waitForSelector('.ck-editor__editable figure.image.image_resized', { timeout: 10000 });
+
+    // 표 삽입 → 머리글 행 → 두 번째 행 앞 두 칸 병합(mergeTableCells, 표 content toolbar의 "Merge cells"와 같은 command).
+    await page.evaluate(() => {
+      const editor = contentEditor;
+      const root = editor.model.document.getRoot();
+      // root 'end'로 selection을 두면 CKEditor가 마지막 object(방금 resize한 이미지 widget)를 선택 상태로 보정하고,
+      // insertTable이 그 선택된 widget을 표로 교체한다. 빈 문단을 끝에 추가해 그 안에 표를 넣는다.
+      editor.model.change((writer) => {
+        const paragraph = writer.createElement('paragraph');
+        writer.insert(paragraph, root, 'end');
+        writer.setSelection(paragraph, 'in');
+      });
+      editor.execute('insertTable', { rows: 3, columns: 3 });
+      editor.execute('setTableRowHeader');
+      const table = Array.from(root.getChildren()).find((node) => node.is('element', 'table'));
+      const cell = (row, column) => table.getChild(row).getChild(column);
+      editor.model.change(() => editor.plugins.get('TableSelection').setCellSelection(cell(1, 0), cell(1, 1)));
+      editor.execute('mergeTableCells');
+    });
+
+    const editorData = await page.evaluate(() => contentEditor.getData());
+    expect(editorData).toContain('<ul><li>bullet item<ul><li>nested item</li></ul></li></ul>');
+    expect(editorData).toContain('<ol><li>numbered item</li></ol>');
+    expect(editorData).toContain('<blockquote><p>quoted text</p></blockquote>');
+    expect(editorData).toContain('<i>italic</i>');
+    expect(editorData).toContain('<thead>');
+    expect(editorData).toContain('colspan="2"');
+    // 편집기 원본 출력의 <img>에는 aspect-ratio style/width/height가 붙는다(저장 시 sanitizer가 제거 - 아래 saved 검증).
+    expect(editorData).toMatch(/<figure class="image image_resized" style="width:50%;"><img [^>]*src="\/api\/files\/\d+"/);
+
+    await page.locator('#isPublic').check();
+    const createdBoard = await observeNavigatingCreate(page, tracker, 'board', { timeout: 10000 });
+    await Promise.all([
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+    const boardId = await createdBoard.id;
+
+    // API 재조회: sanitizer를 거쳐 DB에 저장된 content.
+    const apiRes = await context.request.get(`${baseURL}/api/admin/boards/${boardId}`);
+    expect(apiRes.ok()).toBeTruthy();
+    const saved = (await apiRes.json()).data.content;
+    expect(saved).toContain('<ul><li>bullet item<ul><li>nested item</li></ul></li></ul>');
+    expect(saved).toContain('<ol><li>numbered item</li></ol>');
+    expect(saved).toContain('<blockquote><p>quoted text</p></blockquote>');
+    expect(saved).toContain('<i>italic</i>');
+    expect(saved).toMatch(/<thead><tr><th>/);
+    expect(saved).toContain('<td colspan="2">');
+    expect(saved).toMatch(/<figure class="image image_resized" style="width:50%;"><img src="\/api\/files\/\d+"/);
+
+    // 수정 화면 재진입 시 CKEditor 안에서 병합/머리글/목록/인용이 그대로 복원된다.
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await page.waitForSelector('.ck-editor__editable td[colspan="2"]', { timeout: 10000 });
+    await expect(page.locator('.ck-editor__editable thead th')).toHaveCount(3);
+    await expect(page.locator('.ck-editor__editable blockquote')).toHaveCount(1);
+
+    // 공개 상세.
+    await page.goto(`/boards/${boardId}`);
+    const publicContent = page.locator('#board-detail-content .ckeditor-content');
+    await expect(publicContent.locator('ul > li > ul > li')).toHaveText('nested item');
+    await expect(publicContent.locator(':scope > ul > li')).toContainText('bullet item');
+    await expect(publicContent.locator(':scope > ol > li')).toHaveText('numbered item');
+    await expect(publicContent.locator('i')).toHaveText('italic');
+    await expect(publicContent.locator('thead th')).toHaveCount(3);
+    await expect(publicContent.locator('td[colspan="2"]')).toHaveCount(1);
+    const publicQuote = publicContent.locator('blockquote');
+    await expect(publicQuote).toHaveCSS('border-left-style', 'solid');
+    await expect(publicQuote).toHaveCSS('border-left-width', '3px');
+    await expect(publicContent.locator(':scope > ul')).toHaveCSS('list-style-type', 'disc');
+    await expect(publicContent.locator('li > ul')).toHaveCSS('list-style-type', 'circle');
+    for (const width of [375, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectNoDocumentOverflow(page, `공개 상세 ${width}px`);
+    }
+
+    // 관리자 읽기 전용 상세.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/admin/boards/${boardId}`);
+    const adminQuote = page.locator('.admin-content-detail .ckeditor-content blockquote');
+    await expect(adminQuote).toHaveText('quoted text');
+    await expect(adminQuote).toHaveCSS('border-left-width', '3px');
+
+    expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    expect(ckeditorWarnings, `CKEditor console warning/error: ${ckeditorWarnings.join(' | ')}`).toEqual([]);
+  });
+
+  // 실행 중인 app(재빌드된 image)의 HtmlSanitizer가 적용되는지 저장 API로 직접 확인한다: 범위 밖 span은
+  // attribute만 제거되고 셀/내용은 유지, script/oembed/iframe/이벤트 핸들러는 공개 화면에서도 되살아나지 않는다.
+  test('저장 API가 invalid span은 attribute만 제거하고 script/oembed/iframe은 공개 화면에서도 되살아나지 않는다', async ({ page, context, baseURL, tracker }) => {
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const xsrfToken = await getXsrfToken(context);
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: 'P15-T4 sanitizer 확인 ' + Date.now(),
+        isPublic: true,
+        content: '<table><tbody><tr><td colspan="51">wide</td><td rowspan="0">zero</td><th colspan=" 2">space</th></tr>'
+          + '<tr><td colspan="50" rowspan="2">max</td></tr></tbody></table>'
+          + '<ul><li onclick="alert(1)"><script>window.__p15t4 = 1</script>safe</li></ul>'
+          + '<figure class="media"><oembed url="https://www.youtube.com/watch?v=abc"></oembed></figure>'
+          + '<blockquote cite="javascript:alert(1)"><iframe src="https://www.google.com/maps/embed?pb=x"></iframe><p>q</p></blockquote>',
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    const boardId = tracker.track('board', (await res.json()).data.id);
+
+    const saved = (await (await context.request.get(`${baseURL}/api/admin/boards/${boardId}`)).json()).data.content;
+    expect(saved).toBe('<table><tbody><tr><td>wide</td><td>zero</td><th>space</th></tr>'
+      + '<tr><td colspan="50" rowspan="2">max</td></tr></tbody></table>'
+      + '<ul><li>safe</li></ul><figure></figure><blockquote><p>q</p></blockquote>');
+
+    await page.goto(`/boards/${boardId}`);
+    const content = page.locator('#board-detail-content .ckeditor-content');
+    await expect(content.locator('td', { hasText: 'wide' })).not.toHaveAttribute('colspan');
+    await expect(content.locator('td[colspan="50"][rowspan="2"]')).toHaveText('max');
+    await expect(content.locator('script, oembed, iframe, [onclick]')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__p15t4)).toBeUndefined();
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('공개 팝업 본문의 인용/목록이 최소 스타일로 표시되고 375px에서 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    const xsrfToken = await getXsrfToken(context);
+    const title = `P15-T4 Popup 인용 ${Date.now()}`;
+    const now = Date.now();
+    const res = await context.request.post(`${baseURL}/api/admin/popups`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        title,
+        content: '<blockquote><p>팝업 인용 문장</p></blockquote><ul><li>항목<ol><li>하위 항목</li></ol></li></ul>',
+        isVisible: true,
+        startDate: toLocalIsoString(new Date(now - 60 * 60 * 1000)),
+        endDate: toLocalIsoString(new Date(now + 60 * 60 * 1000)),
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    tracker.track('popup', (await res.json()).data.id);
+
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto('/');
+      const modal = page.locator('.popup-modal').filter({ has: page.locator(`text=${title}`) });
+      await expect(modal).toBeVisible();
+      const quote = modal.locator('.popup-modal__body blockquote');
+      await expect(quote).toHaveText('팝업 인용 문장');
+      await expect(quote).toHaveCSS('border-left-width', '3px');
+      await expect(modal.locator('.popup-modal__body li ol > li')).toHaveText('하위 항목');
+      await expectNoDocumentOverflow(page, `팝업 ${width}px`);
+    }
+  });
+});

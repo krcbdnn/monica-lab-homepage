@@ -1031,6 +1031,19 @@ textarea.form-control {
     white-space: nowrap;
 }
 
+/* P15-T4: 공개 home.css의 blockquote 규칙을 관리자 읽기 전용 상세로 옮긴 것(위 주석의 동기화 원칙과 동일).
+   ul/ol은 공개 쪽과 마찬가지로 Bootstrap 기본값을 그대로 쓴다. */
+.admin-content-detail .ckeditor-content blockquote {
+    margin: 0 0 1rem;
+    padding-left: 1rem;
+    border-left: 3px solid var(--admin-border);
+    color: var(--admin-text-muted);
+}
+
+.admin-content-detail .ckeditor-content blockquote > :last-child {
+    margin-bottom: 0;
+}
+
 /* ===== Menu ===== */
 /* P13-T30E(Task B): 관리자 메뉴 목록 - 자식 행(parentId 존재) 들여쓰기. Menu는 GROUP만 부모가 될 수
    있어 2-depth만 존재함이 이미 보장되므로(MenuService.validateParentAndGroupPlacement) depth 계산 없이

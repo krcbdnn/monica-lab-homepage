@@ -2252,8 +2252,9 @@ html {
 }
 
 /* P14-T5: CKEditor 본문 텍스트 요소 최소 보완(상세 전용 - popup 공유 규칙과 image 규칙은 무수정).
-   공백 없는 긴 URL/토큰이 375px에서 가로 overflow를 만들던 문제를 줄바꿈으로 막는다. ul/ol/blockquote는
-   HtmlSanitizer가 제거하므로 스타일을 두지 않는다. */
+   공백 없는 긴 URL/토큰이 375px에서 가로 overflow를 만들던 문제를 줄바꿈으로 막는다. ul/ol(중첩 포함)은
+   P15-T4부터 HtmlSanitizer가 보존하지만 Bootstrap reboot 기본값(마커 + 들여쓰기)으로 충분히 읽혀 별도 규칙을
+   두지 않는다. blockquote는 기본값으로는 일반 문단과 구분되지 않아 아래 P15-T4 규칙을 둔다. */
 .ckeditor-content {
     overflow-wrap: break-word;
 }
@@ -2294,4 +2295,19 @@ html {
     margin-top: var(--space-1);
     color: var(--color-text-muted);
     font-size: var(--fs-meta);
+}
+
+/* P15-T4: CKEditor 인용(blockquote > p)을 본문과 구분되게 하는 최소 표시. 공개 상세와 Popup 본문이 공유한다
+   (Bootstrap reboot 기본값은 margin-bottom만 있어 일반 문단과 구분되지 않음). */
+.ckeditor-content blockquote,
+.popup-modal__body blockquote {
+    margin: 0 0 var(--space-2);
+    padding-left: var(--space-2);
+    border-left: 3px solid var(--color-border);
+    color: var(--color-text-muted);
+}
+
+.ckeditor-content blockquote > :last-child,
+.popup-modal__body blockquote > :last-child {
+    margin-bottom: 0;
 }

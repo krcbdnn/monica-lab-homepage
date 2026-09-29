@@ -33,7 +33,22 @@
     // 헤드리스로 확인) admin 폼 자체의 일반 HTML 버튼으로 제공하므로, 여기서는 model/conversion만
     // 추가하는 extraPlugins 등록 외에 별도 toolbar 항목이 없다. 이 config.js보다 먼저 로드되어야 한다
     // (admin/*/form.html 참고 - ckeditor-resize-plugin.js를 ckeditor-config.js 앞에 배치).
+    // P15-T4: 41.4.2 classic build의 기본 툴바(ClassicEditor.defaultConfig.toolbar.items, 헤드리스 실측)에서
+    // mediaEmbed만 뺀 목록을 그대로 명시한다(구분선 위치/순서 동일). MediaEmbed는 지원하지 않으므로
+    // removePlugins로 plugin 자체도 제거한다 - 툴바에서만 빼면 URL 붙여넣기/setData로 oembed가 계속
+    // 생성되고, removePlugins만 쓰면 기본 툴바가 없는 항목을 찾아 toolbarview-item-unavailable 경고를 낸다.
+    // table.contentToolbar(tableColumn/tableRow/mergeTableCells)는 build 기본값을 그대로 쓴다.
+    var TOOLBAR_ITEMS = [
+        'undo', 'redo',
+        '|', 'heading',
+        '|', 'bold', 'italic',
+        '|', 'link', 'uploadImage', 'insertTable', 'blockQuote',
+        '|', 'bulletedList', 'numberedList', 'outdent', 'indent'
+    ];
+
     var EDITOR_CONFIG = {
+        toolbar: { items: TOOLBAR_ITEMS },
+        removePlugins: ['MediaEmbed'],
         image: {
             styles: { options: imageStyles },
             toolbar: [

@@ -47,21 +47,33 @@ public final class HtmlSanitizer {
     private static final Pattern FIGURE_WIDTH_STYLE_PATTERN =
             Pattern.compile("^\\s*width\\s*:\\s*(25|50|75)%\\s*;?\\s*$");
 
+    // P15-T4: 셀 병합 span은 정확히 ASCII 10진 정수 1~50만 허용한다(parseInt 같은 느슨한 해석을 쓰지 않아
+    // 공백/부호/선행 0/지수/전각 숫자/단위가 붙은 값은 전부 불일치 → 해당 attribute만 제거, 셀은 유지).
+    private static final Pattern TABLE_CELL_SPAN = Pattern.compile("^(?:[1-9]|[1-4][0-9]|50)$");
+    private static final String[] TABLE_CELL_SPAN_ATTRIBUTES = {"colspan", "rowspan"};
+
     // P13-T39: CKEditor의 ImageTextAlternative("대체 텍스트")/ImageCaption("캡션 넣기/빼기") 툴바
     // 버튼이 실제로 만드는 output(헤드리스로 직접 확인, P13-T23와 동일한 방식)을 그대로 보존한다.
     // alt는 <img>의 평범한 문자열 attribute이고, figcaption은 <figure> 안의 형제 tag일 뿐이라 이
     // 둘을 허용해도 새로운 실행 경로가 생기지 않는다(jsoup은 attribute 값을 항상 이스케이프해
     // 직렬화하므로 alt 안의 "<script>" 같은 문자열이 실제 태그로 되살아나지 않고, figcaption에는
     // 아래에서 어떤 attribute도 허용하지 않으므로 style/class/id/on* 이벤트 핸들러가 전부 제거된다).
+    // P15-T4: CKEditor 41.4.2 classic build가 툴바/Autoformat/붙여넣기로 실제 생성하는 목록(ul/ol/li, 중첩은
+    // li 안의 하위 목록), 인용(blockquote), 기울임(i - em 입력도 i로 다운캐스트됨), 표 머리글(thead/tbody)을
+    // attribute 없이 허용한다. 셀 병합(colspan/rowspan)은 td/th에만 허용하고, 값은 clean 이후
+    // restrictTableCellSpans에서 다시 1~50 정수로 좁힌다(Safelist는 attribute 값을 검증할 수 없음).
     private static final Safelist SAFELIST = Safelist.none()
             .addTags(
-                    "p", "br", "strong", "em", "u",
+                    "p", "br", "strong", "em", "u", "i",
                     "h1", "h2", "h3", "h4", "h5", "h6",
-                    "table", "tr", "td", "th",
+                    "ul", "ol", "li", "blockquote",
+                    "table", "thead", "tbody", "tr", "td", "th",
                     "a", "img", "figure", "figcaption")
             .addAttributes("a", "href")
             .addAttributes("img", "src", "alt")
             .addAttributes("figure", "class")
+            .addAttributes("td", "colspan", "rowspan")
+            .addAttributes("th", "colspan", "rowspan")
             .addProtocols("a", "href", "http", "https", "mailto")
             .addProtocols("img", "src", "http", "https")
             .preserveRelativeLinks(true);
@@ -71,8 +83,8 @@ public final class HtmlSanitizer {
 
     // P13-T39: figcaption을 새로 허용하면서 jsoup의 기본 HTML 출력 설정이 그것을 block 태그로 취급해
     // 줄바꿈/들여쓰기를 끼워 넣는 것을 발견했다(다른 허용 태그에는 없던 동작). CKEditor가 실제로 만드는
-    // compact 출력을 그대로 보존하기 위해 pretty-print를 끈다 - 3개 직렬화 지점(최초 clean + 아래 두
-    // 커스텀 후처리 pass) 전부에 동일하게 적용해야 파이프라인 전체에서 포맷이 다시 흐트러지지 않는다.
+    // compact 출력을 그대로 보존하기 위해 pretty-print를 끈다 - 모든 직렬화 지점(최초 clean + 아래
+    // 커스텀 후처리 pass 전부)에 동일하게 적용해야 파이프라인 전체에서 포맷이 다시 흐트러지지 않는다.
     private static final Document.OutputSettings COMPACT_OUTPUT = new Document.OutputSettings().prettyPrint(false);
 
     public static String sanitize(String html) {
@@ -88,7 +100,21 @@ public final class HtmlSanitizer {
         String cleaned = Jsoup.clean(html, DUMMY_BASE_URI, SAFELIST, COMPACT_OUTPUT);
         String restrictedSources = restrictRelativeImageSources(cleaned);
         String restrictedClasses = restrictFigureClasses(restrictedSources);
-        return reinjectValidatedFigureWidths(restrictedClasses, validatedFigureWidths);
+        String restrictedSpans = restrictTableCellSpans(restrictedClasses);
+        return reinjectValidatedFigureWidths(restrictedSpans, validatedFigureWidths);
+    }
+
+    private static String restrictTableCellSpans(String cleanedHtml) {
+        Document doc = Jsoup.parseBodyFragment(cleanedHtml);
+        doc.outputSettings(COMPACT_OUTPUT);
+        for (Element cell : doc.select("td, th")) {
+            for (String name : TABLE_CELL_SPAN_ATTRIBUTES) {
+                if (cell.hasAttr(name) && !TABLE_CELL_SPAN.matcher(cell.attr(name)).matches()) {
+                    cell.removeAttr(name);
+                }
+            }
+        }
+        return doc.body().html();
     }
 
     private static String restrictRelativeImageSources(String cleanedHtml) {

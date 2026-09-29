@@ -65,6 +65,35 @@ test('EDITOR_CONFIG.image.styles.options declares Korean titles for all 6 existi
     assert.deepEqual(Object.keys(expectedTitles).sort(), options.map((o) => o.name).sort());
 });
 
+// P15-T4: 41.4.2 classic build 기본 툴바(ClassicEditor.defaultConfig, 헤드리스 실측)
+//   undo, redo, |, heading, |, bold, italic, |, link, uploadImage, insertTable, blockQuote, mediaEmbed,
+//   |, bulletedList, numberedList, outdent, indent
+// 에서 mediaEmbed만 뺀 배열이어야 한다(구분선 위치/순서까지 정확히 일치, 다른 항목 추가/제거 없음).
+test('EDITOR_CONFIG.toolbar.items is exactly the 41.4.2 default toolbar minus mediaEmbed (order and separators kept)', () => {
+    assert.deepEqual(EDITOR_CONFIG.toolbar, {
+        items: [
+            'undo', 'redo',
+            '|', 'heading',
+            '|', 'bold', 'italic',
+            '|', 'link', 'uploadImage', 'insertTable', 'blockQuote',
+            '|', 'bulletedList', 'numberedList', 'outdent', 'indent'
+        ]
+    });
+    assert.ok(!EDITOR_CONFIG.toolbar.items.includes('mediaEmbed'));
+});
+
+// 툴바에서만 빼면 URL 붙여넣기/setData로 oembed가 생성되고, removePlugins만 쓰면 기본 툴바가 없는 항목을
+// 찾아 경고를 내므로 둘을 함께 적용한다.
+test('EDITOR_CONFIG.removePlugins removes exactly the MediaEmbed plugin', () => {
+    assert.deepEqual(EDITOR_CONFIG.removePlugins, ['MediaEmbed']);
+});
+
+// 표 content toolbar(tableColumn/tableRow/mergeTableCells)는 build 기본값을 그대로 써야 하므로 table
+// config를 재선언하지 않는다(재선언하다 mergeTableCells를 빠뜨리는 회귀 방지).
+test('EDITOR_CONFIG does not override the default table content toolbar (mergeTableCells kept)', () => {
+    assert.ok(!Object.prototype.hasOwnProperty.call(EDITOR_CONFIG, 'table'));
+});
+
 test('EDITOR_CONFIG does not declare any Font/Alignment(paragraph) plugin config', () => {
     const configString = JSON.stringify(EDITOR_CONFIG);
     assert.doesNotMatch(configString, /font/i);
