@@ -3,8 +3,10 @@ package com.monicalab.common.exception;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 import com.monicalab.common.exception.support.ExceptionTestController;
 import com.monicalab.menu.service.MenuService;
@@ -16,6 +18,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -33,6 +36,9 @@ class GlobalExceptionHandlerTest {
 
     // P15-T1: CustomException을 던진 테스트 controller 메서드의 stack frame. stacktrace가 로그에 출력됐는지를
     // timestamp/thread/logger 포맷과 무관하게 판별하는 semantic marker로만 사용한다.
+    // P15-T5: 브라우저 주소창 요청의 실제 Accept 형태. 분기가 Accept가 아니라 경로 기준임을 고정하는 데 쓴다.
+    static final String BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
     private static final String THROW_SITE_FRAME = "at " + ExceptionTestController.class.getName() + ".";
 
     @Autowired
@@ -82,13 +88,24 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.error.code").value("INTERNAL_SERVER_ERROR"));
     }
 
+    // P15-T5: /api/ 미매핑 경로는 브라우저 Accept(text/html 우선)로 요청해도 기존 JSON 404 계약을 유지한다.
     @Test
-    void unmappedEndpointReturnsDefinedNotFoundFormat() throws Exception {
-        mockMvc.perform(get("/no-such-endpoint"))
+    void unmappedApiEndpointReturnsDefinedNotFoundFormat() throws Exception {
+        mockMvc.perform(get("/api/no-such-endpoint").header(HttpHeaders.ACCEPT, BROWSER_ACCEPT))
                 .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").doesNotExist())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    // P15-T5: /api/ 외 미매핑 경로는 Accept가 application/json이어도 HTML 404 오류 페이지로 응답한다.
+    @Test
+    void unmappedNonApiEndpointReturnsHtmlNotFoundPage() throws Exception {
+        mockMvc.perform(get("/no-such-endpoint").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(view().name("error/4xx"));
     }
 
     // P15-T1: 4xx CustomException은 code/status만 담은 WARN 한 줄로 남기고 stacktrace를 출력하지 않는다.

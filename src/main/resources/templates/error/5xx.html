@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!--/* P15-T5: 5xx 공개 오류 페이지. DB/메뉴/테마 장애 상황에서도 렌더링되어야 하므로 home/layout/default·
+     header·footer·siteTheme 등 DB 조회 model/fragment에 의존하지 않는 독립 템플릿이며, model은 status만
+     참조한다(예외 메시지/stacktrace/경로/SQL/ErrorCode 미출력). JS 없음. */-->
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>일시적인 오류가 발생했습니다 - 모니카영어교육연구소</title>
+    <link th:href="@{/css/home.css}" rel="stylesheet">
+</head>
+<body class="error-body">
+<main id="error-main" class="error-page">
+    <p class="error-page__code" th:text="${status}">500</p>
+    <h1 class="error-page__title">일시적인 오류가 발생했습니다</h1>
+    <p class="error-page__description">요청을 처리하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+    <a class="error-page__home" th:href="@{/}">홈으로 가기</a>
+</main>
+</body>
+</html>

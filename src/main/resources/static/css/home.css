@@ -2311,3 +2311,57 @@ html {
 .popup-modal__body blockquote > :last-child {
     margin-bottom: 0;
 }
+
+/* P15-T5: 공개 오류 페이지(templates/error/4xx.html, 5xx.html). 오류 템플릿은 Bootstrap/Pretendard/JS 없이
+   이 파일만 로드하고 <html data-theme>도 없으므로 :root 기본 토큰만 사용한다. body 기본값(margin/font/색)은
+   Bootstrap reboot 대신 여기서 직접 지정한다. CSS가 로드되지 않아도 문구와 홈 링크는 그대로 읽힌다. */
+.error-body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    line-height: var(--lh-body);
+}
+
+.error-page {
+    max-width: var(--reading-max);
+    margin: 0 auto;
+    padding: var(--space-5) 1rem;
+}
+
+.error-page__code {
+    margin: 0 0 var(--space-1);
+    color: var(--color-accent-text);
+    font-size: var(--fs-meta);
+    font-weight: 700;
+}
+
+.error-page__title {
+    margin: 0 0 var(--space-2);
+    overflow-wrap: break-word;
+}
+
+.error-page__description {
+    margin: 0 0 var(--space-3);
+    color: var(--color-text-muted);
+}
+
+.error-page__home {
+    display: inline-block;
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius);
+    background: var(--color-primary);
+    color: var(--color-primary-contrast);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.error-page__home:hover {
+    background: var(--color-primary-hover);
+    color: var(--color-primary-contrast);
+}
+
+.error-page__home:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}

@@ -2,7 +2,7 @@ package com.monicalab.board.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -75,6 +76,7 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#board-list li").text()).doesNotContain("비공개 공지");
     }
 
+    // P15-T5: 공개 화면의 비공개 게시글은 JSON이 아니라 HTML 404 오류 페이지로 응답한다.
     @Test
     void detailReturnsNotFoundForPrivateBoard() throws Exception {
         Long id = boardRepository.saveAndFlush(Board.builder()
@@ -82,7 +84,8 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
 
         mockMvc.perform(get("/boards/{id}", id))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(view().name("error/4xx"));
     }
 
     // P13-T41: 대표 이미지(thumbnail)는 목록/홈/HomePinnedContent 카드 전용 메타데이터로 역할이
