@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!--/* P15-T5: 4xx 공개 오류 페이지. PublicViewExceptionHandler/GlobalExceptionHandler와 Boot 기본 /error
+     (필터 단계 오류)가 함께 쓴다. home/layout/default·header·footer·siteTheme 등 DB 조회 model/fragment에
+     의존하지 않는 독립 템플릿이며, model은 status만 참조한다(예외 메시지/경로/ErrorCode 미출력). JS 없음. */-->
+<html lang="ko" xmlns:th="http://www.thymeleaf.org" th:with="notFound=${status == 404}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${notFound} ? '페이지를 찾을 수 없습니다 - 모니카영어교육연구소' : '잘못된 요청입니다 - 모니카영어교육연구소'">페이지를 찾을 수 없습니다 - 모니카영어교육연구소</title>
+    <link th:href="@{/css/home.css}" rel="stylesheet">
+</head>
+<body class="error-body">
+<main id="error-main" class="error-page">
+    <p class="error-page__code" th:text="${status}">404</p>
+    <h1 class="error-page__title" th:text="${notFound} ? '페이지를 찾을 수 없습니다' : '잘못된 요청입니다'">페이지를 찾을 수 없습니다</h1>
+    <p class="error-page__description" th:if="${notFound}">요청하신 페이지가 없거나 더 이상 볼 수 없는 페이지입니다. 주소를 다시 확인해 주세요.</p>
+    <p class="error-page__description" th:unless="${notFound}">요청을 처리할 수 없습니다. 주소나 입력한 값을 다시 확인해 주세요.</p>
+    <a class="error-page__home" th:href="@{/}">홈으로 가기</a>
+</main>
+</body>
+</html>

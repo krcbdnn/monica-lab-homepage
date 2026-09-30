@@ -48,8 +48,7 @@ Version 2.0
 
 ## 오류 응답 형식: API와 HTML 화면 분리
 
-- **CURRENT**: 이 문서의 `/api/**` 오류는 모두 JSON `ApiResponse`다. 현재는 공개 HTML 화면 경로(`/`, `/pages/**`, `/programs/**`, `/boards/**`)와 매핑되지 않은 경로에서 발생한 오류도 같은 JSON 본문으로 응답한다.
-- **PLANNED(Phase 15, P15-T5)**: `/api/**`는 JSON `ApiResponse`를 그대로 유지한다. 공개 HTML 화면 경로와 `/api/`로 시작하지 않는 매핑되지 않은 경로는 HTML 오류 페이지(4xx/5xx)로 응답한다. 관리자 HTML 상세 화면(`/admin/**`)의 404는 Phase 15 범위 밖이며 JSON을 유지한다. 구조는 ARCHITECTURE.md "Exception"을 따른다.
+- **CURRENT(Phase 15, P15-T5)**: 이 문서의 `/api/**` 오류는 모두 JSON `ApiResponse`이며 변경되지 않았다(브라우저처럼 `text/html`을 우선하는 Accept로 요청해도 JSON). 공개 HTML 화면 경로(`/`, `/pages/**`, `/programs/**`, `/boards/**`)의 오류와 `/api/`로 시작하지 않는 매핑되지 않은 경로는 실제 HTTP status를 유지한 HTML 오류 페이지로 응답한다(없는/비공개 리소스와 경로 변수 변환 실패 404, 잘못된 query 400, 그 외 500). 관리자 HTML 화면(`/admin/**`) 안에서 발생한 상세 404는 Phase 15 범위 밖이며 JSON을 유지하고, Spring Security의 401/403 JSON과 `/admin/**` 미인증 redirect도 그대로다. 구조는 ARCHITECTURE.md "Exception > 오류 응답 경로 분리"를 따른다.
 
 ---
 
