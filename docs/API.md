@@ -107,20 +107,18 @@ Response 200 `AdminResponse`
 
 다른 관리자 계정을 조회/등록/수정하는 API는 제공하지 않는다.
 
-## PUT /api/admin/me/password (PLANNED — P15-T6)
-
-**현재 존재하지 않는 endpoint다. Phase 15 계약으로 확정되어 P15-T6에서 구현한다.**
+## PUT /api/admin/me/password (CURRENT — P15-T6)
 
 인증: ROLE_ADMIN + CSRF(`X-XSRF-TOKEN`)
 
-로그인한 관리자 본인의 비밀번호만 변경한다. 대상 계정 id를 요청으로 받지 않는다.
+로그인한 관리자 본인의 비밀번호만 변경한다. 대상 계정 id를 요청으로 받지 않는다(인증 principal의 관리자 id만 사용).
 
 Request `AdminPasswordChangeRequest`
 
 | field | type | required | Validation |
 |---|---|---:|---|
 | currentPassword | String | Y | `@NotBlank` |
-| newPassword | String | Y | `@NotBlank`, 8~64자, 영문/숫자/특수문자 중 2종 이상(CODING_RULES.md 비밀번호 정책) |
+| newPassword | String | Y | `@NotBlank`, `@Size(min = 8, max = 64)`, `@Pattern` - 공백을 제외한 ASCII 출력 문자(`!`~`~`, 0x21~0x7E)만 허용, 영문/숫자/특수문자(ASCII 기호) 중 2종 이상(CODING_RULES.md 비밀번호 정책) |
 
 ```json
 {
@@ -129,13 +127,18 @@ Request `AdminPasswordChangeRequest`
 }
 ```
 
-Response 200: `ApiResponse.success(null)`. 성공 시 현재 세션은 유지하되 세션 ID를 교체한다.
+- "새 비밀번호 확인"은 관리자 화면에서만 비교하며 이 API의 필드가 아니다.
+- 비ASCII 문자(한글 등)와 공백을 입력 단계에서 거부하므로 새 비밀번호는 항상 64byte 이하이고, BCrypt 입력 한도(72byte, 초과 시 encode 예외)에 도달하지 않는다.
+
+Response 200: `ApiResponse.success(null)`. 성공 시 현재 세션(로그인 상태)은 유지하되 세션 ID를 교체한다(`changeSessionId`, 세션 고정 방어). 같은 브라우저 세션의 이후 관리자 요청은 계속 인증된다.
 
 Errors:
 
-- `INVALID_INPUT_VALUE`(400): Validation 실패, 또는 `newPassword`가 현재 비밀번호와 같은 경우
-- `INVALID_CURRENT_PASSWORD`(400): `currentPassword` 불일치(세션 만료로 오인하지 않도록 401을 쓰지 않는다)
+- `INVALID_INPUT_VALUE`(400): Validation 실패(`error.fields`에 필드별 정책 문구), 또는 `newPassword`가 현재 비밀번호와 같은 경우
+- `INVALID_CURRENT_PASSWORD`(400): `currentPassword` 불일치(세션 만료로 오인하지 않도록 401을 쓰지 않으며, 세션은 유지된다)
 - `UNAUTHORIZED`(401), `ACCESS_DENIED`(403, CSRF 토큰 누락 포함)
+
+비밀번호 원문/hash는 응답과 로그에 포함하지 않는다.
 
 비밀번호 찾기/재설정 API는 제공하지 않는다(분실 시 운영 절차, `docs/OPERATIONS.md`).
 
@@ -688,7 +691,7 @@ Request: `HomePinnedContentRequest`. `targetId`가 존재하지 않거나 비공
 - 마이페이지
 - 상담 신청
 - 신청 데이터 저장
-- 관리자 계정 등록/수정/목록 API(단, 로그인한 관리자 본인의 비밀번호 변경 `PUT /api/admin/me/password`는 PLANNED 예외 - P15-T6)
+- 관리자 계정 등록/수정/목록 API(단, 로그인한 관리자 본인의 비밀번호 변경 `PUT /api/admin/me/password`는 예외 - P15-T6 CURRENT)
 - 관리자 비밀번호 찾기/재설정 API
 - Page POST/DELETE
 

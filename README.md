@@ -60,7 +60,7 @@ Spring Boot 기반으로 구축되는 CMS이며,
 - 메인 고정 콘텐츠 관리
 - 메뉴 관리
 - 사이트 테마 설정
-- 관리자 비밀번호 변경(PLANNED — Phase 15, P15-T6)
+- 관리자 비밀번호 변경(Phase 15, P15-T6)
 
 기능 범위의 기준 문서는 `docs/PRD.md`, 기능 상세는 `docs/FEATURES.md`다.
 

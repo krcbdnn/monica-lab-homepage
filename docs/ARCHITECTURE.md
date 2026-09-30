@@ -104,7 +104,7 @@ src/main/java
 
 ```
 AdminController             (GET /api/admin/me — 로그인한 관리자 본인 정보 조회 전용. 타 관리자 계정 조회/등록/수정 API는 없음, API.md 기준)
-                            (PLANNED P15-T6: 같은 Controller에 PUT /api/admin/me/password 본인 비밀번호 변경 추가 예정, API.md 기준)
+                            (P15-T6: 같은 Controller의 PUT /api/admin/me/password — 본인 비밀번호 변경, API.md 기준)
 AdminAuthController         (POST /api/admin/login, POST /api/admin/logout)
 AdminViewController         (GET /admin/login, GET /admin/dashboard 등 관리자 공통/대시보드 화면 렌더링, Thymeleaf)
 DashboardController         (GET /api/admin/dashboard, 위 명명 규칙의 API 컨트롤러 역할)
@@ -119,7 +119,7 @@ AdminRepository
 - 로그인
 - 로그아웃
 - 대시보드
-- 본인 비밀번호 변경(PLANNED — P15-T6, 화면 `GET /admin/password`는 `AdminViewController`에 추가 예정)
+- 본인 비밀번호 변경(CURRENT — P15-T6, 화면 `GET /admin/password`는 `AdminViewController`, 진입 링크는 header 로그아웃 옆)
 
 비고: Admin 도메인은 로그인 화면과 대시보드 화면을 함께 다루므로 `AdminViewController` 하나가 두 화면(`/admin/login`, `/admin/dashboard`)을 모두 렌더링한다(로그인은 `AdminAuthController`가, 대시보드 데이터는 `DashboardController`가 API로 제공).
 
@@ -747,7 +747,7 @@ ROLE_ADMIN
 - **CURRENT(P15-T1) — 관리자 login redirect**: `/admin/**` 미인증 요청의 redirect `Location`은 상대 URI `/admin/login`이다(모든 profile). Spring Security `LoginUrlAuthenticationEntryPoint`는 기본적으로 요청 scheme/host/port로 절대 URL을 직접 조립하므로 Tomcat `use-relative-redirects`만으로는 상대 URI가 되지 않는다 - `SecurityConfig`의 기본 EntryPoint에 `setFavorRelativeUris(true)`를 적용해 구현했다. `server.tomcat.use-relative-redirects: true`는 운영 runtime 계약을 명시하는 설정으로 유지한다. `/api/admin/**` 미인증은 기존대로 redirect 없이 401 JSON(`UNAUTHORIZED`)이다.
 - **CURRENT(P15-T1) — HSTS**: HSTS는 Nginx가 단독으로 담당하므로 `SecurityConfig`에서 Spring Security HSTS header만 비활성화했다(Spring 기본값은 `includeSubDomains` 포함). `X-Content-Type-Options`, `X-Frame-Options` 등 나머지 Spring Security 기본 보안 헤더는 유지한다. 상세는 "운영 배포 계약(Phase 15)".
 - 관리자 로그인 시도 제한은 애플리케이션이 아니라 Nginx가 담당한다(PLANNED, P15-T3).
-- 관리자 본인 비밀번호 변경(PLANNED, P15-T6)은 기존 세션 인증 + CSRF + BCrypt를 그대로 사용하며, 성공 시 세션 ID를 교체한다(`changeSessionId`, 로그인과 동일한 세션 고정 방어).
+- 관리자 본인 비밀번호 변경(CURRENT, P15-T6)은 기존 세션 인증 + CSRF + BCrypt를 그대로 사용하며(`SecurityConfig` 무변경 - 기존 `/api/admin/**` matcher와 CSRF 설정이 적용됨), 성공 시 `AdminController`가 세션 ID를 교체한다(`changeSessionId`, 로그인과 동일한 세션 고정 방어). 세션 속성(SecurityContext)은 유지되므로 로그인 상태가 이어진다. 다른 세션은 강제 만료하지 않는다.
 
 ---
 
@@ -922,7 +922,7 @@ Admin
 
 /admin/theme
 
-/admin/password        (PLANNED — P15-T6, 현재 없음)
+/admin/password        (P15-T6 — 본인 비밀번호 변경, sidebar 항목 아님)
 ```
 
 - `/new`, `/{id}/edit`은 각 도메인 `Admin{Domain}ViewController`가 등록/수정 폼 화면을 렌더링하는 경로이며, 실제 저장/수정은 화면의 JS가 `Admin{Domain}Controller`의 `POST`/`PUT` API를 호출한다.
@@ -1027,7 +1027,7 @@ Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto
 
 - 운영 compose는 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD`를 `${VAR:?VAR is required}` 형식으로 참조한다(app의 `DB_PASSWORD`도 같은 형식으로 `MARIADB_PASSWORD`를 참조). 값이 unset이거나 빈 문자열이면 `docker compose config`/`up` 단계에서 즉시 실패한다. 이 5개 외 환경변수는 필수화하지 않았다.
 - `.env.example`은 변수 이름과 계약만 보여주는 template이다. 필수 5개는 모두 빈 값이며(`changeme`/정책 통과 예시 비밀번호/기본 관리자 ID·이름 없음), 그대로 복사하면 compose가 실패한다. `UPLOAD_ROOT` 항목은 없다(compose에서 고정). 비밀번호 생성 방법만 주석으로 안내한다.
-- `AdminInitializer`의 동작(필수 값이 비어 있으면 계정을 생성하지 않고 ERROR 로그)은 변경하지 않는다. 초기 관리자 생성 이후 `.env`의 `ADMIN_PASSWORD` 변경은 DB에 반영되지 않는다 - 비밀번호 변경은 관리자 화면(PLANNED, P15-T6), 분실 시 재설정은 OPERATIONS 절차를 따른다.
+- `AdminInitializer`의 동작(필수 값이 비어 있으면 계정을 생성하지 않고 ERROR 로그)은 변경하지 않는다. 초기 관리자 생성 이후 `.env`의 `ADMIN_PASSWORD` 변경은 DB에 반영되지 않는다 - 비밀번호 변경은 관리자 화면(`/admin/password`, P15-T6), 분실 시 재설정은 OPERATIONS 절차를 따른다.
 
 ## 로그 (CURRENT — P15-T1, P15-T2 완료)
 
