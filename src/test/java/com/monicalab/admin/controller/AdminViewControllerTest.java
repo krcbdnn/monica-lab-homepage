@@ -128,6 +128,49 @@ class AdminViewControllerTest extends AbstractIntegrationTest {
         assertThat(toggle.attr("aria-expanded")).isEqualTo("false");
     }
 
+    // P15-T6: header의 로그아웃 옆에 본인 비밀번호 변경 진입 링크가 있다(sidebar 항목은 추가하지 않는다).
+    @Test
+    void adminHeaderContainsPasswordChangeLinkNextToLogoutAndSidebarDoesNot() throws Exception {
+        Document document = renderDashboard();
+
+        Elements link = document.select("#admin-header .admin-header__end a#admin-password-link");
+        assertThat(link).hasSize(1);
+        assertThat(link.attr("href")).isEqualTo("/admin/password");
+        assertThat(link.text()).isEqualTo("비밀번호 변경");
+        assertThat(link.first().nextElementSibling().id()).isEqualTo("admin-logout-button");
+        assertThat(document.select("#admin-sidebar a[href=/admin/password]")).isEmpty();
+    }
+
+    @Test
+    void passwordPageWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
+        mockMvc.perform(get("/admin/password"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/login"));
+    }
+
+    // P15-T6: 비밀번호 변경 화면은 현재/새/새 확인 3개 입력(autocomplete 지정)과 정책 안내를 렌더링하고,
+    // sidebar에는 active 항목이 없다(sidebar 메뉴가 아닌 화면).
+    @Test
+    void passwordPageRendersThreePasswordFieldsWithPolicyHelp() throws Exception {
+        mockMvc.perform(get("/admin/password")
+                        .with(user("admin").authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/password"));
+
+        Document document = render(get("/admin/password"));
+
+        assertThat(document.select("#passwordForm input[type=password]")).hasSize(3);
+        assertThat(document.select("#currentPassword").attr("autocomplete")).isEqualTo("current-password");
+        assertThat(document.select("#newPassword").attr("autocomplete")).isEqualTo("new-password");
+        assertThat(document.select("#newPasswordConfirm").attr("autocomplete")).isEqualTo("new-password");
+        assertThat(document.select("label[for=newPasswordConfirm]").text()).isEqualTo("새 비밀번호 확인");
+        assertThat(document.select("#newPasswordHelp").text())
+                .contains("8자 이상 64자 이하", "2종류 이상", "공백과 한글");
+        assertThat(document.select("#saveButton").text()).isEqualTo("변경");
+        assertThat(document.select("#admin-logout-button")).isNotEmpty();
+        assertThat(document.select("#admin-sidebar a.is-active")).isEmpty();
+    }
+
     private Document render(MockHttpServletRequestBuilder request) throws Exception {
         String body = mockMvc.perform(request
                         .with(user("admin").authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))

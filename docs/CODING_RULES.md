@@ -167,7 +167,7 @@ Controller에서 try-catch를 작성하지 않는다.
 | SITE_THEME_SETTING_NOT_FOUND | 404 | 사이트 테마 설정 행 없음 - 저장(PUT) 시에만 사용, 조회는 기본값 fallback(P14-T8B) |
 | MENU_HAS_CHILDREN | 409 | 하위 메뉴가 있는 메뉴의 삭제 또는 GROUP 외 유형으로 변경(P13-T30A) |
 | HOME_PINNED_CONTENT_DUPLICATE | 409 | 이미 고정된 `(targetType, targetId)` 재고정(P13-T38A) |
-| INVALID_CURRENT_PASSWORD | 400 | **PLANNED(P15-T6, 현재 `ErrorCode`에 없음)** - 관리자 비밀번호 변경 시 현재 비밀번호 불일치. 세션 만료(401)로 오인되지 않도록 400을 사용한다 |
+| INVALID_CURRENT_PASSWORD | 400 | 관리자 비밀번호 변경 시 현재 비밀번호 불일치(P15-T6). 세션 만료(401)로 오인되지 않도록 400을 사용한다 |
 | RESOURCE_NOT_FOUND | 404 | 매핑된 컨트롤러가 없는 요청(정의되지 않은 엔드포인트) 등 특정 도메인 리소스에 속하지 않는 404 공통 fallback |
 | DUPLICATE_LOGIN_ID | 409 | login_id 중복 (본 프로젝트 범위에는 관리자 계정 등록 API가 없어 seed 데이터 검증 등 내부 용도로만 예약됨. 향후 관리자 계정 관리 API가 추가되기 전까지는 API 응답으로 노출되지 않는다) |
 | INVALID_FILE_TYPE | 400 | 허용되지 않은 확장자 업로드 |
@@ -193,7 +193,7 @@ Controller에서 try-catch를 작성하지 않는다.
 
 - 최소 8자 이상, 영문/숫자/특수문자 중 2종 이상 조합
 - Request DTO에 `@Pattern` 또는 커스텀 Validator로 적용
-- 관리자 비밀번호 변경(**PLANNED — P15-T6**, API.md `PUT /api/admin/me/password`): 새 비밀번호에 위 정책 + **최대 64자**(BCrypt 입력 72byte 제한 이내)를 적용한다. 현재 비밀번호 확인은 필수이며, 불일치 시 `INVALID_CURRENT_PASSWORD`(400)를 반환한다. 새 비밀번호가 현재 비밀번호와 같으면 `INVALID_INPUT_VALUE`(400)로 거부한다. 성공 시 세션 ID를 교체한다. 비밀번호 원문/해시는 로그에 남기지 않는다.
+- 관리자 비밀번호 변경(**CURRENT — P15-T6**, API.md `PUT /api/admin/me/password`, `AdminPasswordChangeRequest`): 새 비밀번호에 위 정책 + **최대 64자** + **공백을 제외한 ASCII 출력 문자(0x21~0x7E)만 허용**을 `@Size`/`@Pattern`으로 적용한다. 특수문자는 ASCII 기호(`!`~`/`, `:`~`@`, `[`~`` ` ``, `{`~`~`)다. 한글 등 비ASCII와 공백을 입력 단계에서 거부하므로 새 비밀번호는 항상 64byte 이하이고, BCrypt 입력 한도(72byte - Spring Security `BCryptPasswordEncoder.encode`는 초과 시 `IllegalArgumentException`)에 도달해 500이 되는 경로가 없다. 현재 비밀번호 확인은 필수이며, 불일치 시 `INVALID_CURRENT_PASSWORD`(400)를 반환한다. 새 비밀번호가 현재 비밀번호와 같으면 `INVALID_INPUT_VALUE`(400)로 거부한다. 성공 시 세션 ID를 교체한다(Controller의 `changeSessionId`). 비밀번호 원문/해시는 로그·응답·예외 메시지에 남기지 않는다.
 - 비밀번호 분실 시 재설정은 코드 기능(찾기/이메일/재설정 UI)으로 제공하지 않고 운영 절차(`docs/OPERATIONS.md`, P15-T8)로 처리한다.
 - 초기 관리자 계정은 ARCHITECTURE.md 기준 `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수를 읽어 미존재 시에만 생성한다. 비밀번호는 BCrypt 해시로 저장하며 `data.sql`/소스에 운영 비밀번호를 두지 않는다. 별도 회원가입 화면/API는 제공하지 않는다.
 

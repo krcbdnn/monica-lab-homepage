@@ -42,7 +42,7 @@ Version 2.0
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 
-비고(Phase 15): 관리자 비밀번호 변경(PLANNED, P15-T6)은 기존 `password`(BCrypt 해시 갱신)와 `updated_at`만 사용한다. 이 기능을 위한 컬럼 추가/스키마 변경/migration은 없다.
+비고(Phase 15): 관리자 비밀번호 변경(CURRENT, P15-T6)은 기존 `password`(BCrypt 해시 갱신, `Admin.changePassword`)와 `updated_at`(JPA Auditing)만 사용한다. 이 기능을 위한 컬럼 추가/스키마 변경/migration은 없다.
 
 ---
 

@@ -44,4 +44,9 @@ public class Admin extends BaseEntity {
         this.name = name;
         this.role = role;
     }
+
+    // P15-T6: 이미 BCrypt로 encode된 값만 받는다. updated_at은 BaseEntity JPA Auditing이 갱신한다.
+    public void changePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
 }
