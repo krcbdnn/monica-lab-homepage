@@ -961,7 +961,7 @@ Admin
 
 **운영 배포 전 결정 필요**: 현재 정적 리소스는 host checkout bind mount, application/template은 app image로 서로 다른 release lifecycle을 가진다. 그래서 `git pull` 시점에 정적 리소스만 먼저 바뀌거나, app image를 rollback해도 정적 리소스는 새 버전으로 남을 수 있어 atomic deployment/rollback이 보장되지 않는다. 운영 배포 전에 application/template/static asset을 동일 release version으로 묶는 방식, Nginx 정적 리소스의 image 기반 제공 여부, release directory/symlink 방식, versioned asset URL, long-lived cache + `immutable`을 함께 결정한다(현재 계약에서는 특정 방식을 확정하지 않는다).
 
-**결정(Phase 15, P15-T0 — 위 "운영 배포 전 결정 필요" 항목을 닫는다)**: 현재 구조(Nginx가 host checkout의 static을 직접 제공, app image는 같은 checkout에서 build)를 유지하고 재설계하지 않는다. 대신 **"release tag checkout → `docker compose up -d --build`"를 하나의 배포 단위**로 취급해 app/template과 static의 버전 일치를 보장한다. `git pull`/`git checkout`만 하고 rebuild하지 않는 것, app image만 별도로 rollback하는 것은 금지한다. rollback도 "이전 release tag checkout → 전체 `up -d --build`"로 수행한다. Nginx image bake, release directory/symlink, versioned asset URL, long-lived cache는 도입하지 않으며 `Cache-Control: no-cache` 재검증 정책을 유지한다. 상세 절차는 `docs/OPERATIONS.md`(P15-T8)와 GIT_WORKFLOW.md "develop → main 승격"을 따른다.
+**결정(Phase 15, P15-T0 — 위 "운영 배포 전 결정 필요" 항목을 닫는다)**: 현재 구조(Nginx가 host checkout의 static을 직접 제공, app image는 같은 checkout에서 build)를 유지하고 재설계하지 않는다. 대신 **"release tag checkout → `docker compose up -d --build`"를 하나의 배포 단위**로 취급해 app/template과 static의 버전 일치를 보장한다. `git pull`/`git checkout`만 하고 rebuild하지 않는 것, app image만 별도로 rollback하는 것은 금지한다. rollback도 "이전 release tag checkout → 전체 `up -d --build`"로 수행한다. Nginx image bake, release directory/symlink, versioned asset URL, long-lived cache는 도입하지 않으며 `Cache-Control: no-cache` 재검증 정책을 유지한다. 상세 절차는 `docs/OPERATIONS.md` §15(배포/rollback)와 GIT_WORKFLOW.md "develop → main 승격"을 따른다.
 
 ## DB 스키마 관리
 운영 재현성을 위해 Flyway migration을 사용한다. `ddl-auto`는 local/test에서 검증 목적 설정을 명시하고 prod에서는 `validate`를 사용한다. 스키마 변경은 migration 파일로 관리하며 운영에서 `update/create`로 자동 변경하지 않는다.
@@ -982,7 +982,7 @@ Admin
 
 # 운영 배포 계약(Phase 15)
 
-Phase 15 Production Readiness(P15-T0)에서 확정한 운영 배포 구조 계약이다. 각 항목은 **CURRENT**(현재 저장소 상태)와 **PLANNED**(Phase 15 해당 Task에서 구현 예정)를 구분한다. Task 상세는 `docs/TASK.md` "Phase 15", 실제 운영 명령/절차는 `docs/OPERATIONS.md`(P15-T8에서 작성, 운영 절차의 canonical 문서)를 따른다. 이 절은 구조/계약만 정의하고 명령어 runbook을 중복 기술하지 않는다.
+Phase 15 Production Readiness(P15-T0)에서 확정한 운영 배포 구조 계약이다. 각 항목은 **CURRENT**(현재 저장소 상태)와 **PLANNED**(Phase 15 해당 Task에서 구현 예정)를 구분한다. 구현이 끝난 Task 항목은 CURRENT로 갱신하며, favicon/`og:image`/`og:url`(P15-T7B)은 발주처 asset·최종 도메인에 의존하는 CLIENT-DEPENDENT 항목이고, 실제 도메인/인증서 발급/release/운영 smoke는 개발 Task가 아닌 Launch 단계(OPERATIONS "Launch TBD")다. Task 상세는 `docs/TASK.md` "Phase 15", 실제 운영 명령/절차는 `docs/OPERATIONS.md`(P15-T8, 운영 절차의 canonical 문서)를 따른다. 이 절은 구조/계약만 정의하고 명령어 runbook을 중복 기술하지 않는다.
 
 ## 전체 구조
 
@@ -1000,7 +1000,7 @@ Internet
 
 - 인증서/개인키는 저장소에 저장하지 않는다. host `./data/certs/`(`.gitignore`의 `data/` 대상)에 고정 파일명 `fullchain.pem`/`privkey.pem`으로 두고, 컨테이너 `/etc/nginx/certs/`에 read-only mount한다. Nginx 설정은 도메인과 무관한 이 고정 경로만 참조한다.
 - ACME: host에 설치한 certbot의 **webroot** 방식을 사용한다(certbot 컨테이너는 추가하지 않는다). Nginx `:80`은 `/.well-known/acme-challenge/`를 host webroot 디렉토리(`./data/certbot/`)에서 제공하고, 그 외 요청은 HTTPS로 301 redirect한다. certbot deploy-hook이 발급/갱신된 인증서를 `./data/certs/`에 실제 파일로 복사한 뒤 Nginx를 reload한다.
-- 최초 기동: 인증서가 없으면 Nginx가 기동하지 않으므로, 자체서명 placeholder 인증서로 먼저 기동한 뒤 webroot 발급으로 교체한다(절차는 OPERATIONS).
+- 최초 기동: 인증서가 없으면 Nginx가 기동하지 않으므로, 자체서명 placeholder 인증서로 먼저 기동한 뒤 webroot 발급으로 교체한다(절차는 OPERATIONS §7, 갱신/deploy-hook은 §8).
 - HSTS는 **Nginx가 단독으로 담당**한다: `Strict-Transport-Security: max-age=31536000`, `includeSubDomains` 없음, `preload` 없음. Nginx는 location에 `add_header`가 있으면 상위 `add_header`를 상속하지 않으므로, `Cache-Control`을 설정하는 정적 location에도 HSTS를 함께 선언한다. Spring Security HSTS는 비활성화되어 있다(P15-T1). Nginx는 `:443` server 블록과 4개 정적 location(`/css/`, `/js/`, `/images/`, `/vendor/`)에 `add_header ... always`로 선언해 오류 응답(404/429 등)에도 붙는다. `:80`(301/ACME) 응답에는 HSTS를 두지 않는다.
 - 도메인 없이 Phase 15에서 검증하는 범위: 443/redirect/ACME location/HSTS/rate limit/forward header 구조와 로컬 자체서명 인증서 smoke. 실제 도메인 DNS, Let's Encrypt 발급, 최종 host 확인, 운영 smoke는 배포(Launch) 단계에서 수행한다.
 - `server_tokens off`로 Nginx 버전 노출을 끈다(P15-T3). `Server: nginx` header와 Nginx 기본 오류 본문에 버전이 없다.
@@ -1014,22 +1014,22 @@ Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto
 ## 관리자 로그인 rate limit (CURRENT — P15-T3)
 
 - Nginx `limit_req`를 정확히 `location = /api/admin/login`에만 적용한다: `limit_req_zone $binary_remote_addr zone=admin_login:1m rate=5r/m`, `limit_req zone=admin_login burst=5 nodelay`, `limit_req_status 429`.
-- Nginx가 인터넷에 직접 노출된 가장 바깥 proxy이므로 `$binary_remote_addr`가 실제 클라이언트 IP다. 앞단에 Cloudflare/로드밸런서를 두게 되면 `real_ip` 설정이 별도로 필요하다(OPERATIONS에 기록).
+- Nginx가 인터넷에 직접 노출된 가장 바깥 proxy이므로 `$binary_remote_addr`가 실제 클라이언트 IP다. 앞단에 Cloudflare/로드밸런서를 두게 되면 `real_ip` 설정이 별도로 필요하다(현재 nginx 설정에는 없음 - 도입 시 별도 변경 Task, OPERATIONS §10).
 - 제한은 정확히 일치 location 하나에만 걸리며 다른 관리자 API/화면, 공개 화면, 정적 리소스는 제한하지 않는다. 즉시 허용량은 rate 1건 + burst 5건 = 6건이고 이후 12초당 1건씩 회복된다. 429 본문은 Nginx 기본 HTML(버전 비노출)이다.
 - 애플리케이션 rate limiter dependency, CAPTCHA, 계정 잠금은 도입하지 않는다. 429 응답과 로그인 화면 처리는 API.md `POST /api/admin/login`을 따른다.
 
-## 데이터 영속성 / volume 이름 / 업로드 경로 (CURRENT — P15-T2 완료, 백업은 PLANNED — P15-T8)
+## 데이터 영속성 / volume 이름 / 업로드 경로 (CURRENT — P15-T2 완료, 백업/복원 절차 CURRENT — P15-T8)
 
 - MariaDB named volume은 `volumes.db_data.name: monica-lab-homepage_db_data`로 **이름이 명시 고정**되어 있다. 이 값은 기존 compose project 이름에서 파생되던 실제 volume 이름과 동일하고, Compose가 volume label에 기록하는 설정 hash(`com.docker.compose.config-hash` = 정규화된 `{name, driver: local}`의 sha256)도 이전과 같아 기존 volume에 그대로 연결된다(재생성/이전 불필요). checkout 디렉토리/compose project 이름이 바뀌어도 새 빈 volume이 생성되지 않는다. `external: true`는 사용하지 않는다(신규 서버에서 `docker volume create` 사전 절차가 필요 없도록).
-- **`name:`을 지정해도 `docker compose down -v`는 이 volume을 삭제한다**(external이 아닌 선언 volume). `down -v`, volume 삭제, 다른 이름으로의 volume 이전은 금지이며, 이 금지는 compose 파일이 아니라 운영 절차(`docs/OPERATIONS.md`, PLANNED — P15-T8)가 담당한다.
+- **`name:`을 지정해도 `docker compose down -v`는 이 volume을 삭제한다**(external이 아닌 선언 volume). `down -v`, volume 삭제, 다른 이름으로의 volume 이전은 금지이며, 이 금지는 compose 파일이 아니라 운영 절차(`docs/OPERATIONS.md` §17 금지 명령)가 담당한다.
 - 운영 compose의 app `UPLOAD_ROOT`는 `/app/uploads` **고정값**이다(`.env` 치환 없음). bind mount(`./data/uploads:/app/uploads`) 대상과 저장 경로가 어긋나 컨테이너 내부에 저장되는 실수를 차단한다. `application-prod.yml`의 `${UPLOAD_ROOT:/app/uploads}` override 능력은 Docker 외 실행 호환을 위해 유지하며, test/local profile은 기존 별도 설정(`build/test-uploads`, gitignored local yml)을 유지한다.
-- 백업 대상: MariaDB 논리 dump(`mariadb-dump`, volume 파일 직접 복사는 사용하지 않음), `data/uploads`, `.env`, 배포 tag/commit 기록, (선택) TLS 파일. 코드/스크립트로 자동화하지 않고 OPERATIONS 절차로 관리한다: 매일 DB/업로드 백업, 서버 내부 단기 보관 + **서버 외부 보관 위치 최소 1곳 필수**, 분기 1회 복원 리허설 권장.
+- 백업 대상: MariaDB 논리 dump(`mariadb-dump`, volume 파일 직접 복사는 사용하지 않음), `data/uploads`, `.env`, 배포 tag/commit 기록, (선택) TLS 파일. 코드/스크립트로 자동화하지 않고 OPERATIONS 절차(§12 백업, §13 복원/리허설)로 관리한다: 매일 DB/업로드 백업, 서버 내부 단기 보관 + **서버 외부 보관 위치 최소 1곳 필수**, 분기 1회 복원 리허설 권장.
 
 ## 환경변수 fail-fast (CURRENT — P15-T2 완료)
 
 - 운영 compose는 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD`를 `${VAR:?VAR is required}` 형식으로 참조한다(app의 `DB_PASSWORD`도 같은 형식으로 `MARIADB_PASSWORD`를 참조). 값이 unset이거나 빈 문자열이면 `docker compose config`/`up` 단계에서 즉시 실패한다. 이 5개 외 환경변수는 필수화하지 않았다.
 - `.env.example`은 변수 이름과 계약만 보여주는 template이다. 필수 5개는 모두 빈 값이며(`changeme`/정책 통과 예시 비밀번호/기본 관리자 ID·이름 없음), 그대로 복사하면 compose가 실패한다. `UPLOAD_ROOT` 항목은 없다(compose에서 고정). 비밀번호 생성 방법만 주석으로 안내한다.
-- `AdminInitializer`의 동작(필수 값이 비어 있으면 계정을 생성하지 않고 ERROR 로그)은 변경하지 않는다. 초기 관리자 생성 이후 `.env`의 `ADMIN_PASSWORD` 변경은 DB에 반영되지 않는다 - 비밀번호 변경은 관리자 화면(`/admin/password`, P15-T6), 분실 시 재설정은 OPERATIONS 절차를 따른다.
+- `AdminInitializer`의 동작(필수 값이 비어 있으면 계정을 생성하지 않고 ERROR 로그)은 변경하지 않는다. 초기 관리자 생성 이후 `.env`의 `ADMIN_PASSWORD` 변경은 DB에 반영되지 않는다 - 비밀번호 변경은 관리자 화면(`/admin/password`, P15-T6), 분실 시 공식 자동 복구 기능(재설정 화면/API/script)은 없다. OPERATIONS §5에는 관리자 행 삭제 후 `AdminInitializer` 재생성 방식을 공식 절차가 아닌 비상 복구 후보(실행 전 백업·별도 승인/검증 필요)로만 기록하며, 공식화/검증은 Launch TBD다.
 
 ## 로그 (CURRENT — P15-T1, P15-T2 완료)
 
@@ -1040,5 +1040,5 @@ Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto
 ## 배포 단위 / release
 
 - 운영 서버는 mutable 브랜치(develop/main)를 pull하지 않고 **release tag**(예: `v1.0.0`)를 checkout한다. 배포 단위는 "tag checkout → `docker compose up -d --build`"다(위 "Nginx 정적 리소스 공급" 결정). Flyway migration은 app 기동 시 자동 적용된다.
-- release/tag/hotfix Git 흐름은 GIT_WORKFLOW.md "develop → main 승격", 서버 명령은 OPERATIONS를 따른다.
+- release/tag/hotfix Git 흐름은 GIT_WORKFLOW.md "develop → main 승격", 서버 명령은 OPERATIONS §6(최초 배포)/§15(배포/rollback)를 따른다.
 - Flyway migration은 forward-only다. 파괴적 migration이 포함된 release를 rollback하려면 배포 전 DB dump 복원이 필요하다(Phase 15 자체는 migration 0건).

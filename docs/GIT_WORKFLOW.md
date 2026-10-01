@@ -157,7 +157,7 @@ GitHub에서 PR 생성: `base: main`, `compare: develop` → 리뷰 후 Merge.
 
 - "tag checkout → `docker compose up -d --build`"가 하나의 배포 단위입니다. checkout만 하고 rebuild하지 않거나, app image만 따로 rollback하지 않습니다(ARCHITECTURE.md "Nginx 정적 리소스 공급" 결정). rollback은 이전 tag checkout → 전체 `up -d --build`입니다.
 - 버전 규칙: 기능 묶음 release는 `v1.1.0`처럼 minor, 긴급 수정은 `v1.0.1`처럼 patch를 올립니다.
-- 서버 측 명령/순서의 상세 runbook은 `docs/OPERATIONS.md`(P15-T8에서 작성)를 따릅니다.
+- 서버 측 명령/순서의 상세 runbook은 `docs/OPERATIONS.md`(§6 최초 배포, §15 배포/rollback)를 따릅니다.
 
 ### 6-2. hotfix 기본 흐름
 

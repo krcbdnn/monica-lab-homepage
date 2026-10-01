@@ -474,7 +474,7 @@ Board Entity의 boardType: REVIEW (별도 Entity 아님, 공지사항/갤러리/
 
 - 비밀번호 찾기 / 이메일 발송 / 재설정 UI
 - 다른 관리자 계정 생성·관리
-- 비밀번호 분실 시 재설정은 운영 절차(`docs/OPERATIONS.md`, P15-T8에서 작성 예정)로 처리
+- 비밀번호 분실에 대한 공식 자동 복구 기능은 없다. 운영 측 비상 복구 후보와 경고는 `docs/OPERATIONS.md` §5(공식 절차 아님, 공식화/검증은 Launch TBD)
 
 ---
 
