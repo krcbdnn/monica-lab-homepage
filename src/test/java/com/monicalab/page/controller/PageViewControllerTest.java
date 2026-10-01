@@ -81,6 +81,6 @@ class PageViewControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
 
-        assertPublicHead(document, pageTitle + " - 모니카영어교육연구소");
+        assertPublicHead(document, pageTitle + " - 모니카영어교육연구소", "/pages/INTRODUCTION");
     }
 }

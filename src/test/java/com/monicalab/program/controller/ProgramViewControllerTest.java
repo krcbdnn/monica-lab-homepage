@@ -617,11 +617,11 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         Document list = Jsoup.parse(mockMvc.perform(get("/programs"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
-        assertPublicHead(list, "프로그램 - 모니카영어교육연구소");
+        assertPublicHead(list, "프로그램 - 모니카영어교육연구소", "/programs");
 
         Document detail = Jsoup.parse(mockMvc.perform(get("/programs/{id}", id))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
-        assertPublicHead(detail, "SEO 메타 확인 프로그램 - 모니카영어교육연구소");
+        assertPublicHead(detail, "SEO 메타 확인 프로그램 - 모니카영어교육연구소", "/programs/" + id);
     }
 }
