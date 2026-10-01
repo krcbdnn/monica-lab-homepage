@@ -445,4 +445,4 @@ Copyright © Monika Research Institute
 - DB: MariaDB `/var/lib/mysql`은 `db_data` named volume으로 영속화한다. Schema 변경은 `db/migration/**` Flyway migration만 사용하고 prod `ddl-auto=validate`로 검증한다.
 - 초기 관리자: `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`을 읽어 미존재 시에만 BCrypt로 생성하며 운영 비밀번호를 `data.sql`에 두지 않는다. 생성 이후 `.env`의 비밀번호를 바꿔도 DB에는 반영되지 않는다.
 - 헬스체크: Spring Boot Actuator `/actuator/health`를 사용한다.
-- 운영 배포 준비(Phase 15, PLANNED): HTTPS/TLS, 로그인 시도 제한, 로그/volume/환경변수 정비 등 운영 배포 계약은 `docs/ARCHITECTURE.md` "운영 배포 계약(Phase 15)", Task는 `docs/TASK.md` "Phase 15"를 따른다. 서버 운영 명령(배포, 인증서, 백업·복원, 비밀번호 재설정, rollback)은 P15-T8에서 작성하는 `docs/OPERATIONS.md`로 제공할 예정이다. **현재 저장소 구성(HTTP 80만 노출)은 Phase 15 완료 전까지 공개 운영 배포용이 아니다.**
+- 운영 배포 준비(Phase 15): HTTPS/TLS, 로그인 시도 제한, 로그/volume/환경변수 정비 등 운영 배포 계약은 `docs/ARCHITECTURE.md` "운영 배포 계약(Phase 15)", Task는 `docs/TASK.md` "Phase 15"를 따른다. 서버 운영 명령(배포, 인증서, 백업·복원, 비밀번호 재설정, rollback)은 P15-T8에서 작성하는 `docs/OPERATIONS.md`로 제공할 예정이다. Nginx는 `:80`(ACME + 301)/`:443`(TLS, HSTS, 로그인 rate limit)을 노출하며 인증서는 host `./data/certs/`(`fullchain.pem`/`privkey.pem`)에 두어야 기동한다(P15-T3). **운영 runbook(P15-T8)이 완료되기 전까지 공개 운영 배포용이 아니다.**

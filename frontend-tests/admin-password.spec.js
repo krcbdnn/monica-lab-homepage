@@ -1,6 +1,7 @@
 // @ts-check
 const crypto = require('crypto');
 const { test, expect, request: playwrightRequest } = require('@playwright/test');
+const { postAdminLogin } = require('./support/admin-login');
 
 // P15-T6: 관리자 본인 비밀번호 변경 화면(/admin/password) 실제 브라우저 검증.
 // - 관리자 로그인 자격증명은 다른 admin spec과 같은 환경변수(ADMIN_LOGIN_ID/ADMIN_PASSWORD)에서 읽는다.
@@ -39,8 +40,8 @@ function collectErrors(page, { ignoreNetworkErrors = false } = {}) {
 }
 
 async function loginAsAdmin(page, baseURL) {
-  const response = await page.context().request.post(`${baseURL}/api/admin/login`, {
-    data: { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD },
+  const response = await postAdminLogin(page.context().request, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD }, {
+    url: `${baseURL}/api/admin/login`,
   });
   expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
 }
@@ -53,9 +54,9 @@ async function fillPasswordForm(page, { current, next, confirm }) {
 
 // 별도 API 세션으로 로그인만 시도해 status를 돌려준다(page 세션과 독립).
 async function loginStatus(baseURL, password) {
-  const context = await playwrightRequest.newContext({ baseURL });
+  const context = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true });
   try {
-    const response = await context.post('/api/admin/login', { data: { loginId: ADMIN_LOGIN_ID, password } });
+    const response = await postAdminLogin(context, { loginId: ADMIN_LOGIN_ID, password });
     return response.status();
   } finally {
     await context.dispose();
@@ -64,9 +65,9 @@ async function loginStatus(baseURL, password) {
 
 // 별도 API 세션으로 from → to 비밀번호 변경(CSRF 헤더 포함). 성공 여부만 돌려준다.
 async function changePasswordViaApi(baseURL, from, to) {
-  const context = await playwrightRequest.newContext({ baseURL });
+  const context = await playwrightRequest.newContext({ baseURL, ignoreHTTPSErrors: true });
   try {
-    const login = await context.post('/api/admin/login', { data: { loginId: ADMIN_LOGIN_ID, password: from } });
+    const login = await postAdminLogin(context, { loginId: ADMIN_LOGIN_ID, password: from });
     if (!login.ok()) {
       return false;
     }

@@ -746,7 +746,7 @@ ROLE_ADMIN
 - **CURRENT(P15-T1 구현)**: prod profile(`application-prod.yml`)에 `server.forward-headers-strategy: native`(Tomcat RemoteIpValve, docker 내부망 proxy 신뢰), `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`가 적용되어 있다. `Secure`는 별도 강제 설정 없이 Nginx가 전달한 `X-Forwarded-Proto: https`로 요청을 HTTPS로 인식할 때 `JSESSIONID`/`XSRF-TOKEN`에 자동 적용된다(forward header가 없는 평문 HTTP 요청에는 붙지 않음). `JSESSIONID`는 `HttpOnly` + `SameSite=Lax`다.
 - **CURRENT(P15-T1) — 관리자 login redirect**: `/admin/**` 미인증 요청의 redirect `Location`은 상대 URI `/admin/login`이다(모든 profile). Spring Security `LoginUrlAuthenticationEntryPoint`는 기본적으로 요청 scheme/host/port로 절대 URL을 직접 조립하므로 Tomcat `use-relative-redirects`만으로는 상대 URI가 되지 않는다 - `SecurityConfig`의 기본 EntryPoint에 `setFavorRelativeUris(true)`를 적용해 구현했다. `server.tomcat.use-relative-redirects: true`는 운영 runtime 계약을 명시하는 설정으로 유지한다. `/api/admin/**` 미인증은 기존대로 redirect 없이 401 JSON(`UNAUTHORIZED`)이다.
 - **CURRENT(P15-T1) — HSTS**: HSTS는 Nginx가 단독으로 담당하므로 `SecurityConfig`에서 Spring Security HSTS header만 비활성화했다(Spring 기본값은 `includeSubDomains` 포함). `X-Content-Type-Options`, `X-Frame-Options` 등 나머지 Spring Security 기본 보안 헤더는 유지한다. 상세는 "운영 배포 계약(Phase 15)".
-- 관리자 로그인 시도 제한은 애플리케이션이 아니라 Nginx가 담당한다(PLANNED, P15-T3).
+- 관리자 로그인 시도 제한은 애플리케이션이 아니라 Nginx가 담당한다(CURRENT, P15-T3).
 - 관리자 본인 비밀번호 변경(CURRENT, P15-T6)은 기존 세션 인증 + CSRF + BCrypt를 그대로 사용하며(`SecurityConfig` 무변경 - 기존 `/api/admin/**` matcher와 CSRF 설정이 적용됨), 성공 시 `AdminController`가 세션 ID를 교체한다(`changeSessionId`, 로그인과 동일한 세션 고정 방어). 세션 속성(SecurityContext)은 유지되므로 로그인 상태가 이어진다. 다른 세션은 강제 만료하지 않는다.
 
 ---
@@ -994,26 +994,28 @@ Internet
           → MariaDB :3306 (docker 내부, host 비노출)
 ```
 
-- **CURRENT**: host에는 Nginx `:80`만 노출되고 HTTPS/TLS가 없다.
-- **PLANNED(P15-T3)**: 위 구조. Spring Boot와 MariaDB는 계속 host 포트를 노출하지 않는다.
+- **CURRENT(P15-T3)**: 위 구조. host에는 Nginx `:80`/`:443`만 노출되고, Spring Boot와 MariaDB는 계속 host 포트를 노출하지 않는다.
 
-## TLS / 인증서 / HSTS (PLANNED — P15-T3, 실제 발급은 배포 단계)
+## TLS / 인증서 / HSTS (CURRENT — P15-T3, 실제 발급은 배포 단계)
 
 - 인증서/개인키는 저장소에 저장하지 않는다. host `./data/certs/`(`.gitignore`의 `data/` 대상)에 고정 파일명 `fullchain.pem`/`privkey.pem`으로 두고, 컨테이너 `/etc/nginx/certs/`에 read-only mount한다. Nginx 설정은 도메인과 무관한 이 고정 경로만 참조한다.
 - ACME: host에 설치한 certbot의 **webroot** 방식을 사용한다(certbot 컨테이너는 추가하지 않는다). Nginx `:80`은 `/.well-known/acme-challenge/`를 host webroot 디렉토리(`./data/certbot/`)에서 제공하고, 그 외 요청은 HTTPS로 301 redirect한다. certbot deploy-hook이 발급/갱신된 인증서를 `./data/certs/`에 실제 파일로 복사한 뒤 Nginx를 reload한다.
 - 최초 기동: 인증서가 없으면 Nginx가 기동하지 않으므로, 자체서명 placeholder 인증서로 먼저 기동한 뒤 webroot 발급으로 교체한다(절차는 OPERATIONS).
-- HSTS는 **Nginx가 단독으로 담당**한다: `Strict-Transport-Security: max-age=31536000`, `includeSubDomains` 없음, `preload` 없음. Nginx는 location에 `add_header`가 있으면 상위 `add_header`를 상속하지 않으므로, `Cache-Control`을 설정하는 정적 location에도 HSTS를 함께 선언한다. Spring Security HSTS는 비활성화되어 있다(CURRENT, P15-T1 완료). Nginx HSTS 자체는 PLANNED(P15-T3)다.
+- HSTS는 **Nginx가 단독으로 담당**한다: `Strict-Transport-Security: max-age=31536000`, `includeSubDomains` 없음, `preload` 없음. Nginx는 location에 `add_header`가 있으면 상위 `add_header`를 상속하지 않으므로, `Cache-Control`을 설정하는 정적 location에도 HSTS를 함께 선언한다. Spring Security HSTS는 비활성화되어 있다(P15-T1). Nginx는 `:443` server 블록과 4개 정적 location(`/css/`, `/js/`, `/images/`, `/vendor/`)에 `add_header ... always`로 선언해 오류 응답(404/429 등)에도 붙는다. `:80`(301/ACME) 응답에는 HSTS를 두지 않는다.
 - 도메인 없이 Phase 15에서 검증하는 범위: 443/redirect/ACME location/HSTS/rate limit/forward header 구조와 로컬 자체서명 인증서 smoke. 실제 도메인 DNS, Let's Encrypt 발급, 최종 host 확인, 운영 smoke는 배포(Launch) 단계에서 수행한다.
-- `server_tokens off`로 Nginx 버전 노출을 끈다(P15-T3).
+- `server_tokens off`로 Nginx 버전 노출을 끈다(P15-T3). `Server: nginx` header와 Nginx 기본 오류 본문에 버전이 없다.
+- TLS protocol/cipher는 Nginx 기본값을 사용한다. `:80`의 301은 `https://$host$request_uri`로 보내므로 표준 포트(443)를 전제한다(로컬 override처럼 host 포트를 바꾼 환경에서는 redirect URL에 원래 포트가 붙지 않는다).
+- 로컬 검증(개발 전용, 운영 절차 아님): `./data/certs/`에 `localhost`/`127.0.0.1` SAN을 가진 자체서명 인증서를 고정 파일명으로 생성한다 - 예: `openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout data/certs/privkey.pem -out data/certs/fullchain.pem`(`./data/certbot/`은 빈 디렉토리로 둔다). 사용자 소유 local override(`docker-compose.local-test.yml`)는 host `8088:80`/`8443:443`을 사용한다. Playwright는 `PLAYWRIGHT_BASE_URL=https://localhost:8443`으로 실행하며 `playwright.config.js`와 spec이 직접 만드는 context에 `ignoreHTTPSErrors: true`를 둔다. 관리자 로그인이 rate limit에 걸리면 E2E 공통 helper(`frontend-tests/support/admin-login.js`)가 429일 때만 12초 회복을 기다려 재시도하므로(운영 계약값은 완화하지 않음), 전체 실행은 로그인 순서가 결정적이도록 `--workers=1`로 한다. `admin-login-rate-limit.spec.js`는 helper를 쓰지 않고 운영 계약값 그대로 429를 검증한다.
 
 ## Forwarded header / 쿠키 (CURRENT — P15-T1 완료)
 
-Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`를 전달한다. Spring은 `server.forward-headers-strategy: native`, `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`를 prod profile에 적용하고, 관리자 login redirect는 `SecurityConfig`의 `LoginUrlAuthenticationEntryPoint.setFavorRelativeUris(true)`로 상대 URI(`/admin/login`)를 사용한다(위 Security "쿠키 / HTTPS 인식 / HSTS" 참고). 실제 HTTPS 요청 경로(Nginx TLS)는 PLANNED(P15-T3)다.
+Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`를 전달한다. Spring은 `server.forward-headers-strategy: native`, `server.tomcat.use-relative-redirects: true`, `server.servlet.session.cookie.same-site: lax`를 prod profile에 적용하고, 관리자 login redirect는 `SecurityConfig`의 `LoginUrlAuthenticationEntryPoint.setFavorRelativeUris(true)`로 상대 URI(`/admin/login`)를 사용한다(위 Security "쿠키 / HTTPS 인식 / HSTS" 참고). Nginx TLS(`:443`)를 통한 실제 HTTPS 요청 경로도 CURRENT(P15-T3)다.
 
-## 관리자 로그인 rate limit (PLANNED — P15-T3)
+## 관리자 로그인 rate limit (CURRENT — P15-T3)
 
 - Nginx `limit_req`를 정확히 `location = /api/admin/login`에만 적용한다: `limit_req_zone $binary_remote_addr zone=admin_login:1m rate=5r/m`, `limit_req zone=admin_login burst=5 nodelay`, `limit_req_status 429`.
 - Nginx가 인터넷에 직접 노출된 가장 바깥 proxy이므로 `$binary_remote_addr`가 실제 클라이언트 IP다. 앞단에 Cloudflare/로드밸런서를 두게 되면 `real_ip` 설정이 별도로 필요하다(OPERATIONS에 기록).
+- 제한은 정확히 일치 location 하나에만 걸리며 다른 관리자 API/화면, 공개 화면, 정적 리소스는 제한하지 않는다. 즉시 허용량은 rate 1건 + burst 5건 = 6건이고 이후 12초당 1건씩 회복된다. 429 본문은 Nginx 기본 HTML(버전 비노출)이다.
 - 애플리케이션 rate limiter dependency, CAPTCHA, 계정 잠금은 도입하지 않는다. 429 응답과 로그인 화면 처리는 API.md `POST /api/admin/login`을 따른다.
 
 ## 데이터 영속성 / volume 이름 / 업로드 경로 (CURRENT — P15-T2 완료, 백업은 PLANNED — P15-T8)
