@@ -2065,6 +2065,36 @@ Release QA는 GIT_WORKFLOW.md §6-1 1단계("Phase 15 완료 → 전체 QA(JUnit
 | 발견된 blocker | 없음. 참고(비차단): app 로그 ERROR 27건은 모두 클라이언트 연결 종료(`AsyncRequestNotUsableException` - Broken pipe 26/Connection reset 1) 예외였고, 테스트 결과(0 failed)에 영향은 없었다 |
 | Release QA 최종 판정 | **PASS** |
 
+#### v1.1.0 Release QA
+
+위 1차/2차 기록은 `v1.0.0` release QA(대상 SHA `1132369`)다. 이 절은 `v1.0.0` 이후 P15-T7B(PR #173)가 들어간 develop을 `v1.1.0` release 후보로 검증한 별도 실행 기록이며, `v1.0.0`과 같은 수준의 전체 QA(전체 Playwright 포함)를 수행했다. QA 계약은 위와 같다(GIT_WORKFLOW §6-1, ARCHITECTURE "운영 배포 계약(Phase 15)", OPERATIONS §16-4).
+
+- 최종 상태: **PASS** - release 후보 QA 통과를 뜻하며 운영 배포 완료를 뜻하지 않는다. 실제 Production Launch는 별도 단계이고, DNS/TLS/운영 smoke/SNS 공유 미리보기 cache/백업은 배포 후 검증 대상이다.
+
+| 항목 | 결과(v1.1.0) |
+|---|---|
+| 실행 날짜 | 2026-10-01(Playwright 15:30:44Z~16:43:36Z) |
+| 대상 develop commit SHA | `25b17f6e500b40caf9c6fe3fa55f65ee40f8092c`(version 후보 `v1.1.0`) |
+| release diff(`v1.0.0..develop`) | commit 2개 - `a15df19`(P15-T7B feature), `25b17f6`(PR #173 merge). 변경 파일 16개 - production template 1(`home/layout/default.html`), static asset 3, Java test 8, docs 4. Java production/migration/application config·`.env.example`/compose·nginx·Dockerfile/Gradle·package/CI/CSS·JS/admin template 변경 0, 민감정보 패턴 0 |
+| `./gradlew clean build` | BUILD SUCCESSFUL(2m 8s), JUnit 73개 class 797건 - pass 797, failures/errors/skipped 0 |
+| Node test(`node --test src/test/js/**/*.test.js`) | 24개 파일 539 pass / 0 fail / 0 cancelled·skipped·todo(Node v24.16.0) |
+| app freshness | 일치 - rebuild/recreate 없음. 실행 중 app의 `app.jar`와 같은 HEAD의 `clean build` boot jar를 zip 항목 단위로 비교해 551개 항목의 이름·크기·CRC-32가 모두 동일함을 확인(jar 파일 자체의 SHA-256은 zip metadata(build 시각) 차이로 달라 근거로 쓰지 않음). `v1.0.0..develop`에 image 입력 변경은 T7B 파일뿐이며 template/asset 4개가 working tree와 바이트 동일. nginx 정적은 working tree bind mount |
+| HTTPS smoke(로컬 `https://localhost:8443`) | 통과 - `:8088` 301 → https, ACME 404, 자체서명 cert(CN=localhost), `/` 200 + HSTS `max-age=31536000` + `Server: nginx`(버전 없음), `/`·`/boards`·`/programs`·`/pages/INTRODUCTION`·`/css/home.css`·`/actuator/health`(`UP`) 200, `/no-such-path` 404 HTML, 미인증 `/admin/dashboard` 302 `Location: /admin/login`, 로그인 1회 200(`JSESSIONID` Secure/HttpOnly/SameSite=Lax, `XSRF-TOKEN` Secure) → `/api/admin/me`·`/admin/password`·`/admin/dashboard` 200 → 로그아웃 200 → `/api/admin/me` 401. `robots.txt` 기존 3줄 계약 유지 |
+| P15-T7B asset | HTTPS 응답 바이트를 decode해 확인 - `/favicon.ico` 200 `image/x-icon`(ICO entry 16×16/32×32/48×48), `/apple-touch-icon.png` 200 `image/png` 180×180, `/images/og-default.png` 200 `image/png` 1200×630(nginx 제공, HSTS) |
+| P15-T7B 공개 metadata | `/`, `/boards`, `/boards?boardType=REVIEW&page=0`, `/boards/2510`, `/programs`, `/programs/1689`, `/pages/INTRODUCTION`, `/pages/GREETING` 8개 경로 모두 title·description·og:title(= title)·og:description·og:type·og:site_name·og:locale·og:url·og:image·og:image:width/height/alt·favicon·apple-touch-icon 정상. `og:url` = `https://www.monicaenglish.com` + path(query string 제외 - query 경로는 `https://www.monicaenglish.com/boards`), `og:image` = `https://www.monicaenglish.com/images/og-default.png`, width 1200, height 630, alt `모니카영어교육연구소 로고`. canonical 0, parser 주석 노출 0. 오류 페이지(`/no-such-path`, `/boards/999999999`)와 관리자 화면(`/admin/login`, 로그인 후 `/admin/dashboard`)의 공개 OG·apple-touch-icon 0. 참고: 첫 metadata 검사의 FAIL 표시는 Git Bash가 검증 스크립트 인자(`/boards` 등)를 Windows 경로로 변환한 검증 도구 문제였고(애플리케이션 응답 값은 정상), 경로 변환을 끄고 같은 검증을 다시 실행해 8개 경로 모두 정상 확인 |
+| 실행 전 Gate | app·db healthy, nginx running, restart 0. row 수 admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1, 업로드 62개/21,950,080 bytes. `ADMIN_PASSWORD` 정책 충족(값 비출력 판정) |
+| 전체 Playwright(HTTPS, `--workers=1`) | `PLAYWRIGHT_BASE_URL=https://localhost:8443 npx playwright test -c frontend-tests/playwright.config.js --workers=1` - **353 passed / 0 failed / 0 skipped / 0 flaky(1.2h, 4,369s)**, retry 0. `ERR_*` 네트워크 오류 0건, 실행 구간 Windows NetworkProfile 이벤트 0건. 공개/관리자 회귀를 이 전체 suite로 확인 |
+| 429(비차단 warning) | 실행 중 nginx `limiting requests`/429가 각 298건 관찰됐다. 운영 계약값(`5r/m`, `burst=5`) 그대로에서 E2E helper가 13초 대기 후 재시도해 모두 회복했고, 이로 인한 test failure·네트워크 오류·애플리케이션 회귀 증거는 없다. release blocker가 아니며 테스트 시간/로컬 실행 관점의 관찰 항목으로 남긴다(rate limit·helper는 변경하지 않음) |
+| DB(실행 전 → 후, delta) | 전부 delta 0: admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1, fixture 잔여 없음 |
+| 업로드(전 → 후) | 62개/21,950,080 bytes → 62개/21,950,080 bytes(잔여 없음) |
+| 관리자 비밀번호 복구 | 실행 후 `.env` 비밀번호 로그인 200 → `/api/admin/me` 200 → 로그아웃 200 |
+| 브라우저/런타임(Chromium) | 375px·1440px에서 공개 6개 화면 정상 render, 가로 overflow 없음, header/main 정상, favicon(48×48 선택)·apple-touch-icon(180×180)·OG(1200×630) decode, console error 0, 4xx/5xx 응답 0 |
+| Docker health | 실행 후 app/db healthy, nginx running, restart 0, QA 중 container 재생성 없음, `monica-lab-homepage_db_data` volume 유지 |
+| Git | `develop` / HEAD `25b17f6e500b40caf9c6fe3fa55f65ee40f8092c`(origin 동일), main·`v1.0.0` 변경 없음, tracked 변경 0, 사용자 소유 untracked `docker-compose.local-test.yml`만 존재 |
+| production 영향 | 없음 - DNS/TLS/운영 서버/운영 DB 변경, release/tag, 배포 없음 |
+| 발견된 blocker | 없음. 참고(비차단): app 로그 ERROR 29건은 모두 클라이언트 연결 종료(`AsyncRequestNotUsableException`) 예외였고 테스트 결과(0 failed)에 영향은 없었다 |
+| Release QA 최종 판정 | **v1.1.0 RELEASE QA: PASS** |
+
 ### Phase 15 범위 밖(deferred, 운영 가능하나 후속 개선)
 
 비공개 게시글 첨부 URL 접근 제어, 업로드 Content-Type을 확장자 기준으로 도출, 파일 참조 확인/orphan 정리, 이미지 응답 캐시 헤더, container non-root, CKEditor self-host, Node 테스트 CI 추가, docker build CI, 관리자 세션 timeout 조정, 관리자 HTML 상세 404, 로그인 응답 시간 기반 계정 존재 추정 완화, popup focus trap/Escape focus 복귀/본문 tabindex, 이미지 대체 텍스트 입력 강제 UI(운영 안내로 대체), sitemap, canonical, gzip, CSP, SRI, image digest 고정, nginx 413 JSON 응답, CSS 구조 정리, Firefox/WebKit 전체 QA, public-console-errors 상세 화면 확대, 전체 Playwright 실행 시간 최적화(현재 HTTPS `--workers=1` 전체 약 1.2시간 - 예: 인증된 `storageState` 재사용으로 로그인 횟수를 줄이는 방안 검토, 구체 구현 방식은 미확정). P0/P1과 반드시 함께 처리해야 하는 예외 항목은 없다.
