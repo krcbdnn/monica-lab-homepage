@@ -2022,9 +2022,31 @@ P15-T0 ─┬─ P15-T1 ─┬──────────── P15-T5
 - P15-T3을 앱/콘텐츠 변경(P15-T4~T6) 뒤에 두는 이유: HTTPS/자체서명 인증서 전환이 로컬 Docker/Playwright 실행 방식을 바꾸므로, infra 전환을 한 번만 하고 앞선 Task의 테스트 흐름을 흔들지 않기 위함이다.
 - Release/Launch는 개발 Task가 아니라 GIT_WORKFLOW.md §6-1 + OPERATIONS 절차다(도메인 DNS, Let's Encrypt 발급, 운영 `.env`, 운영 smoke 포함).
 
+### Phase 15 Release QA 기록
+
+Release QA는 GIT_WORKFLOW.md §6-1 1단계("Phase 15 완료 → 전체 QA(JUnit / Node / Playwright / 로컬 HTTPS smoke)")를 develop 최신 HEAD에서 수행한 결과를 이 절에 기록한다(별도 문서 없음). QA 계약 자체는 GIT_WORKFLOW §6-1, ARCHITECTURE "운영 배포 계약(Phase 15)"(로컬 HTTPS/Playwright 실행 방식), OPERATIONS §16-4(smoke 항목)를 따르며 이 절에서 새로 정의하지 않는다. P15-T7B와 운영 도메인/서버/인증서/외부 smoke는 Release QA 대상이 아니다(Launch).
+
+- 상태: **NOT RUN**(아래 결과는 실행 전 placeholder이며, 실행 후 실제 결과로 교체한다)
+
+| 항목 | 결과 |
+|---|---|
+| 실행 날짜 | NOT RUN |
+| 대상 develop commit SHA | NOT RUN |
+| `./gradlew clean build` | NOT RUN |
+| Node test(`node --test src/test/js/**/*.test.js`) | NOT RUN |
+| Docker/app image freshness(실행 중 app image·nginx 정적 리소스가 대상 commit과 일치) | NOT RUN |
+| HTTPS smoke(로컬 `https://localhost:8443`) | NOT RUN |
+| 전체 Playwright(HTTPS, `--workers=1`) | NOT RUN |
+| DB baseline(실행 전/후 테이블별 row 수, `.env` 관리자 비밀번호 로그인) | NOT RUN |
+| Docker health(app/db healthy, nginx running) | NOT RUN |
+| 발견된 blocker | NOT RUN |
+| Release QA 최종 판정 | NOT RUN |
+
 ### Phase 15 범위 밖(deferred, 운영 가능하나 후속 개선)
 
-비공개 게시글 첨부 URL 접근 제어, 업로드 Content-Type을 확장자 기준으로 도출, 파일 참조 확인/orphan 정리, 이미지 응답 캐시 헤더, container non-root, CKEditor self-host, Node 테스트 CI 추가, docker build CI, 관리자 세션 timeout 조정, 관리자 HTML 상세 404, 로그인 응답 시간 기반 계정 존재 추정 완화, popup focus trap/Escape focus 복귀/본문 tabindex, 이미지 대체 텍스트 입력 강제 UI(운영 안내로 대체), sitemap, canonical, gzip, CSP, SRI, image digest 고정, nginx 413 JSON 응답, CSS 구조 정리, Firefox/WebKit 전체 QA, public-console-errors 상세 화면 확대. P0/P1과 반드시 함께 처리해야 하는 예외 항목은 없다.
+비공개 게시글 첨부 URL 접근 제어, 업로드 Content-Type을 확장자 기준으로 도출, 파일 참조 확인/orphan 정리, 이미지 응답 캐시 헤더, container non-root, CKEditor self-host, Node 테스트 CI 추가, docker build CI, 관리자 세션 timeout 조정, 관리자 HTML 상세 404, 로그인 응답 시간 기반 계정 존재 추정 완화, popup focus trap/Escape focus 복귀/본문 tabindex, 이미지 대체 텍스트 입력 강제 UI(운영 안내로 대체), sitemap, canonical, gzip, CSP, SRI, image digest 고정, nginx 413 JSON 응답, CSS 구조 정리, Firefox/WebKit 전체 QA, public-console-errors 상세 화면 확대, 전체 Playwright 실행 시간 최적화(현재 HTTPS `--workers=1` 전체 약 1.2시간 - 예: 인증된 `storageState` 재사용으로 로그인 횟수를 줄이는 방안 검토, 구체 구현 방식은 미확정). P0/P1과 반드시 함께 처리해야 하는 예외 항목은 없다.
+
+- E2E 실행 시간 최적화는 post-Phase-15 backlog이며 Release QA 요구사항을 완화하지 않는다. 최적화 전까지 Release QA는 전체 Playwright suite를 `--workers=1`로 실행한다(위 "Phase 15 Release QA 기록", ARCHITECTURE "TLS / 인증서 / HSTS"의 로컬 검증).
 
 ---
 
