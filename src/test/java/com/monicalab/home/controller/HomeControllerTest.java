@@ -1,5 +1,6 @@
 package com.monicalab.home.controller;
 
+import static com.monicalab.support.PublicHeadAssertions.assertPublicHead;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -1070,5 +1071,15 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .recruitStatus(RecruitStatus.OPEN)
                 .isPublic(true)
                 .build();
+    }
+
+    // P15-T7A: 홈은 사이트명만 title로 쓴다(이전 "모니카영어교육연구소 - 모니카영어교육연구소" 중복 제거).
+    @Test
+    void homeHeadHasSiteNameTitleWithoutDuplicationAndCommonSeoMeta() throws Exception {
+        Document document = Jsoup.parse(mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertPublicHead(document, "모니카영어교육연구소");
     }
 }

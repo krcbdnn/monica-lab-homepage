@@ -506,7 +506,7 @@ Phase 15는 새 사용자 기능이 아니라 실제 운영 배포에 필요한 
 - CKEditor 편집 기능과 저장 시 보존 서식 일치
 - 공개 화면 오류 페이지(HTML)
 - 관리자 본인 비밀번호 변경
-- 최소 검색엔진/공유 메타데이터(robots.txt, meta description, 기본 Open Graph)
+- 최소 검색엔진/공유 메타데이터(robots.txt, meta description, 기본 Open Graph) — **CURRENT**(P15-T7A 구현): `/robots.txt`(관리자 화면/API disallow, sitemap·도메인 없음), 공개 화면 공통 meta description, 기본 Open Graph 5종(`og:title`/`og:description`/`og:type`/`og:site_name`/`og:locale`). favicon/`og:image`/`og:url`은 발주처 asset·최종 도메인이 필요한 P15-T7B 범위
 - 운영 절차 문서(배포/백업·복원/비밀번호 재설정/rollback) — `docs/OPERATIONS.md`
 
 범위 제외: 자동 배포(CD), 백업 자동화 코드, 다중 서버/클러스터, 회원/이메일/SMS 기능.

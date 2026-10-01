@@ -1,10 +1,22 @@
 <!DOCTYPE html>
 <html th:fragment="layout(content, pageTitle)" th:attr="data-theme=${siteTheme.accentPreset}" lang="ko"
       xmlns:th="http://www.thymeleaf.org">
-<head>
+<!--/* P15-T7A: 최종 title을 한 번만 계산해 <title>과 og:title에 같은 값을 쓴다(pageTitle이 null이면 사이트명만).
+     T7A 주석은 응답 HTML에 남지 않도록 Thymeleaf parser-level 주석으로 둔다. */-->
+<head th:with="siteName='모니카영어교육연구소',
+               siteDescription='모니카영어교육연구소 홈페이지입니다. 연구소 소개와 교육 프로그램 안내, 공지사항·자료와 강의 후기를 확인할 수 있습니다.',
+               fullTitle=${pageTitle != null} ? ${pageTitle} + ' - ' + ${siteName} : ${siteName}">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title th:text="${pageTitle != null} ? ${pageTitle} + ' - 모니카영어교육연구소' : '모니카영어교육연구소'">모니카영어교육연구소</title>
+    <title th:text="${fullTitle}">모니카영어교육연구소</title>
+    <!--/* P15-T7A: 공개 공통 meta description + 기본 Open Graph 5종. 이미지/URL/canonical 메타는 최종 asset·도메인이
+         필요한 P15-T7B 범위라 두지 않는다. */-->
+    <meta name="description" th:content="${siteDescription}">
+    <meta property="og:title" th:content="${fullTitle}">
+    <meta property="og:description" th:content="${siteDescription}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" th:content="${siteName}">
+    <meta property="og:locale" content="ko_KR">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- P14-T1: Pretendard Variable(OFL). jsDelivr, 버전 고정(v1.3.9), dynamic subset, font-display: swap.
          로딩 실패 시 home.css의 --font-sans fallback(시스템 한글 sans)으로 대체된다. -->
