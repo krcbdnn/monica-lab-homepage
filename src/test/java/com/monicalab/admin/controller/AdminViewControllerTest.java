@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 import com.monicalab.support.AbstractIntegrationTest;
+import com.monicalab.support.PublicHeadAssertions;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Stream;
@@ -169,6 +170,18 @@ class AdminViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#saveButton").text()).isEqualTo("변경");
         assertThat(document.select("#admin-logout-button")).isNotEmpty();
         assertThat(document.select("#admin-sidebar a.is-active")).isEmpty();
+    }
+
+    // P15-T7B: 관리자 화면(공통 layout/로그인)은 별도 <head>라 공개 layout의 OG/apple-touch-icon 메타가 들어가지 않는다.
+    @Test
+    void adminPagesDoNotRenderPublicBrandMetadata() throws Exception {
+        PublicHeadAssertions.assertNoPublicBrandMeta(renderDashboard());
+        PublicHeadAssertions.assertNoPublicBrandMeta(render(get("/admin/password")));
+
+        String login = mockMvc.perform(get("/admin/login"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        PublicHeadAssertions.assertNoPublicBrandMeta(Jsoup.parse(login));
     }
 
     private Document render(MockHttpServletRequestBuilder request) throws Exception {

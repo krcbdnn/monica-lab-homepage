@@ -18,6 +18,7 @@ import com.monicalab.program.entity.ProgramType;
 import com.monicalab.program.entity.RecruitStatus;
 import com.monicalab.program.repository.ProgramRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import com.monicalab.support.PublicHeadAssertions;
 import jakarta.servlet.RequestDispatcher;
 import java.nio.charset.StandardCharsets;
 import org.jsoup.Jsoup;
@@ -187,6 +188,8 @@ class PublicErrorPageTest extends AbstractIntegrationTest {
         // 템플릿 작성 주석(내부 class/ErrorCode 이름 포함)은 Thymeleaf parser-level 주석이라 응답에 남지 않아야 한다.
         assertThat(body).doesNotContain("<!--", "ErrorCode", "stacktrace", "_NOT_FOUND", "INVALID_INPUT_VALUE",
                 "INTERNAL_SERVER_ERROR", "Exception", "at com.", "at org.", requestDetail);
+        // P15-T7B: 독립 오류 템플릿에는 공개 layout의 OG/apple-touch-icon 메타가 들어가지 않는다.
+        PublicHeadAssertions.assertNoPublicBrandMeta(document);
         return document;
     }
 }

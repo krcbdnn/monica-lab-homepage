@@ -1080,6 +1080,6 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
 
-        assertPublicHead(document, "모니카영어교육연구소");
+        assertPublicHead(document, "모니카영어교육연구소", "/");
     }
 }
