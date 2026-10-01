@@ -1,51 +1,133 @@
 <!DOCTYPE html>
-<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<html th:replace="~{home/layout/default :: layout(~{::#board-list-content}, ${boardType == null ? '게시판' : (boardType.name() == 'REVIEW' ? '강의 후기' : '소식·자료')})}"
+      lang="ko" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>게시판</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
-<div class="container" style="margin-top: 40px;">
-    <h2 class="mb-4">게시판</h2>
+<!-- P14-T2A: 새 top-level 공개 IA(소식·자료/강의 후기 GROUP 분리)에 맞춰, 기존 /boards 하나의
+     Controller/template을 그대로 재사용하면서 title/filter만 context에 따라 세 가지로 나눈다
+     (새 route/Controller 없음, Controller가 이미 model에 싣는 boardType/programType만 사용).
+     legacy(boardType 없음): 기존 7개 필터 그대로(기존 URL 호환).
+     소식·자료(boardType=NOTICE/GALLERY/ARCHIVE): 공지사항/갤러리/자료실 3개만, "전체" 없음.
+     강의 후기(boardType=REVIEW): 전체/수강 후기/특강 후기 3개만, 공지/갤러리/자료실 없음.
+     "전체"의 href/active 조건은 legacy의 기존 "강의 후기" 링크와 완전히 동일(REVIEW+programType 없음)
+     하며 라벨만 context에 따라 다르다(legacy=필터를 선택하는 맥락이라 "강의 후기", 강의 후기 context
+     내부=이미 그 안에 있는 맥락이라 "전체") - href/query semantics 자체는 변경하지 않는다. -->
+<div id="board-list-content" class="container"
+     th:with="newsContext=${boardType != null and (boardType.name() == 'NOTICE' or boardType.name() == 'GALLERY' or boardType.name() == 'ARCHIVE')},
+              reviewContext=${boardType != null and boardType.name() == 'REVIEW'},
+              pageTitle=${boardType == null ? '게시판' : (boardType.name() == 'REVIEW' ? '강의 후기' : '소식·자료')}">
+    <h1 class="mb-4" th:text="${pageTitle}">게시판</h1>
 
-    <nav id="board-type-filter" class="mb-3">
-        <a th:href="@{/boards(keyword=${keyword})}"
-           th:text="${boardType == null} ? '[전체]' : '전체'"></a>
-        <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}"
-           th:text="${boardType != null and boardType.name() == 'NOTICE'} ? '[공지사항]' : '공지사항'"></a>
-        <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}"
-           th:text="${boardType != null and boardType.name() == 'GALLERY'} ? '[갤러리]' : '갤러리'"></a>
-        <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}"
-           th:text="${boardType != null and boardType.name() == 'ARCHIVE'} ? '[자료실]' : '자료실'"></a>
+    <!-- P13-T30D(Task C): 강의 후기(REVIEW)는 하나의 boardType이지만 공개 화면에서는 programType으로
+         수강 후기/특강 후기 두 목록으로 분리해 노출한다. 내부 Board 도메인/저장 구조는 그대로 재사용하며
+         (별도 boardType 분리 아님), 필터 nav의 각 링크는 자신이 가리키는 조합만 명시적으로 실어 보내므로
+         다른 링크로 이동하면 현재 페이지에 남아있던 programType이 자동으로 사라진다(전체/공지사항/갤러리/
+         자료실 링크는 애초에 programType 파라미터 자체가 없다). 세 링크(전체/수강 후기/특강 후기)의
+         active 조건은 상호 배타적이라 동시에 두 개가 active로 보이는 경우가 없다. -->
+    <nav id="board-type-filter" class="filter-nav mb-3" aria-label="게시판 분류">
+        <th:block th:if="${!newsContext and !reviewContext}">
+            <a th:href="@{/boards(keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType == null}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">전체</a>
+            <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType != null and boardType.name() == 'NOTICE'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">공지사항</a>
+            <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType != null and boardType.name() == 'GALLERY'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">갤러리</a>
+            <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType != null and boardType.name() == 'ARCHIVE'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">자료실</a>
+            <a th:href="@{/boards(boardType='REVIEW', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType != null and boardType.name() == 'REVIEW' and programType == null}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">강의 후기</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='COURSE', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'COURSE'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">수강 후기</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='SPECIAL', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType != null and boardType.name() == 'REVIEW' and programType != null and programType.name() == 'SPECIAL'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">특강 후기</a>
+        </th:block>
+        <th:block th:if="${newsContext}">
+            <a th:href="@{/boards(boardType='NOTICE', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType.name() == 'NOTICE'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">공지사항</a>
+            <a th:href="@{/boards(boardType='GALLERY', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType.name() == 'GALLERY'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">갤러리</a>
+            <a th:href="@{/boards(boardType='ARCHIVE', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${boardType.name() == 'ARCHIVE'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">자료실</a>
+        </th:block>
+        <th:block th:if="${reviewContext}">
+            <a th:href="@{/boards(boardType='REVIEW', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${programType == null}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">전체</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='COURSE', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${programType != null and programType.name() == 'COURSE'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">수강 후기</a>
+            <a th:href="@{/boards(boardType='REVIEW', programType='SPECIAL', keyword=${keyword})}" class="filter-nav__link"
+               th:with="filterActive=${programType != null and programType.name() == 'SPECIAL'}" th:classappend="${filterActive} ? ' is-active'" th:attr="aria-current=${filterActive} ? 'page' : null">특강 후기</a>
+        </th:block>
     </nav>
 
     <form method="get" th:action="@{/boards}" class="row g-2 mb-4">
         <input type="hidden" name="boardType" th:if="${boardType != null}" th:value="${boardType}">
+        <input type="hidden" name="programType" th:if="${programType != null}" th:value="${programType}">
         <div class="col-auto">
-            <input type="text" name="keyword" class="form-control" placeholder="검색어" th:value="${keyword}">
+            <input type="text" name="keyword" class="form-control" placeholder="검색어" aria-label="검색어" th:value="${keyword}">
         </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-primary">검색</button>
         </div>
     </form>
 
-    <ul id="board-list" class="list-group mb-4">
+    <!-- P13-T28: 상세 링크에 boardType/keyword/page(boards.page, 0-based 실제 결과 페이지)를
+         실어 보내 "목록으로" 복귀 시 현재 목록 상태를 재현할 수 있게 한다. pageJump(1회성 입력값)는
+         절대 실어 보내지 않는다 - 실제 위치의 canonical 값은 pageJump가 아니라 PaginationSupport가
+         계산해 준 boards.page다. -->
+    <!-- P13-T27: GALLERY/REVIEW는 이미지 중심 게시판 타입이라 메인 페이지(home/index.html)의
+         #latest-gallery/#latest-reviews와 동일한 .gallery-grid/.gallery-card* 마크업(CSS는
+         home.css 그대로 재사용, 신규 CSS 없음)으로 표시한다. 서버가 이미 boardType으로 필터링해
+         내려주므로 페이지 안의 item은 항상 동일 타입이라 item 단위 분기 없이 최상위 컨테이너에서
+         한 번만 분기한다. thumbnail null-safe 처리는 메인 페이지의 단순 null 체크보다 안전한
+         home/program/list.html의 #strings.isEmpty(#strings.trim(...)) 패턴을 재사용해 null/빈
+         문자열/공백 문자열 모두 placeholder로 대체한다(깨진 <img src=""> 방지). -->
+    <ul id="board-grid" class="gallery-grid"
+        th:if="${boardType != null and (boardType.name() == 'GALLERY' or boardType.name() == 'REVIEW')}">
+        <li class="gallery-card" th:each="board : ${boards.content}">
+            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, programType=${programType}, keyword=${keyword}, page=${boards.page})}"
+               class="gallery-card__link">
+                <div class="gallery-card__thumb">
+                    <img th:unless="${#strings.isEmpty(#strings.trim(board.thumbnail()))}"
+                         th:src="${board.thumbnail()}" th:alt="${board.title()}" loading="lazy">
+                    <div th:if="${#strings.isEmpty(#strings.trim(board.thumbnail()))}"
+                         class="gallery-card__thumb-placeholder" aria-hidden="true"></div>
+                </div>
+                <p class="gallery-card__title" th:text="${board.title()}"></p>
+            </a>
+        </li>
+        <li class="text-muted" th:if="${boards.content.isEmpty()}">등록된 게시글이 없습니다.</li>
+    </ul>
+
+    <ul id="board-list" class="list-group mb-4"
+        th:unless="${boardType != null and (boardType.name() == 'GALLERY' or boardType.name() == 'REVIEW')}">
         <li class="list-group-item" th:each="board : ${boards.content}">
-            <a th:href="@{/boards/{id}(id=${board.id()})}" th:text="${board.title()}"></a>
-            <span class="badge bg-secondary" th:text="${board.boardType()}"></span>
-            <span class="text-muted small" th:text="'조회 ' + ${board.viewCount()}"></span>
+            <a th:href="@{/boards/{id}(id=${board.id()}, boardType=${boardType}, programType=${programType}, keyword=${keyword}, page=${boards.page})}"
+               class="board-list__link">
+                <!-- P14-T4B: raw enum(NOTICE/GALLERY/ARCHIVE/REVIEW)을 공개 화면에 그대로 노출하지 않고
+                     한글 표시명으로 매핑한다(domain enum/DB/API/DTO 무변경, Java helper 추가 없음).
+                     BoardType은 4값이라 위 h:html 태그의 pageTitle과 동일한 방식(하나의 ${} 안에서 SpEL
+                     삼항을 중첩)으로 전부 처리한다. 기존 Bootstrap badge bg-secondary(사이트 token과 무관한
+                     회색, T4A의 bg-secondary/bg-info와 동일한 문제)는 제거하고 Program List
+                     type-badge/status-badge와 같은 절제된 token 스타일로 대체한다(전역 .badge 무수정,
+                     #board-list로만 scope). -->
+                <span class="board-list__row">
+                    <span class="badge board-list__type"
+                          th:text="${board.boardType().name() == 'NOTICE' ? '공지사항' : (board.boardType().name() == 'GALLERY' ? '갤러리' : (board.boardType().name() == 'ARCHIVE' ? '자료실' : '강의 후기'))}"></span>
+                    <span class="board-list__title" th:text="${board.title()}"></span>
+                </span>
+                <!-- P14-T4B: 작성일시 표기를 Home(#latest-notices)과 동일한 'yyyy.MM.dd'로 통일한다
+                     (createdAt 데이터/DTO/Java/DB 무변경, Thymeleaf 표시 포맷만 변경). -->
+                <time class="board-list__date" th:datetime="${board.createdAt()}"
+                      th:text="${#temporals.format(board.createdAt(), 'yyyy.MM.dd')}"></time>
+            </a>
         </li>
         <li class="list-group-item text-muted" th:if="${boards.content.isEmpty()}">등록된 게시글이 없습니다.</li>
     </ul>
 
-    <nav id="pagination">
-        <a id="prev-page" th:if="${boards.page > 0}"
-           th:href="@{/boards(page=${boards.page - 1}, size=${boards.size}, boardType=${boardType}, keyword=${keyword})}">이전</a>
-        <a id="next-page" th:if="${!boards.last}"
-           th:href="@{/boards(page=${boards.page + 1}, size=${boards.size}, boardType=${boardType}, keyword=${keyword})}">다음</a>
-    </nav>
+    <nav th:replace="~{home/fragments/pagination :: pagination(
+            '/boards', ${boards.page}, ${boards.totalPages}, ${boards.size}, ${boardType}, ${programType}, ${keyword})}"></nav>
 </div>
 </body>
 </html>

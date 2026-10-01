@@ -1,0 +1,93 @@
+// @ts-check
+const { test, expect } = require('./support/e2e-fixtures');
+const { postAdminLogin } = require('./support/admin-login');
+
+// fix/admin-common-fetch-load-order 회귀 검증.
+// 앱은 테스트 실행 전에 별도로 기동되어 있어야 한다(server 자동 기동 없음, 다른 spec과 동일 원칙).
+// 관리자 로그인 자격증명은 앱 자체가 쓰는 것과 동일한 환경변수(ADMIN_LOGIN_ID/ADMIN_PASSWORD)에서 읽는다.
+// 이 spec은 CI(.github/workflows/ci.yml)에 포함되지 않으며, 기존 visual-regression.spec.js와 동일하게 수동 실행 대상이다.
+
+const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+const ADMIN_PAGES = [
+  '/admin/dashboard',
+  // P14-T9A: 이 회귀 목록에 그동안 없었던 기존 갭을 메운다(admin-layout.js 도입으로 전 admin 화면의
+  // 공통 layout 변경 위험이 커져 이 시점에 함께 보완).
+  '/admin/pages',
+  '/admin/boards',
+  '/admin/programs',
+  '/admin/banners',
+  '/admin/popups',
+  '/admin/files',
+  // P13-T30E(Task B): admin menu 화면(list/form)이 이 회귀 목록에 없었던 기존 갭을 메운다.
+  '/admin/menus',
+  '/admin/menus/new',
+  // P14-T9D: form composition(.admin-form/action 영역/필수 표시)을 바꾼 등록·편집 form도 최초 진입 pageerror 0을 확인한다.
+  '/admin/boards/new',
+  '/admin/programs/new',
+  '/admin/banners/new',
+  '/admin/popups/new',
+  '/admin/pages/GREETING/edit',
+  // P13-T38A: 신규 admin 화면(등록/수정 폼이 따로 없어 목록 1개만 추가).
+  '/admin/home-pinned-contents',
+  // P14-T8B: 신규 admin 화면(singleton 설정 폼 1개, 별도 목록 없음).
+  '/admin/theme',
+];
+
+async function loginAsAdmin(context, baseURL) {
+  const response = await postAdminLogin(context.request, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD }, {
+    url: `${baseURL}/api/admin/login`,
+  });
+  expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
+}
+
+async function getXsrfToken(context) {
+  const cookies = await context.cookies();
+  const xsrfCookie = cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
+  expect(xsrfCookie, 'XSRF-TOKEN 쿠키가 발급되어 있어야 한다').toBeTruthy();
+  return xsrfCookie.value;
+}
+
+test.describe('관리자 화면 최초 진입 시 AdminFetch 로딩 순서 회귀 검증', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD,
+      'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+  });
+
+  for (const path of ADMIN_PAGES) {
+    test(`${path} 최초 진입 시 콘솔에 AdminFetch is not defined 등 pageerror가 없다`, async ({ page, baseURL }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await page.goto(path);
+      await page.waitForLoadState('networkidle');
+
+      expect(pageErrors, `${path}에서 발생한 pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+  }
+
+  test('/admin/boards 최초 진입 시 검색 버튼을 누르지 않아도 방금 생성한 게시글이 목록에 보인다', async ({ page, context, baseURL, tracker }) => {
+    const xsrfToken = await getXsrfToken(context);
+    const uniqueTitle = 'AdminFetch 회귀 확인용 공지 ' + Date.now();
+
+    const createResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title: uniqueTitle, isPublic: true },
+    });
+    expect(createResponse.ok()).toBeTruthy();
+    // 생성 응답의 exact ID를 즉시 등록한다. 이후 단언이 실패해도 fixture teardown이 이 게시글을 정리한다.
+    tracker.track('board', (await createResponse.json()).data.id);
+
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await page.goto('/admin/boards');
+
+    // 검색 버튼을 클릭하지 않고, 최초 로딩만으로 방금 만든 게시글이 보이는지 확인한다.
+    await expect(page.locator('#board-list-body')).toContainText(uniqueTitle, { timeout: 5000 });
+    expect(pageErrors).toEqual([]);
+  });
+});

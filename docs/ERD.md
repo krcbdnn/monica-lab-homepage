@@ -42,6 +42,8 @@ Version 2.0
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 
+비고(Phase 15): 관리자 비밀번호 변경(CURRENT, P15-T6)은 기존 `password`(BCrypt 해시 갱신, `Admin.changePassword`)와 `updated_at`(JPA Auditing)만 사용한다. 이 기능을 위한 컬럼 추가/스키마 변경/migration은 없다.
+
 ---
 
 # 2. Program
@@ -70,17 +72,16 @@ Version 2.0
 
 # 3. Board
 
-공지사항, 갤러리, 자료실을 하나의 테이블에서 관리한다.
+공지사항, 갤러리, 자료실, 강의 후기(P13-T16)를 하나의 테이블에서 관리한다.
 
 | 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
 |-------|------|------|------------|-------------|
 | id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
-| board_type | VARCHAR(20) | NOT NULL | 없음 | NOTICE / GALLERY / ARCHIVE |
+| board_type | VARCHAR(20) | NOT NULL | 없음 | NOTICE / GALLERY / ARCHIVE / REVIEW |
 | title | VARCHAR(200) | NOT NULL | 없음 | 제목 |
 | content | LONGTEXT | NULL | 없음 | 내용 |
-| thumbnail | VARCHAR(255) | NULL | 없음 | 대표 이미지(갤러리), File API URL 문자열 |
+| thumbnail | VARCHAR(255) | NULL | 없음 | 대표 이미지(갤러리, 강의 후기), File API URL 문자열 |
 | attachment | VARCHAR(255) | NULL | 없음 | 첨부파일, File API URL 문자열 |
-| view_count | INT | NOT NULL | 없음 | 서버 관리 필드; 생성 시 application-level 기본값 `0` |
 | is_public | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
@@ -95,7 +96,7 @@ Version 2.0
 | title | VARCHAR(100) | NOT NULL | 없음 | 제목 |
 | image | VARCHAR(255) | NOT NULL | 없음 | File API가 반환한 이미지 URL 문자열 |
 | link_url | VARCHAR(500) | NULL | 없음 | 링크 |
-| sort_order | INT | NOT NULL | 없음 | 정렬 순서 |
+| sort_order | INT | NOT NULL | 없음 | 정렬 순서. 공개 메인 캐러셀 노출 순서를 의미하며 값이 작을수록 먼저 노출됨 |
 | is_visible | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
 | created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
 | updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
@@ -167,6 +168,89 @@ Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드
 
 ---
 
+# 8. Menu
+
+공개 헤더 내비게이션 항목을 관리자가 등록/수정/삭제할 수 있게 하는 도메인이다(P13-T30A). 최대 2-depth(GROUP → 그 하위 항목)이며, `parent_id`는 다른 Entity와 동일하게 FK 없이 plain 컬럼으로 둔다.
+
+| 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
+|-------|------|------|------------|-------------|
+| id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
+| label | VARCHAR(50) | NOT NULL | 없음 | 메뉴명 |
+| parent_id | BIGINT | NULL | 없음 | 상위 메뉴 id. FK 아님(본 문서 no-FK 원칙). `target_type=GROUP`인 메뉴만 부모가 될 수 있고, GROUP 자신은 항상 `parent_id IS NULL`이다(2-depth 보장, 별도 depth 컬럼 없음) |
+| target_type | VARCHAR(20) | NOT NULL | 없음 | `GROUP`/`HOME`/`PAGE`/`PROGRAM_LIST`/`BOARD_LIST`/`INTERNAL_URL`/`EXTERNAL_URL` |
+| target_value | VARCHAR(255) | NULL | 없음 | `target_type`별 의미가 다르다: GROUP/HOME은 항상 NULL, PAGE는 `PageType` 값 필수, PROGRAM_LIST/BOARD_LIST는 `ProgramType`/`BoardType` 값(NULL이면 전체), INTERNAL_URL은 `/`로 시작하는 내부 경로 필수, EXTERNAL_URL은 `http(s)://` URL 필수 |
+| sort_order | INT | NOT NULL | 없음 | 정렬 순서. 같은 `parent_id` 그룹 내에서 값이 작을수록 먼저 노출됨(Banner와 동일 정책) |
+| is_visible | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false` |
+| open_in_new_tab | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `false`. `target_type`과 무관하게 관리자가 독립적으로 설정(EXTERNAL_URL이라고 자동 true 아님) |
+| created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+| updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+
+비고
+
+- `GROUP`은 하위 메뉴를 묶는 용도로만 쓰이며 자체 링크를 갖지 않는다(`target_value`는 항상 NULL). `target_type == GROUP`인 메뉴만 다른 메뉴의 부모가 될 수 있고, GROUP이 아닌 링크형 타입(HOME/PAGE/PROGRAM_LIST/BOARD_LIST/INTERNAL_URL/EXTERNAL_URL)은 부모가 될 수 없다 — 이 규칙만으로 최대 2-depth가 보장되므로 별도 depth 컬럼/카운터를 두지 않는다.
+- 자식(`parent_id`가 자신을 가리키는 행)이 있는 메뉴는 삭제하거나 `target_type`을 GROUP이 아닌 값으로 변경할 수 없다(`MENU_HAS_CHILDREN`, API.md 기준).
+- P13-T30A는 Menu 도메인과 관리자 CRUD, 초기 시드만 구축한다. 공개 헤더의 동적 렌더링과 공개 조회 API(`GET /api/menus`)는 이 시점에 존재하지 않으며 후속 Task(P13-T30B)에서 다룬다.
+- 초기 시드(`V4__seed_initial_menu.sql`)는 기존 공개 헤더에 이미 존재하던 4개 최상위 링크(연구소 소개/프로그램/강의 후기/게시판)만 동일한 의미로 옮기며, 아직 확정되지 않은 신규 메뉴 구성(IA)은 포함하지 않는다.
+
+---
+
+# 9. HomePinnedContent
+
+관리자가 기존 Board/Program 콘텐츠 중에서 선택해 공개 메인 화면 상단에 고정 노출하기 위한 참조 전용 도메인이다(P13-T38A, "인스타그램 고정 게시물"과 유사한 개념). 신규 콘텐츠를 작성하는 기능이 아니라 기존 Board/Program 레코드를 가리키기만 하므로, `target_type`/`target_id`는 Menu의 `target_type`/`target_value`와 동일하게 FK가 아닌 plain 컬럼이다. 공개 화면에서 실제로 렌더링하는 기능은 P13-T38B에서 구현하며, 이 테이블 자체는 P13-T38A에서 생성한다.
+
+| 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
+|-------|------|------|------------|-------------|
+| id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
+| target_type | VARCHAR(20) | NOT NULL | 없음 | `BOARD`/`PROGRAM` (P13-T38A 기준 2종만 허용. Page/Popup/Banner는 범위 밖) |
+| target_id | BIGINT | NOT NULL | 없음 | `target_type`에 따라 `board.id` 또는 `program.id`를 가리키는 값. FK 아님(본 문서 no-FK 원칙) — 원본이 삭제되어도 이 값은 그대로 남는다 |
+| sort_order | INT | NOT NULL | 없음 | 정렬 순서. 값이 작을수록 먼저 노출됨(Menu/Banner와 동일 정책) |
+| is_visible | BOOLEAN | NOT NULL | 없음 | POST 생략 시 application-level 기본값 `true`(고정 추가는 곧 노출을 의도하는 관리자 행위이므로, 기본값 `false`인 Menu/Banner와 다르게 결정) |
+| created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+| updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+
+제약
+
+- `UNIQUE(target_type, target_id)` — 동일 콘텐츠 중복 고정을 DB 레벨에서 방지한다.
+
+비고
+
+- 원본(Board/Program)이 이후 비공개로 전환되거나 물리 삭제되어도 이 테이블의 행은 **자동으로 삭제하지 않는다**. 관리자 목록 조회 시점에 원본을 다시 조회해 `PUBLIC`/`PRIVATE`/`DELETED`(원본 없음) 상태를 애플리케이션 레벨에서 계산해 보여준다 — 이 상태는 DB persisted 컬럼이 아니다.
+- 신규 고정 생성 시점에는 `target_id`가 실제 존재하고 공개(`is_public=true`) 상태인 Board/Program만 허용한다(생성 이후의 비공개 전환/삭제는 막지 않음).
+- 개수 제한(하드 리밋)을 두지 않는다.
+- Board/Program Entity에는 이 기능을 위한 필드(`isPinned` 등)를 추가하지 않는다.
+- P13-T38A는 이 도메인과 관리자 CRUD까지만 구축한다. 공개 메인 화면 렌더링(`HomeController`/`home/index.html` 연동)은 P13-T38B에서 다룬다.
+
+---
+
+# 10. SiteThemeSetting
+
+공개 홈페이지 디자인 설정(포인트 컬러 프리셋 + 메인 섹션 노출 여부)을 저장하는 도메인이다(P14-T8A~T8D). 테이블명은 `site_theme_setting`, Entity 클래스명은 `SiteThemeSetting`이다. 생성 migration은 `V13__create_site_theme_setting_table.sql`이며 같은 migration이 기본 행 1건을 시드한다.
+
+| 컬럼 | 타입 | NULL | DB DEFAULT | 제약 / 설명 |
+|-------|------|------|------------|-------------|
+| id | BIGINT | NOT NULL | 없음 | PK, `AUTO_INCREMENT` |
+| setting_key | VARCHAR(50) | NOT NULL | 없음 | UNIQUE. 항상 `SITE_THEME`(Entity 상수 `SiteThemeSetting.SITE_THEME_KEY`). 외부 입력으로 받지 않는다 |
+| accent_preset | VARCHAR(20) | NOT NULL | 없음 | `TERRACOTTA`/`BURGUNDY`/`FOREST` |
+| show_pinned | BOOLEAN | NOT NULL | 없음 | 메인 "주요 소식" 섹션 노출 여부 |
+| show_programs | BOOLEAN | NOT NULL | 없음 | 메인 프로그램 섹션 노출 여부 |
+| show_reviews | BOOLEAN | NOT NULL | 없음 | 메인 강의 후기 섹션 노출 여부 |
+| show_notices | BOOLEAN | NOT NULL | 없음 | 메인 공지사항 섹션 노출 여부 |
+| show_gallery | BOOLEAN | NOT NULL | 없음 | 메인 갤러리 섹션 노출 여부 |
+| created_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+| updated_at | DATETIME | NOT NULL | 없음 | BaseEntity JPA Auditing에서 application-level로 설정 |
+
+제약
+
+- `UNIQUE(setting_key)` — `SITE_THEME` 논리 설정 1건만 저장한다(물리적 1행 강제 구조는 아님).
+
+비고
+
+- 기본 행(`SITE_THEME`, `TERRACOTTA`, 5개 노출 여부 모두 `true`)은 V13 migration 시드로만 생성한다. 애플리케이션은 행을 자동 생성하지 않는다.
+- 행이 없을 때 조회는 DB write 없이 같은 기본값으로 fallback하고, 관리자 저장(PUT)은 404(`SITE_THEME_SETTING_NOT_FOUND`)로 처리한다.
+- 다른 Entity와 FK가 없다.
+
+---
+
 # PK 생성 전략
 
 모든 Entity의 `id` 기본키는 동일한 전략을 사용한다.
@@ -193,7 +277,7 @@ Program, Board의 썸네일/첨부파일과 Page의 CKEditor 이미지 업로드
 DB DEFAULT 정책:
 
 - 이 ERD의 `DB DEFAULT` 열에 `없음`으로 표시된 컬럼은 Flyway migration에 `DEFAULT` 절을 추가하지 않는다.
-- API.md에서 POST 생략 기본값으로 정의된 Program `recruit_status=OPEN`, Program/Board `is_public=false`, Banner/Popup `is_visible=false`, Board `view_count=0`은 모두 application-level에서 설정하고 DB DEFAULT는 두지 않는다.
+- API.md에서 POST 생략 기본값으로 정의된 Program `recruit_status=OPEN`, Program/Board `is_public=false`, Banner/Popup `is_visible=false`는 모두 application-level에서 설정하고 DB DEFAULT는 두지 않는다.
 - Admin `role=ROLE_ADMIN`과 BaseEntity `created_at`/`updated_at`도 application-level에서 설정하며 DB DEFAULT는 두지 않는다.
 - NULL/NOT NULL은 각 테이블의 `NULL` 열을 그대로 Flyway V1과 JPA 컬럼 제약에 반영한다.
 
@@ -233,7 +317,7 @@ DB에는 파일 경로만 저장한다.
 # 설계 원칙
 
 - Program(program_type)으로 수강/특강 통합
-- Board(board_type)으로 공지사항/갤러리/자료실 통합
+- Board(board_type)으로 공지사항/갤러리/자료실/강의 후기 통합
 - Google Form URL을 이용한 신청
 - CMS에서 모든 콘텐츠 수정
 - 관리자만 Spring Security 인증

@@ -29,6 +29,27 @@ class ProductionRuntimeConfigTest extends AbstractIntegrationTest {
         assertThat(appliedCount).isEqualTo(1);
     }
 
+    // P13-T19: Board 조회수(view_count) 완전 제거. V2 migration이 성공적으로 적용되고
+    // 실제 DB 스키마에서 view_count 컬럼이 물리적으로 사라졌는지 확인한다.
+    @Test
+    void flywayAppliesViewCountRemovalMigrationSuccessfully() {
+        Integer appliedCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '2' AND success = true",
+                Integer.class);
+
+        assertThat(appliedCount).isEqualTo(1);
+    }
+
+    @Test
+    void boardTableNoLongerHasViewCountColumn() {
+        Integer columnCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = 'board' AND column_name = 'view_count'",
+                Integer.class);
+
+        assertThat(columnCount).isZero();
+    }
+
     @Test
     void actuatorHealthEndpointRespondsUp() throws Exception {
         mockMvc.perform(get("/actuator/health"))

@@ -138,6 +138,34 @@ GitHub에서 PR 생성: `base: main`, `compare: develop` → 리뷰 후 Merge.
 
 배포 직전에만 올리는 걸 원칙으로 합니다(README.md/CONVENTION.md 원칙과 동일).
 
+### 6-1. Release / tag 기반 운영 배포 (Phase 15 계약, P15-T0 확정)
+
+운영 서버는 mutable 브랜치(`develop`/`main`)를 계속 pull하지 않고, **main에 붙인 release tag**만 checkout해서 배포합니다. 최초 운영 배포(launch) 흐름:
+
+1. Phase 15 완료(TASK.md "Phase 15") → 전체 QA(JUnit / Node / Playwright / 로컬 HTTPS smoke)
+2. release PR: `base: main`, `compare: develop` → 리뷰 후 **merge commit**으로 Merge(squash/rebase 금지 - develop 이력 보존)
+3. main의 merge commit에 annotated tag 생성 후 push
+
+   ```bash
+   git checkout main
+   git pull origin main
+   git tag -a v1.0.0 -m "release: v1.0.0"
+   git push origin v1.0.0
+   ```
+
+4. 운영 서버에서 해당 tag checkout(`git checkout v1.0.0`) → `.env`/TLS 구성 → `docker compose up -d --build`(Flyway는 app 기동 시 자동 적용) → smoke test
+
+- "tag checkout → `docker compose up -d --build`"가 하나의 배포 단위입니다. checkout만 하고 rebuild하지 않거나, app image만 따로 rollback하지 않습니다(ARCHITECTURE.md "Nginx 정적 리소스 공급" 결정). rollback은 이전 tag checkout → 전체 `up -d --build`입니다.
+- 버전 규칙: 기능 묶음 release는 `v1.1.0`처럼 minor, 긴급 수정은 `v1.0.1`처럼 patch를 올립니다.
+- 서버 측 명령/순서의 상세 runbook은 `docs/OPERATIONS.md`(§6 최초 배포, §15 배포/rollback)를 따릅니다.
+
+### 6-2. hotfix 기본 흐름
+
+1. `main`(현재 운영 tag가 있는 브랜치)에서 `hotfix/{작업명}` 브랜치 생성
+2. 수정 커밋(`fix:`) → PR `base: main` → merge commit으로 Merge
+3. main에 patch tag(예: `v1.0.1`) 생성/push → 운영 서버에서 해당 tag로 배포
+4. 같은 수정을 develop에도 반영: PR `base: develop`, `compare: main`(또는 hotfix 브랜치) → Merge. develop과 main이 어긋난 채로 두지 않습니다.
+
 ---
 
 ## 7. 빠른 체크리스트 (매 작업마다)
@@ -146,5 +174,5 @@ GitHub에서 PR 생성: `base: main`, `compare: develop` → 리뷰 후 Merge.
 - [ ] 브랜치명이 작업 성격과 맞는가 (`feature/`, `fix/`, `hotfix/`, `docs/`)
 - [ ] `git status`로 add 전에 변경 파일 확인했는가
 - [ ] 커밋 메시지 type이 CONVENTION.md 표와 맞는가
-- [ ] PR의 base가 `develop`인가 (`main`으로 바로 올리지 않았는가)
+- [ ] PR의 base가 `develop`인가 (`main`으로 바로 올리지 않았는가 - release PR/hotfix는 §6 예외)
 - [ ] 병합 후 로컬 develop을 다시 pull 받았는가

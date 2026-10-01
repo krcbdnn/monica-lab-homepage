@@ -5,6 +5,7 @@ import static com.monicalab.board.entity.QBoard.board;
 import com.monicalab.board.dto.BoardSearchCondition;
 import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
+import com.monicalab.program.entity.ProgramType;
 import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -25,6 +26,7 @@ public class BoardRepositoryImpl implements BoardRepositoryCustom {
     public Page<Board> search(BoardSearchCondition condition, Pageable pageable) {
         BooleanBuilder where = new BooleanBuilder();
         where.and(boardTypeEq(condition.boardType()));
+        where.and(programTypeEq(condition.programType()));
         where.and(keywordContains(condition.keyword()));
         where.and(isPublicEq(condition.isPublic()));
 
@@ -46,6 +48,10 @@ public class BoardRepositoryImpl implements BoardRepositoryCustom {
         return boardType == null ? new BooleanBuilder() : new BooleanBuilder(board.boardType.eq(boardType));
     }
 
+    private BooleanBuilder programTypeEq(ProgramType programType) {
+        return programType == null ? new BooleanBuilder() : new BooleanBuilder(board.programType.eq(programType));
+    }
+
     private BooleanBuilder keywordContains(String keyword) {
         if (keyword == null || keyword.isBlank()) {
             return new BooleanBuilder();
@@ -64,7 +70,6 @@ public class BoardRepositoryImpl implements BoardRepositoryCustom {
             boolean asc = order.isAscending();
             switch (order.getProperty()) {
                 case "title" -> orders.add(asc ? board.title.asc() : board.title.desc());
-                case "viewCount" -> orders.add(asc ? board.viewCount.asc() : board.viewCount.desc());
                 case "createdAt" -> orders.add(asc ? board.createdAt.asc() : board.createdAt.desc());
                 default -> {
                 }

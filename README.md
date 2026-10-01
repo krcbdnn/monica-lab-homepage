@@ -23,8 +23,12 @@ Spring Boot 기반으로 구축되는 CMS이며,
 - 공지사항
 - 갤러리
 - 자료실
+- 강의 후기
 - 메인 배너
 - 팝업
+- 메인 고정 콘텐츠
+- 공개 헤더 메뉴
+- 사이트 테마(포인트 컬러 / 메인 섹션 노출)
 
 ---
 
@@ -53,6 +57,12 @@ Spring Boot 기반으로 구축되는 CMS이며,
 - 배너 관리
 - 팝업 관리
 - 파일 관리(업로드 이력 목록/업로드/다운로드/삭제)
+- 메인 고정 콘텐츠 관리
+- 메뉴 관리
+- 사이트 테마 설정
+- 관리자 비밀번호 변경(Phase 15, P15-T6)
+
+기능 범위의 기준 문서는 `docs/PRD.md`, 기능 상세는 `docs/FEATURES.md`다.
 
 ---
 
@@ -104,16 +114,22 @@ src
     │       ├── banner
     │       ├── popup
     │       ├── file
+    │       ├── menu
+    │       ├── pinned
+    │       ├── theme
     │       ├── home
     │       ├── common
-    │       ├── config
-    │       └── security
+    │       └── config
     │
     └── resources
         ├── templates
         ├── static
-        └── application.yml
+        ├── db/migration
+        ├── application.yml
+        └── application-prod.yml
 ```
+
+패키지/레이어 구조의 기준 문서는 `docs/ARCHITECTURE.md`다. Spring Security 설정(`SecurityConfig`)은 `config` 패키지에 있으며 별도 `security` 패키지는 없다.
 
 ---
 
@@ -156,6 +172,7 @@ BoardType
 - NOTICE
 - GALLERY
 - ARCHIVE
+- REVIEW(강의 후기)
 
 ---
 
@@ -262,7 +279,7 @@ CMS 콘텐츠는 CKEditor5를 이용하여 수정한다.
 ## 프로젝트 Clone
 
 ```bash
-git clone https://github.com/your-repository.git
+git clone https://github.com/krcbdnn/monica-lab-homepage.git
 ```
 
 ---
@@ -283,17 +300,13 @@ git clone https://github.com/your-repository.git
 
 ---
 
-# application.yml
+# 설정 / Profile
 
-다음 설정이 필요하다.
-
-```
-spring.datasource.url
-
-spring.datasource.username
-
-spring.datasource.password
-```
+- `application.yml`: 공통 설정. 기본 profile은 `local`이다.
+- `application-local.yml`: 로컬 개발용(gitignore 대상, 저장소에 없음). `docker-compose.local.yml`로 띄운 로컬 MariaDB(host 3307)의 datasource 등 개발자 개인 설정을 둔다.
+- `application-prod.yml`: 운영 profile. datasource(`DB_URL`/`DB_USERNAME`/`DB_PASSWORD`), 업로드 루트, Actuator 노출 범위를 환경변수 기반으로 정의하며 `docker-compose.yml`이 `SPRING_PROFILES_ACTIVE=prod`로 실행한다.
+- 운영 환경변수 목록은 `.env.example`(값 없이 변수명 위주, 실제 `.env`는 gitignore)을 따른다. 운영용 비밀번호/secret을 저장소에 기록하지 않는다.
+- 테스트는 `src/test/resources/application-test.yml` + Testcontainers MariaDB를 사용한다.
 
 ---
 
@@ -324,10 +337,26 @@ CONVENTION.md
 
 GIT_WORKFLOW.md
 
-CLAUDE.md
-
 AI_WORKFLOW.md
+
+OPERATIONS.md   (운영 runbook - P15-T8)
 ```
+
+`CLAUDE.md`는 `docs/`가 아니라 저장소 루트에 있다.
+
+문서별 기준(canonical) 역할:
+
+| 문서 | 기준 역할 |
+|---|---|
+| PRD.md | 기능 범위 |
+| FEATURES.md | 기능 상세 / 편집기 지원 서식 / 오류 화면 동작 |
+| ERD.md | DB 테이블/Entity 구조 |
+| API.md | endpoint / JSON 오류 계약 |
+| ARCHITECTURE.md | 구조 / 보안 / sanitizer / 운영 배포 계약 |
+| CODING_RULES.md | ErrorCode / 비밀번호 / 로그 코딩 규칙 |
+| TASK.md | Task / 의존성 / 완료 기준 |
+| GIT_WORKFLOW.md | 브랜치 / release / tag / hotfix |
+| OPERATIONS.md | 운영 명령 / runbook(서버 준비, 배포, TLS, 백업·복원, 비밀번호 recovery, rollback, smoke, Launch TBD) |
 
 ---
 
@@ -410,9 +439,10 @@ Copyright © Monika Research Institute
 
 # 배포 운영 기준
 
-- CI: GitHub Actions에서 Gradle test/build를 자동 검증한다.
-- 배포: 운영 서버에서는 Docker Compose 기반 수동 배포를 기본으로 한다. 자동 CD workflow는 현재 범위에 포함하지 않는다.
-- 업로드 파일: `${UPLOAD_ROOT:/app/uploads}`를 사용하며 Docker에서는 `./data/uploads:/app/uploads` bind mount로 영속화한다.
+- CI: GitHub Actions에서 Gradle test/build를 자동 검증한다(pull_request trigger).
+- 배포: 운영 서버에서는 Docker Compose 기반 수동 배포를 기본으로 한다. 자동 CD workflow는 현재 범위에 포함하지 않는다. 운영 서버는 main의 release tag(예: `v1.0.0`)를 checkout하고 "tag checkout → `docker compose up -d --build`"를 하나의 배포 단위로 수행한다(GIT_WORKFLOW.md §6-1).
+- 업로드 파일: Docker에서는 `/app/uploads`를 `./data/uploads:/app/uploads` bind mount로 영속화한다.
 - DB: MariaDB `/var/lib/mysql`은 `db_data` named volume으로 영속화한다. Schema 변경은 `db/migration/**` Flyway migration만 사용하고 prod `ddl-auto=validate`로 검증한다.
-- 초기 관리자: `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`을 읽어 미존재 시에만 BCrypt로 생성하며 운영 비밀번호를 `data.sql`에 두지 않는다.
+- 초기 관리자: `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`을 읽어 미존재 시에만 BCrypt로 생성하며 운영 비밀번호를 `data.sql`에 두지 않는다. 생성 이후 `.env`의 비밀번호를 바꿔도 DB에는 반영되지 않는다.
 - 헬스체크: Spring Boot Actuator `/actuator/health`를 사용한다.
+- 운영 배포 준비(Phase 15): HTTPS/TLS, 로그인 시도 제한, 로그/volume/환경변수 정비 등 운영 배포 계약은 `docs/ARCHITECTURE.md` "운영 배포 계약(Phase 15)", Task는 `docs/TASK.md` "Phase 15"를 따른다. 서버 운영 명령(서버 준비, 배포, 인증서, 백업·복원, 비밀번호 recovery, rollback, smoke)은 `docs/OPERATIONS.md`를 따른다. Nginx는 `:80`(ACME + 301)/`:443`(TLS, HSTS, 로그인 rate limit)을 노출하며 인증서는 host `./data/certs/`(`fullchain.pem`/`privkey.pem`)에 두어야 기동한다(P15-T3). **실제 공개 launch 전에 OPERATIONS "Launch TBD"(최종 도메인/서버/인증서 발급/백업 외부 보관/발주처 asset 등)를 확정한다.**

@@ -5,56 +5,126 @@
     <title>게시글 등록/수정</title>
 </head>
 <body>
-<div id="board-form-content" style="max-width: 800px;">
-    <h3 class="mb-4">게시글 등록/수정</h3>
-    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+<!-- P14-T9D: 공통 form composition(.admin-form 800px, 등록/수정 heading, 필수 표시, role=alert 오류, [취소][저장])과
+     긴 form용 fieldset section(기본 정보/본문/파일/공개 설정). field DOM 순서와 CKEditor mount 구조는 그대로다. -->
+<div id="board-form-content" class="admin-form">
+    <h3 id="admin-form-heading" class="mb-2">게시글 등록</h3>
+    <p class="admin-form-required-note">* 표시는 필수 입력입니다.</p>
+    <div id="errorMessage" class="alert alert-danger" role="alert" tabindex="-1" style="display: none;"></div>
     <form id="boardForm">
         <input type="hidden" id="boardId" name="boardId">
+        <fieldset class="mb-4">
+        <legend class="h5">기본 정보</legend>
         <div class="mb-3">
-            <label for="boardType" class="form-label">게시판 구분</label>
+            <label for="boardType" class="form-label">게시판 구분<span class="admin-required" aria-hidden="true">*</span></label>
             <select class="form-select" id="boardType" name="boardType" required>
                 <option value="NOTICE">공지사항</option>
                 <option value="GALLERY">갤러리</option>
                 <option value="ARCHIVE">자료실</option>
+                <option value="REVIEW">강의 후기</option>
+            </select>
+        </div>
+        <!-- P13-T30D(Task C): 강의 후기(REVIEW)일 때만 노출되는 subtype 선택. 신규 작성 시 COURSE/SPECIAL
+             중 하나를 반드시 명시적으로 선택하게 하기 위해 첫 옵션은 빈 값(placeholder)이다 - 브라우저가
+             옵션 순서상 첫 번째("정규 강좌")를 암묵적으로 기본 선택하지 않도록 하는 장치다. 기존 REVIEW+NULL
+             (legacy) 게시글을 수정 화면에서 열어도 이 placeholder가 그대로 선택된 채로 보여야 하므로,
+             JS에서 board.programType이 없을 때 임의로 COURSE를 채우지 않는다(아래 스크립트 참고).
+             P14-T9D: option 표시명은 관리자 공통 표현(정규 강좌/특강)이다(value는 무변경). -->
+        <div class="mb-3" id="programTypeField" hidden>
+            <label for="programType" class="form-label">후기 대상<span class="admin-required" aria-hidden="true">*</span></label>
+            <select class="form-select" id="programType" name="programType">
+                <option value="">후기 대상을 선택하세요</option>
+                <option value="COURSE">정규 강좌</option>
+                <option value="SPECIAL">특강</option>
             </select>
         </div>
         <div class="mb-3">
-            <label for="title" class="form-label">제목</label>
+            <label for="title" class="form-label">제목<span class="admin-required" aria-hidden="true">*</span></label>
             <input type="text" class="form-control" id="title" name="title" required maxlength="200">
         </div>
+        </fieldset>
+        <fieldset class="mb-4">
+        <legend class="h5">본문</legend>
         <div class="mb-3">
             <label for="content" class="form-label">내용</label>
             <textarea class="form-control" id="content" name="content" rows="8"></textarea>
+            <!-- P13-T40: CKEditor 네이티브 balloon toolbar가 아니라 admin 폼 자체의 일반 버튼으로
+                 이미지 크기를 조절한다(41.4.2 predefined build 유지, 공식 ImageResize 미사용). -->
+            <div id="content-resize-controls" class="mt-2" hidden>
+                <span class="form-text me-2">이미지 크기</span>
+                <div class="btn-group btn-group-sm" role="group" aria-label="이미지 크기 조절">
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="25">25%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="50">50%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="75">75%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="">원본</button>
+                </div>
+            </div>
         </div>
+        </fieldset>
+        <fieldset class="mb-4">
+        <legend class="h5">파일</legend>
         <div class="mb-3">
             <label for="thumbnailInput" class="form-label">대표 이미지</label>
+            <div id="thumbnailPreview" class="mb-2" hidden>
+                <img id="thumbnailPreviewImage" class="admin-file-preview__thumb" src="" alt="현재 등록된 대표 이미지">
+                <div>
+                    <a id="thumbnailPreviewLink" href="#" target="_blank" rel="noopener noreferrer">새 창에서 보기</a>
+                    <button type="button" id="thumbnailRemoveButton" class="btn btn-outline-secondary btn-sm">제거</button>
+                </div>
+            </div>
             <input type="file" class="form-control" id="thumbnailInput" accept="image/*">
             <input type="hidden" id="thumbnail" name="thumbnail">
+            <div class="form-text">목록·메인 카드 등에 표시되는 이미지입니다. 상세 본문에는 자동으로 표시되지 않습니다.</div>
         </div>
         <div class="mb-3">
             <label for="attachmentInput" class="form-label">첨부파일</label>
+            <div id="attachmentPreview" class="mb-2" hidden>
+                <span id="attachmentPreviewNameWrap" hidden>현재 첨부파일: <span id="attachmentPreviewName"></span> </span>
+                (<a id="attachmentPreviewLink" href="#">열기/다운로드</a>)
+                <button type="button" id="attachmentRemoveButton" class="btn btn-outline-secondary btn-sm">제거</button>
+            </div>
             <input type="file" class="form-control" id="attachmentInput">
             <input type="hidden" id="attachment" name="attachment">
         </div>
+        </fieldset>
+        <fieldset class="mb-4">
+        <legend class="h5">공개 설정</legend>
         <div class="form-check mb-3">
             <input type="checkbox" class="form-check-input" id="isPublic" name="isPublic">
             <label for="isPublic" class="form-check-label">공개</label>
         </div>
-        <button type="submit" class="btn btn-primary">저장</button>
+        </fieldset>
+        <div class="admin-form-actions">
+            <a id="admin-form-cancel-link" href="/admin/boards" class="btn btn-outline-secondary">취소</a>
+            <button type="submit" id="saveButton" class="btn btn-primary">저장</button>
+        </div>
     </form>
-</div>
 
 <script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
 <script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-resize-plugin.js"></script>
+<script src="/js/admin/ckeditor-config.js"></script>
 <script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script src="/js/admin/board-file-upload.js"></script>
+<script src="/js/admin/admin-file-preview.js"></script>
+<script src="/js/admin/admin-list-state.js"></script>
 <script>
     var contentEditor = null;
+    var errorMessage = document.querySelector('#errorMessage');
+    var saveButton = document.querySelector('#saveButton');
 
-    var editorReady = ClassicEditor.create(document.querySelector('#content'))
+    // P14-T9D: 오류는 role=alert 영역에 표시하고 focus해 긴 form 아래쪽에서 저장해도 바로 보이게 한다.
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+        errorMessage.focus();
+    }
+
+    var editorReady = ClassicEditor.create(document.querySelector('#content'), AdminCkeditorConfig.EDITOR_CONFIG)
         .then(function (editor) {
             contentEditor = editor;
             AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
+            AdminCkeditorResizePlugin.bindResizeControls(editor, document.querySelector('#content-resize-controls'));
             return editor;
         })
         .catch(function (error) {
@@ -67,6 +137,36 @@
     }
 
     var editingBoardId = extractBoardIdFromPath();
+
+    // P14-T9D: 등록/수정이 같은 template이므로 수정 모드에서만 heading을 바꾸고 문서 title도 같은 의미로 맞춘다.
+    if (editingBoardId) {
+        document.querySelector('#admin-form-heading').textContent = '게시글 수정';
+    }
+    document.title = document.querySelector('#admin-form-heading').textContent;
+
+    // P14-T9D: 목록에서 넘어온 form URL query(boardType/keyword/page)를 allowlist 검증·정규화해 저장 후 이동과 취소가
+    // 같은 목록 상태로 돌아가게 한다(raw query 복사나 임의 복귀 URL 파라미터 없음, form URL 자체는 정규화하지 않음). 새 글은 첫 page에
+    // 나타나므로 등록 모드에서는 URL에 page가 있어도 page 0으로 돌아간다.
+    var listState = AdminListState.readState(AdminListState.BOARD_LIST, window.location.search);
+    if (!editingBoardId) {
+        listState.page = 0;
+    }
+    var listHref = AdminListState.listHref(AdminListState.BOARD_LIST, listState);
+    document.querySelector('#admin-form-cancel-link').href = listHref;
+
+    // P13-T30D(Task C): boardType이 REVIEW일 때만 programType 필드를 노출한다. REVIEW가 아닌 값으로
+    // 바뀌면 필드를 숨기고 값도 함께 비워(payload에서 항상 null로 나가도록) 서버에 stale programType이
+    // 실려 가지 않게 한다. REVIEW로 바뀌었을 때는 기존 선택값(있다면)을 지우지 않는다 - 이 함수는
+    // "숨김 전환 시 초기화"만 담당하고, 값 채우기는 아래 edit-mode 로딩/사용자의 직접 선택이 담당한다.
+    function updateProgramTypeVisibility() {
+        var isReview = document.querySelector('#boardType').value === 'REVIEW';
+        document.querySelector('#programTypeField').hidden = !isReview;
+        if (!isReview) {
+            document.querySelector('#programType').value = '';
+        }
+    }
+    document.querySelector('#boardType').addEventListener('change', updateProgramTypeVisibility);
+    updateProgramTypeVisibility();
 
     if (editingBoardId) {
         document.querySelector('#boardId').value = editingBoardId;
@@ -83,6 +183,12 @@
             var board = body.data;
 
             document.querySelector('#boardType').value = board.boardType;
+            // P13-T30D(Task C): 기존 REVIEW+NULL(legacy) 게시글은 board.programType이 없으므로 ''로
+            // 남겨 placeholder("후기 대상을 선택하세요")가 그대로 보이게 한다 - 절대 COURSE를 임의로
+            // 채우지 않는다. updateProgramTypeVisibility()는 REVIEW일 때 값을 건드리지 않으므로 이
+            // 대입 이후에 호출해도 방금 채운 값이 유지된다.
+            document.querySelector('#programType').value = board.programType || '';
+            updateProgramTypeVisibility();
             document.querySelector('#title').value = board.title;
             if (editor) {
                 editor.setData(board.content || '');
@@ -90,6 +196,21 @@
             document.querySelector('#thumbnail').value = board.thumbnail || '';
             document.querySelector('#attachment').value = board.attachment || '';
             document.querySelector('#isPublic').checked = board.isPublic;
+
+            AdminFilePreview.renderImagePreview(
+                document.querySelector('#thumbnailPreview'),
+                document.querySelector('#thumbnailPreviewImage'),
+                document.querySelector('#thumbnailPreviewLink'),
+                board.thumbnail);
+            AdminFilePreview.renderLinkPreview(
+                document.querySelector('#attachmentPreview'),
+                document.querySelector('#attachmentPreviewLink'),
+                board.attachment);
+            AdminFilePreview.loadAttachmentName(
+                document.querySelector('#attachmentPreviewNameWrap'),
+                document.querySelector('#attachmentPreviewName'),
+                board.attachment,
+                AdminFetch.adminFetch);
         });
     }
 
@@ -101,6 +222,11 @@
         AdminBoardFileUpload.uploadFile(file, AdminBoardFileUpload.THUMBNAIL_FILE_TYPE, AdminFetch.adminFetch)
             .then(function (url) {
                 document.querySelector('#thumbnail').value = url;
+                AdminFilePreview.renderImagePreview(
+                    document.querySelector('#thumbnailPreview'),
+                    document.querySelector('#thumbnailPreviewImage'),
+                    document.querySelector('#thumbnailPreviewLink'),
+                    url);
             })
             .catch(function (error) {
                 alert(error.message);
@@ -115,31 +241,77 @@
         AdminBoardFileUpload.uploadFile(file, AdminBoardFileUpload.ATTACHMENT_FILE_TYPE, AdminFetch.adminFetch)
             .then(function (url) {
                 document.querySelector('#attachment').value = url;
+                AdminFilePreview.renderLinkPreview(
+                    document.querySelector('#attachmentPreview'),
+                    document.querySelector('#attachmentPreviewLink'),
+                    url);
+                AdminFilePreview.loadAttachmentName(
+                    document.querySelector('#attachmentPreviewNameWrap'),
+                    document.querySelector('#attachmentPreviewName'),
+                    url,
+                    AdminFetch.adminFetch);
             })
             .catch(function (error) {
                 alert(error.message);
             });
     });
 
+    document.querySelector('#thumbnailRemoveButton').addEventListener('click', function () {
+        document.querySelector('#thumbnail').value = '';
+        AdminFilePreview.renderImagePreview(
+            document.querySelector('#thumbnailPreview'),
+            document.querySelector('#thumbnailPreviewImage'),
+            document.querySelector('#thumbnailPreviewLink'),
+            '');
+    });
+
+    document.querySelector('#attachmentRemoveButton').addEventListener('click', function () {
+        document.querySelector('#attachment').value = '';
+        AdminFilePreview.renderLinkPreview(
+            document.querySelector('#attachmentPreview'),
+            document.querySelector('#attachmentPreviewLink'),
+            '');
+        AdminFilePreview.loadAttachmentName(
+            document.querySelector('#attachmentPreviewNameWrap'),
+            document.querySelector('#attachmentPreviewName'),
+            '',
+            AdminFetch.adminFetch);
+    });
+
     document.querySelector('#boardForm').addEventListener('submit', function (event) {
         event.preventDefault();
 
-        var errorMessage = document.querySelector('#errorMessage');
         errorMessage.style.display = 'none';
+
+        var boardTypeValue = document.querySelector('#boardType').value;
+        var programTypeValue = document.querySelector('#programType').value;
+
+        // P13-T30D(Task C): REVIEW인데 placeholder(빈 값)인 채로는 저장을 막고 명시적 선택을
+        // 요구한다 - "브라우저가 COURSE를 기본 선택해서 무심코 저장되는" 경로를 클라이언트에서부터
+        // 차단한다(서버 MenuService/BoardService 쪽은 REVIEW+NULL을 계속 허용하는 것과 별개로,
+        // 이 화면을 통한 신규/수정 저장에서는 명시적 선택을 강제한다).
+        if (boardTypeValue === 'REVIEW' && !programTypeValue) {
+            showError('후기 대상(정규 강좌/특강)을 선택해야 합니다.');
+            return;
+        }
 
         var boardId = document.querySelector('#boardId').value;
         var payload = {
-            boardType: document.querySelector('#boardType').value,
+            boardType: boardTypeValue,
             title: document.querySelector('#title').value,
             content: contentEditor ? contentEditor.getData() : document.querySelector('#content').value,
             thumbnail: document.querySelector('#thumbnail').value || null,
             attachment: document.querySelector('#attachment').value || null,
-            isPublic: document.querySelector('#isPublic').checked
+            isPublic: document.querySelector('#isPublic').checked,
+            // REVIEW가 아니면 select 값이 남아있더라도 항상 null로 정규화해 전송한다.
+            programType: boardTypeValue === 'REVIEW' ? programTypeValue : null
         };
 
         var url = boardId ? '/api/admin/boards/' + boardId : '/api/admin/boards';
         var method = boardId ? 'PUT' : 'POST';
 
+        // P14-T9D: 요청 중 중복 submit 방지 - 실패하면 다시 활성화하고, 성공하면 이동하므로 비활성 상태로 둔다.
+        saveButton.disabled = true;
         AdminFetch.adminFetch(url, {
             method: method,
             headers: {'Content-Type': 'application/json'},
@@ -152,18 +324,19 @@
             })
             .then(function (result) {
                 if (result.ok && result.body.success) {
-                    window.location.href = '/admin/boards';
+                    window.location.href = listHref;
                 } else {
-                    errorMessage.textContent = (result.body.error && result.body.error.message)
-                        || '저장 중 오류가 발생했습니다.';
-                    errorMessage.style.display = 'block';
+                    saveButton.disabled = false;
+                    showError((result.body.error && result.body.error.message)
+                        || '저장 중 오류가 발생했습니다.');
                 }
             })
             .catch(function () {
-                errorMessage.textContent = '저장 중 오류가 발생했습니다.';
-                errorMessage.style.display = 'block';
+                saveButton.disabled = false;
+                showError('저장 중 오류가 발생했습니다.');
             });
     });
 </script>
+</div>
 </body>
 </html>

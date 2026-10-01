@@ -88,6 +88,11 @@ public class FileService {
     }
 
     @Transactional(readOnly = true)
+    public FileResponse get(Long id) {
+        return FileResponse.from(getOrThrow(id));
+    }
+
+    @Transactional(readOnly = true)
     public FileDownload download(Long id) {
         UploadFile uploadFile = getOrThrow(id);
         Path path = Path.of(uploadRoot, uploadFile.getPath());
@@ -95,7 +100,8 @@ public class FileService {
             throw new CustomException(ErrorCode.FILE_NOT_FOUND);
         }
         Resource resource = new FileSystemResource(path);
-        return new FileDownload(resource, uploadFile.getOriginalName(), uploadFile.getContentType());
+        return new FileDownload(resource, uploadFile.getOriginalName(), uploadFile.getContentType(),
+                uploadFile.getFileType());
     }
 
     @Transactional

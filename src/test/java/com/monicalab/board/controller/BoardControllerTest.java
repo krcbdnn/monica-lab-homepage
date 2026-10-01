@@ -1,5 +1,6 @@
 package com.monicalab.board.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,6 +12,7 @@ import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,9 +39,9 @@ class BoardControllerTest extends AbstractIntegrationTest {
     @Test
     void publicListReturnsOnlyPublicBoardsWithoutAuthentication() throws Exception {
         boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.NOTICE).title("공개 공지").viewCount(0).isPublic(true).build());
+                .boardType(BoardType.NOTICE).title("공개 공지").isPublic(true).build());
         boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.NOTICE).title("비공개 공지").viewCount(0).isPublic(false).build());
+                .boardType(BoardType.NOTICE).title("비공개 공지").isPublic(false).build());
 
         mockMvc.perform(get("/api/boards"))
                 .andExpect(status().isOk())
@@ -51,31 +53,49 @@ class BoardControllerTest extends AbstractIntegrationTest {
     @Test
     void publicDetailReturnsOkForPublicBoard() throws Exception {
         Board board = boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.GALLERY).title("공개 갤러리").viewCount(0).isPublic(true).build());
+                .boardType(BoardType.GALLERY).title("공개 갤러리").isPublic(true).build());
 
         mockMvc.perform(get("/api/boards/{id}", board.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.title").value("공개 갤러리"));
     }
 
+    // P13-T19: 조회수 기능 완전 제거. increaseViewCount 자체가 사라졌으므로 여러 번 조회해도
+    // updatedAt이 그대로임을(=UPDATE 미발생) 이 코드 구조에 대한 회귀 테스트로 확인하고,
+    // 응답에 viewCount 필드가 더 이상 존재하지 않음을 함께 확인한다.
     @Test
-    void publicDetailIncreasesViewCountAndReturnsLatestValue() throws Exception {
+    void publicDetailDoesNotMutateTheBoardRowAndResponseHasNoViewCountField() throws Exception {
         Board board = boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.NOTICE).title("조회수 대상 공지").viewCount(0).isPublic(true).build());
+                .boardType(BoardType.NOTICE).title("순수 조회 대상 공지").isPublic(true).build());
+        LocalDateTime updatedAtBeforeRequests = boardRepository.findById(board.getId())
+                .orElseThrow().getUpdatedAt();
 
         mockMvc.perform(get("/api/boards/{id}", board.getId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.viewCount").value(1));
+                .andExpect(jsonPath("$.data.viewCount").doesNotExist());
 
         mockMvc.perform(get("/api/boards/{id}", board.getId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.viewCount").value(2));
+                .andExpect(jsonPath("$.data.viewCount").doesNotExist());
+
+        LocalDateTime updatedAtAfterRequests = boardRepository.findById(board.getId())
+                .orElseThrow().getUpdatedAt();
+        assertThat(updatedAtAfterRequests).isEqualTo(updatedAtBeforeRequests);
+    }
+
+    // P13-T19: viewCount 필드/컬럼 제거로 더 이상 지원하는 정렬 필드가 아니다. 허용 목록에 없는
+    // 정렬 필드에 대한 기존 정책(INVALID_INPUT_VALUE 400)을 그대로 따르는지만 확인한다.
+    @Test
+    void publicListRejectsSortByViewCountAsInvalidInputValue() throws Exception {
+        mockMvc.perform(get("/api/boards").param("sort", "viewCount,DESC"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT_VALUE"));
     }
 
     @Test
     void publicDetailReturnsNotFoundForPrivateBoard() throws Exception {
         Board board = boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.ARCHIVE).title("비공개 자료").viewCount(0).isPublic(false).build());
+                .boardType(BoardType.ARCHIVE).title("비공개 자료").isPublic(false).build());
 
         mockMvc.perform(get("/api/boards/{id}", board.getId()))
                 .andExpect(status().isNotFound())
@@ -93,16 +113,16 @@ class BoardControllerTest extends AbstractIntegrationTest {
     void publicSearchAppliesBoardTypeAndKeywordAndExcludesPrivateBoards() throws Exception {
         Board matching = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("여름 공지 공개")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
         boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("여름 공지 비공개")
-                .viewCount(0).isPublic(false).build());
+                .isPublic(false).build());
         boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.GALLERY).title("여름 갤러리 공개")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
         boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("겨울 공지 공개")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         mockMvc.perform(get("/api/boards")
                         .param("boardType", "NOTICE")
@@ -115,7 +135,7 @@ class BoardControllerTest extends AbstractIntegrationTest {
     @Test
     void visibilityFalseTransitionExcludesBoardFromPublicListAndDetail() throws Exception {
         Board board = boardRepository.saveAndFlush(Board.builder()
-                .boardType(BoardType.NOTICE).title("공개였던 공지").viewCount(0).isPublic(true).build());
+                .boardType(BoardType.NOTICE).title("공개였던 공지").isPublic(true).build());
 
         mockMvc.perform(get("/api/boards/{id}", board.getId()))
                 .andExpect(status().isOk());

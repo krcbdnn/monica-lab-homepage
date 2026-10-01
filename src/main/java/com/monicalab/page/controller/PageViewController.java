@@ -1,5 +1,7 @@
 package com.monicalab.page.controller;
 
+import com.monicalab.common.util.ContentLinkRenderer;
+import com.monicalab.page.dto.PageResponse;
 import com.monicalab.page.entity.PageType;
 import com.monicalab.page.service.PageService;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +18,9 @@ public class PageViewController {
 
     @GetMapping("/pages/{type}")
     public String view(@PathVariable PageType type, Model model) {
-        model.addAttribute("page", pageService.getByType(type));
+        PageResponse page = pageService.getByType(type);
+        model.addAttribute("page", page);
+        model.addAttribute("renderedContent", ContentLinkRenderer.externalLinksOpenInNewTab(page.content()));
         return "home/page/detail";
     }
 }

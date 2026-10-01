@@ -46,6 +46,10 @@ Version 2.0
 - 도메인 리소스 없음: `{DOMAIN}_NOT_FOUND` 404
 - 정의되지 않은 서버 오류: `INTERNAL_SERVER_ERROR` 500
 
+## 오류 응답 형식: API와 HTML 화면 분리
+
+- **CURRENT(Phase 15, P15-T5)**: 이 문서의 `/api/**` 오류는 모두 JSON `ApiResponse`이며 변경되지 않았다(브라우저처럼 `text/html`을 우선하는 Accept로 요청해도 JSON). 공개 HTML 화면 경로(`/`, `/pages/**`, `/programs/**`, `/boards/**`)의 오류와 `/api/`로 시작하지 않는 매핑되지 않은 경로는 실제 HTTP status를 유지한 HTML 오류 페이지로 응답한다(없는/비공개 리소스와 경로 변수 변환 실패 404, 잘못된 query 400, 그 외 500). 관리자 HTML 화면(`/admin/**`) 안에서 발생한 상세 404는 Phase 15 범위 밖이며 JSON을 유지하고, Spring Security의 401/403 JSON과 `/admin/**` 미인증 redirect도 그대로다. 구조는 ARCHITECTURE.md "Exception > 오류 응답 경로 분리"를 따른다.
+
 ---
 
 # Authentication
@@ -71,6 +75,8 @@ Request `AdminLoginRequest`
 Response 200: `data`는 `id`, `loginId`, `name`, `role`을 가진 관리자 정보 객체. 성공 시 세션을 생성한다.
 
 Errors: `INVALID_INPUT_VALUE`(400), `AUTHENTICATION_FAILED`(401). 로그인 실패 사유로 계정 존재 여부를 노출하지 않는다.
+
+로그인 시도 제한(**CURRENT** — Phase 15, P15-T3): 운영 Nginx가 이 경로(정확히 `/api/admin/login`)에만 클라이언트 IP 기준 요청 제한(`5r/m`, `burst=5`, `nodelay`)을 적용한다. 제한을 넘으면 애플리케이션까지 전달되지 않고 Nginx가 HTTP `429`로 응답하며, 이 응답 본문은 `ApiResponse` JSON이 아니다(ErrorCode 카탈로그에 추가하지 않는다). 관리자 로그인 화면은 `429` 상태를 별도로 판별해 "로그인 시도가 너무 많다"는 안내를 표시한다. 애플리케이션 레벨 rate limiter/CAPTCHA는 두지 않는다. Nginx를 거치지 않는 실행(`./gradlew bootRun`, 테스트용 MockMvc 등)에는 제한이 없다.
 
 ## POST /api/admin/logout
 
@@ -101,6 +107,41 @@ Response 200 `AdminResponse`
 
 다른 관리자 계정을 조회/등록/수정하는 API는 제공하지 않는다.
 
+## PUT /api/admin/me/password (CURRENT — P15-T6)
+
+인증: ROLE_ADMIN + CSRF(`X-XSRF-TOKEN`)
+
+로그인한 관리자 본인의 비밀번호만 변경한다. 대상 계정 id를 요청으로 받지 않는다(인증 principal의 관리자 id만 사용).
+
+Request `AdminPasswordChangeRequest`
+
+| field | type | required | Validation |
+|---|---|---:|---|
+| currentPassword | String | Y | `@NotBlank` |
+| newPassword | String | Y | `@NotBlank`, `@Size(min = 8, max = 64)`, `@Pattern` - 공백을 제외한 ASCII 출력 문자(`!`~`~`, 0x21~0x7E)만 허용, 영문/숫자/특수문자(ASCII 기호) 중 2종 이상(CODING_RULES.md 비밀번호 정책) |
+
+```json
+{
+  "currentPassword": "********",
+  "newPassword": "********"
+}
+```
+
+- "새 비밀번호 확인"은 관리자 화면에서만 비교하며 이 API의 필드가 아니다.
+- 비ASCII 문자(한글 등)와 공백을 입력 단계에서 거부하므로 새 비밀번호는 항상 64byte 이하이고, BCrypt 입력 한도(72byte, 초과 시 encode 예외)에 도달하지 않는다.
+
+Response 200: `ApiResponse.success(null)`. 성공 시 현재 세션(로그인 상태)은 유지하되 세션 ID를 교체한다(`changeSessionId`, 세션 고정 방어). 같은 브라우저 세션의 이후 관리자 요청은 계속 인증된다.
+
+Errors:
+
+- `INVALID_INPUT_VALUE`(400): Validation 실패(`error.fields`에 필드별 정책 문구), 또는 `newPassword`가 현재 비밀번호와 같은 경우
+- `INVALID_CURRENT_PASSWORD`(400): `currentPassword` 불일치(세션 만료로 오인하지 않도록 401을 쓰지 않으며, 세션은 유지된다)
+- `UNAUTHORIZED`(401), `ACCESS_DENIED`(403, CSRF 토큰 누락 포함)
+
+비밀번호 원문/hash는 응답과 로그에 포함하지 않는다.
+
+비밀번호 찾기/재설정 API는 제공하지 않는다(분실 시 운영 절차, `docs/OPERATIONS.md` §5).
+
 ---
 
 # Dashboard
@@ -114,11 +155,18 @@ Response 200 `DashboardResponse.data`
 | field | type | 설명 |
 |---|---|---|
 | recentBoards | Array<BoardSummaryResponse> | 공개/비공개 전체 게시글 중 `createdAt DESC` 최대 5건 |
-| programStatus.OPEN | Long | 모집중 프로그램 수 |
-| programStatus.CLOSED | Long | 마감 프로그램 수 |
+| programStatus.OPEN | Long | 모집중 프로그램 수(공개/비공개 전체) |
+| programStatus.CLOSED | Long | 마감 프로그램 수(공개/비공개 전체) |
 | quickMenus | Array<QuickMenuResponse> | 아래 고정 관리자 내부 링크 6개. 각 항목은 `label`, `url` |
+| recentPrograms | Array<ProgramSummaryResponse> | 공개/비공개 전체 프로그램 중 `createdAt DESC` 최대 5건(본문 `content` 미포함) |
+| visiblePopupCount | long | 현재 노출 중인 팝업 수 - `isVisible = true`이고 `startDate ≤ 서버 현재 시각 ≤ endDate`(공개 팝업 조회와 같은 조건) |
+| visibleBannerCount | long | 노출(`isVisible = true`) 메인 배너 수(공개 배너 조회와 같은 조건) |
 
-`BoardSummaryResponse`: `id`, `boardType`, `title`, `isPublic`, `createdAt`.
+`BoardSummaryResponse`: `id`, `boardType`, `title`, `isPublic`, `createdAt`, `programType`(nullable - `REVIEW`의 후기 대상 `COURSE`/`SPECIAL`, 그 외 게시판 또는 대상 미지정 후기는 `null`).
+
+`ProgramSummaryResponse`: `id`, `programType`, `title`, `recruitStatus`, `isPublic`, `createdAt`.
+
+P14-T9E에서 `recentBoards[].programType`/`recentPrograms`/`visiblePopupCount`/`visibleBannerCount`를 **추가만** 했다(기존 필드 이름·의미 무변경). 관리자 대시보드 화면은 `quickMenus`를 더 이상 렌더링하지 않지만(sidebar와 중복) 호환을 위해 응답 필드는 유지한다.
 
 `quickMenus`는 별도 Entity/DB 설정 없이 다음 고정 순서로 반환한다.
 
@@ -215,6 +263,8 @@ Response 200: `PageResponse<ProgramResponse>`.
 
 인증: ROLE_ADMIN. 비공개 포함 단건 조회. 존재하지 않으면 `PROGRAM_NOT_FOUND`(404).
 
+참고: 관리자 읽기 전용 상세 화면 `/admin/programs/{id}`는 이 API를 호출하지 않고 같은 관리자 조회 데이터를 서버 측에서 렌더링한다(REST API 항목 아님).
+
 ## POST /api/admin/programs
 
 인증: ROLE_ADMIN. Request: `ProgramRequest`의 POST 규칙.
@@ -255,29 +305,27 @@ Response 204. 존재하지 않으면 `PROGRAM_NOT_FOUND`(404).
 
 # Board
 
-`boardType`: `NOTICE`, `GALLERY`, `ARCHIVE`
+`boardType`: `NOTICE`, `GALLERY`, `ARCHIVE`, `REVIEW`
 
 `BoardRequest`
 
 | field | type | POST required | PUT required | default / Validation |
 |---|---|---:|---:|---|
-| boardType | String(enum) | Y | Y | NOTICE/GALLERY/ARCHIVE |
+| boardType | String(enum) | Y | Y | NOTICE/GALLERY/ARCHIVE/REVIEW |
 | title | String | Y | Y | `@NotBlank`, max 200 |
 | content | String | N | N | 저장 전 HtmlSanitizer 적용 |
 | thumbnail | String | N | N | max 255 |
 | attachment | String | N | N | max 255 |
 | isPublic | Boolean | N | Y | POST 생략 시 `false` |
 
-`viewCount`는 서버 관리 필드이므로 Request에 받지 않는다. 생성 시 0이며 공개 상세 조회 시 TASK.md의 조회수 정책에 따라 증가한다.
-
-`BoardResponse`: `id`, `boardType`, `title`, `content`, `thumbnail`, `attachment`, `viewCount`, `isPublic`, `createdAt`, `updatedAt`.
+`BoardResponse`: `id`, `boardType`, `title`, `content`, `thumbnail`, `attachment`, `isPublic`, `createdAt`, `updatedAt`.
 
 ## GET /api/boards
 
 인증: 불필요. `isPublic=true`만 반환한다.
 
 Query: 공통 `page`, `size`, `sort` + `boardType`(optional), `keyword`(optional; 제목/내용).  
-허용 sort: `createdAt`, `title`, `viewCount`. 기본 `createdAt,DESC`.
+허용 sort: `createdAt`, `title`. 기본 `createdAt,DESC`.
 
 Response 200: `PageResponse<BoardResponse>`.
 
@@ -292,6 +340,8 @@ Response 200: `PageResponse<BoardResponse>`.
 ## GET /api/admin/boards/{id}
 
 인증: ROLE_ADMIN. 비공개 포함 단건 조회.
+
+참고: 관리자 읽기 전용 상세 화면 `/admin/boards/{id}`는 이 API를 호출하지 않고 같은 관리자 조회 데이터를 서버 측에서 렌더링한다(REST API 항목 아님).
 
 ## POST /api/admin/boards
 
@@ -324,7 +374,7 @@ Response 204.
 | title | String | Y | Y | `@NotBlank`, max 100 |
 | image | String | Y | Y | `@NotBlank`, max 255 |
 | linkUrl | String | N | N | max 500; 값이 있으면 http/https URL 형식 |
-| sortOrder | Integer | Y | Y | `>= 0` |
+| sortOrder | Integer | Y | Y | `>= 0`; 공개 메인 캐러셀 노출 순서를 의미하며 값이 작을수록 먼저 노출됨 |
 | isVisible | Boolean | N | Y | POST 생략 시 `false` |
 
 `BannerResponse`: `id`, 위 필드 전체, `createdAt`, `updatedAt`.
@@ -435,6 +485,14 @@ Response 200: `PageResponse<FileResponse>`.
 
 이 API는 `AdminFileController → FileService → FileRepository → UploadFile` 체인으로 조회하며 P9 `/admin/files` 화면의 데이터 소스다.
 
+## GET /api/admin/files/{id}
+
+인증: ROLE_ADMIN. 단건 조회. `FileService.get()`이 `download()`/`delete()`가 이미 쓰는 내부 조회를 재사용한다.
+
+Response 200: `FileResponse`. 존재하지 않으면 `FILE_NOT_FOUND`(404).
+
+Board/Program 등 다른 도메인은 `thumbnail`/`attachment`에 File.id를 참조하는 FK 없이 URL 문자열만 저장하므로(위 File 섹션 및 ERD.md 참고), 관리자 화면이 이 URL로부터 `originalName` 등 파일 메타데이터를 조회할 때 이 API를 사용한다(P13-T22).
+
 ## POST /api/admin/files
 
 인증: ROLE_ADMIN. `multipart/form-data`.
@@ -471,13 +529,143 @@ Program 썸네일/Board 대표이미지/CKEditor 이미지는 `IMAGE`, Program/B
 
 ## GET /api/files/{id}
 
-인증: 불필요. 파일 스트림 다운로드/표시. 존재하지 않으면 `FILE_NOT_FOUND`(404).
+인증: 불필요. 파일 스트림 다운로드/표시. `Content-Disposition`은 업로드 시 저장된 `fileType`에 따라 분기한다: `fileType=IMAGE`는 `inline`(배너/썸네일/CKEditor 이미지 등 `<img>` 렌더링용), `fileType=ATTACHMENT`는 `attachment`(Board/Program 첨부파일 다운로드용)이며, 두 경우 모두 `filename*=UTF-8''{원본 파일명}`을 포함한다. 존재하지 않으면 `FILE_NOT_FOUND`(404).
 
 ## DELETE /api/admin/files/{id}
 
 인증: ROLE_ADMIN. UploadFile 레코드와 실제 파일을 함께 삭제한다. 다른 도메인 문자열 URL 참조를 자동 정리하지 않는 ERD.md의 orphan 정책을 유지한다.
 
 Response 204. 존재하지 않으면 `FILE_NOT_FOUND`(404), I/O 실패는 `FILE_UPLOAD_FAILED`(500).
+
+---
+
+# Menu
+
+P13-T30A 기준. 공개 헤더는 아직 이 데이터를 사용하지 않으며(공개 헤더는 하드코딩 유지), 관리자 CRUD만 제공한다. 공개 조회 API(`GET /api/menus`)는 아직 없다.
+
+`targetType`: `GROUP`, `HOME`, `PAGE`, `PROGRAM_LIST`, `BOARD_LIST`, `INTERNAL_URL`, `EXTERNAL_URL`
+
+`MenuRequest`
+
+| field | type | POST required | PUT required | default / Validation |
+|---|---|---:|---:|---|
+| label | String | Y | Y | `@NotBlank`, max 50 |
+| parentId | Long | N | N | 지정 시 해당 id의 메뉴가 존재하고 `targetType=GROUP`이어야 함(그 외는 `INVALID_INPUT_VALUE` 400). 자기 자신 지정 불가 |
+| targetType | String(enum) | Y | Y | 위 enum 값 |
+| targetValue | String | 조건부 | 조건부 | max 255. GROUP/HOME은 NULL이어야 함(값 있으면 400), PAGE는 `PageType` 값 필수, PROGRAM_LIST/BOARD_LIST는 각각 `ProgramType`/`BoardType` 값(NULL이면 전체), INTERNAL_URL은 `/`로 시작하고 `//`(프로토콜 상대)는 거부, EXTERNAL_URL은 `^https?://.+`만 허용 |
+| sortOrder | Integer | Y | Y | `>= 0` |
+| visible | Boolean | N | Y | POST 생략 시 `false` |
+| openInNewTab | Boolean | N | Y | POST 생략 시 `false`. `targetType`과 무관하게 독립적으로 설정 가능(EXTERNAL_URL이라도 자동으로 true가 되지 않음) |
+
+`targetType=GROUP`이면 `parentId`는 반드시 `null`이어야 한다(GROUP은 항상 최상위, 위반 시 `INVALID_INPUT_VALUE` 400).
+
+`MenuResponse`: `id`, `label`, `parentId`, `targetType`, `targetValue`, `sortOrder`, `visible`, `openInNewTab`, `createdAt`, `updatedAt`.
+
+## GET /api/admin/menus
+
+인증: ROLE_ADMIN. 노출 여부와 관계없이 전체 반환. 비페이징 배열 응답이며 `sort` 쿼리는 없다(부모 바로 뒤에 그 자식들이 오는 고정 트리 순서로 서버가 응답을 구성함).
+
+## GET /api/admin/menus/{id}
+
+인증: ROLE_ADMIN. 단건 조회. 존재하지 않으면 `MENU_NOT_FOUND`(404).
+
+## POST /api/admin/menus
+
+Request: `MenuRequest` POST 규칙. Response 201: `MenuResponse`.
+
+## PUT /api/admin/menus/{id}
+
+Request: 동일 `MenuRequest` PUT 규칙. 자식이 있는 메뉴를 GROUP이 아닌 `targetType`으로 변경하면 `MENU_HAS_CHILDREN`(409). Response 200: `MenuResponse`.
+
+## PATCH /api/admin/menus/{id}/visibility
+
+```json
+{"visible": true}
+```
+
+`visible`: Boolean, required. Response 200: `MenuResponse`.
+
+## PATCH /api/admin/menus/{id}/order
+
+```json
+{"sortOrder": 1}
+```
+
+`sortOrder`: Integer, required, `>=0`. Response 200: `MenuResponse`.
+
+## DELETE /api/admin/menus/{id}
+
+자식이 있으면 `MENU_HAS_CHILDREN`(409). 없으면 Response 204. 존재하지 않으면 `MENU_NOT_FOUND`(404).
+
+---
+
+# HomePinnedContent(P13-T38A)
+
+관리자가 기존 Board/Program 중에서 선택해 메인 화면 상단에 고정하기 위한 API다. 공개 API는 없다(공개 메인 렌더링은 P13-T38B에서 서버사이드 렌더링으로 처리하며 별도 공개 JSON API를 두지 않는다). 콘텐츠 검색은 신규 API를 추가하지 않고 기존 `GET /api/admin/boards`, `GET /api/admin/programs`를 그대로 사용한다.
+
+`HomePinnedContentRequest`
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| targetType | String(`BOARD`/`PROGRAM`) | Y | |
+| targetId | Long | Y | 대상 Board/Program의 id. 존재하지 않거나 비공개(`isPublic=false`)면 거부 |
+| sortOrder | Integer | Y | `>=0` |
+| visible | Boolean | N | 생략 시 `true`(Menu/Banner의 기본값 `false`와 다름 — 고정 추가는 곧 노출 의도이므로) |
+
+`HomePinnedContentResponse`: `id`, `targetType`, `targetId`, `sortOrder`, `visible`, `sourceStatus`(`PUBLIC`/`PRIVATE`/`DELETED`, DB 컬럼이 아니라 조회 시점에 원본을 다시 확인해 계산하는 값), `sourceTitle`(DELETED면 `null`), `sourceUrl`(관리자 수정 화면 경로 `/admin/boards/{id}/edit` 또는 `/admin/programs/{id}/edit`, DELETED면 `null`), `createdAt`, `updatedAt`.
+
+## GET /api/admin/home-pinned-contents
+
+인증: ROLE_ADMIN. 노출 여부와 관계없이 전체 반환. 비페이징 배열 응답, `sortOrder ASC, id ASC` 고정 정렬.
+
+## POST /api/admin/home-pinned-contents
+
+Request: `HomePinnedContentRequest`. `targetId`가 존재하지 않거나 비공개면 `INVALID_INPUT_VALUE`(400). 이미 고정된 `(targetType, targetId)`면 `HOME_PINNED_CONTENT_DUPLICATE`(409). Response 201: `HomePinnedContentResponse`.
+
+## PATCH /api/admin/home-pinned-contents/{id}/visibility
+
+```json
+{"visible": true}
+```
+
+`visible`: Boolean, required. Response 200: `HomePinnedContentResponse`.
+
+## PATCH /api/admin/home-pinned-contents/{id}/order
+
+```json
+{"sortOrder": 1}
+```
+
+`sortOrder`: Integer, required, `>=0`. Response 200: `HomePinnedContentResponse`.
+
+## DELETE /api/admin/home-pinned-contents/{id}
+
+고정 레코드만 삭제한다(원본 Board/Program에는 영향 없음). Response 204. 존재하지 않으면 `HOME_PINNED_CONTENT_NOT_FOUND`(404).
+
+---
+
+# Theme(P14-T8B)
+
+공개 홈페이지 디자인 설정(포인트 컬러 프리셋 + 메인 섹션 노출 여부) 조회/저장 API다. 설정은 `SITE_THEME` 1건뿐이며 요청으로 key/id를 받지 않는다. 공개 JSON API는 없다(공개 화면은 서버사이드 렌더링에서 `ThemeControllerAdvice`가 공급하는 값을 사용).
+
+`SiteThemeSettingView`(응답) / `SiteThemeSettingRequest`(요청)
+
+| field | type | required(PUT) | 설명 |
+|---|---|---:|---|
+| accentPreset | String(enum) | Y | `TERRACOTTA`/`BURGUNDY`/`FOREST` |
+| showPinned | Boolean | Y | 메인 "주요 소식" 섹션 노출 |
+| showPrograms | Boolean | Y | 메인 프로그램 섹션 노출 |
+| showReviews | Boolean | Y | 메인 강의 후기 섹션 노출 |
+| showNotices | Boolean | Y | 메인 공지사항 섹션 노출 |
+| showGallery | Boolean | Y | 메인 갤러리 섹션 노출 |
+
+## GET /api/admin/theme
+
+인증: ROLE_ADMIN. Response 200: `SiteThemeSettingView`. 설정 행이 없으면 DB write 없이 기본값(`TERRACOTTA`, 5개 노출 모두 `true`)을 반환한다.
+
+## PUT /api/admin/theme
+
+인증: ROLE_ADMIN. Request: `SiteThemeSettingRequest`(6개 필드 모두 필수, 누락/잘못된 enum이면 `INVALID_INPUT_VALUE` 400). Response 200: 저장된 `SiteThemeSettingView`. 설정 행이 없으면 자동 생성하지 않고 `SITE_THEME_SETTING_NOT_FOUND`(404).
 
 ---
 
@@ -491,6 +679,8 @@ Response 204. 존재하지 않으면 `FILE_NOT_FOUND`(404), I/O 실패는 `FILE_
 | Banner | `isVisible=true`만 | 노출/비노출 모두 |
 | Popup | `isVisible=true` + 노출기간 내 | 노출/비노출/기간 외 모두 |
 | File | id 기반 다운로드만 | 업로드 이력 목록 + 업로드/삭제 |
+| Menu | 없음(P13-T30A 기준 공개 API 미제공) | 노출 여부와 관계없이 전체 반환 |
+| Theme | 없음(공개 화면은 서버사이드 렌더링) | `SITE_THEME` 설정 1건 |
 
 ---
 
@@ -501,7 +691,8 @@ Response 204. 존재하지 않으면 `FILE_NOT_FOUND`(404), I/O 실패는 `FILE_
 - 마이페이지
 - 상담 신청
 - 신청 데이터 저장
-- 관리자 계정 등록/수정/목록 API
+- 관리자 계정 등록/수정/목록 API(단, 로그인한 관리자 본인의 비밀번호 변경 `PUT /api/admin/me/password`는 예외 - P15-T6 CURRENT)
+- 관리자 비밀번호 찾기/재설정 API
 - Page POST/DELETE
 
 프로그램 신청은 저장하지 않고 `googleFormUrl`로 이동한다.

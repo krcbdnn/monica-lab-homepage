@@ -1,5 +1,73 @@
 // @ts-check
-const { test, expect } = require('@playwright/test');
+const { test, expect, createTracker, observeCreate, observeNavigatingCreate } = require('./support/e2e-fixtures');
+const { postAdminLogin, loginViaAdminLoginPage } = require('./support/admin-login');
+
+// 여러 describe 블록(Hero 배너 캐러셀, 긴 제목 오버플로우, 메인 카드 폭)이 공통으로 쓰는
+// 관리자 로그인/CSRF 헬퍼. 각 블록은 이 두 함수만 공유하고, 무엇을 생성/삭제할지는 각자 정의한다.
+const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+async function loginAsAdmin(context, baseURL) {
+  const response = await postAdminLogin(context.request, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD }, {
+    url: `${baseURL}/api/admin/login`,
+  });
+  expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
+}
+
+async function getXsrfToken(context) {
+  const cookies = await context.cookies();
+  const xsrfCookie = cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
+  expect(xsrfCookie, 'XSRF-TOKEN 쿠키가 발급되어 있어야 한다').toBeTruthy();
+  return xsrfCookie.value;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// popup-modal.js와 동일한 "오늘 하루 보지 않기" localStorage 키 규칙.
+// 이 파일의 모든 describe가 공유한다 - 아래 파일 전역 beforeEach가 실제로 떠 있는 Popup을
+// 모든 테스트에서 억제하는 데 쓰고, "공개 Popup 레이어" describe는 자신이 만든 A/B 테스트를
+// 위해 같은 규칙을 다시 사용한다.
+const POPUP_STORAGE_KEY_PREFIX = 'popup-hide-until:';
+
+function popupPad2(n) {
+  return n < 10 ? '0' + n : '' + n;
+}
+
+function popupTodayLocalDateString() {
+  const now = new Date();
+  return now.getFullYear() + '-' + popupPad2(now.getMonth() + 1) + '-' + popupPad2(now.getDate());
+}
+
+async function fetchExistingPublicPopupIds(context, baseURL) {
+  const response = await context.request.get(`${baseURL}/api/popups`);
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json();
+  return body.data.map((popup) => String(popup.id));
+}
+
+// P13-T11 도입 이후 실DB에 현재 활성 상태인 실Popup이 있으면(개수/여부 통제 불가) 전체 화면을
+// 덮는 overlay가 뜬다. 이 파일의 다른 describe(햄버거 메뉴, Hero 캐러셀, 반응형 뷰포트 등)는
+// Popup을 전혀 알지 못하므로, 그 overlay가 클릭/포커스를 가로채 무관한 테스트를 깨뜨릴 수 있다.
+// 그래서 "실제로 지금 떠 있는 Popup을 이 테스트 브라우저 컨텍스트에서만 오늘 하루 보지 않기로
+// 미리 처리"하는 로직을 특정 describe 안이 아니라 파일 전역 beforeEach로 올려 모든 테스트에
+// 공통 적용한다. 실Popup은 삭제/수정/visibility 변경을 전혀 하지 않는다.
+let globalPreExistingPopupIds = [];
+
+test.beforeEach(async ({ context, baseURL }) => {
+  globalPreExistingPopupIds = await fetchExistingPublicPopupIds(context, baseURL);
+  const todayString = popupTodayLocalDateString();
+
+  await context.addInitScript(
+    ({ ids, today, prefix }) => {
+      ids.forEach((id) => {
+        window.localStorage.setItem(prefix + id, today);
+      });
+    },
+    { ids: globalPreExistingPopupIds, today: todayString, prefix: POPUP_STORAGE_KEY_PREFIX }
+  );
+});
 
 // P11-T1: 반응형 적용 검증.
 // 대상은 빈 DB에서도 안정적으로 검증 가능한 공개 주요 화면으로 한정한다.
@@ -7,7 +75,10 @@ const { test, expect } = require('@playwright/test');
 
 const VIEWPORTS = [
   { name: '375px (mobile)', width: 375, height: 812 },
-  { name: '768px (tablet)', width: 768, height: 1024 },
+  // P13-T30D(A2): 900px 미만은 hamburger/accordion 구간이므로 라벨을 "tablet"이 아니라
+  // "mobile nav"로 바꿔 아래 MOBILE_BREAKPOINT 기준 분기와 일치시킨다(§1).
+  { name: '768px (tablet, mobile nav)', width: 768, height: 1024 },
+  { name: '1024px (tablet landscape)', width: 1024, height: 768 },
   { name: '1440px (desktop)', width: 1440, height: 900 },
 ];
 
@@ -16,14 +87,21 @@ const PAGES = [
     path: '/',
     label: '메인',
     nav: '#quick-menu',
-    main: '#greeting',
-    button: '#program-shortcut a.btn',
+    main: '#latest-programs',
+    button: '#latest-programs .section-title__link',
   },
   {
     path: '/pages/GREETING',
-    label: '기관소개(인사말)',
+    label: '인사말',
     nav: null,
-    main: 'h2',
+    main: 'h1',
+    button: null,
+  },
+  {
+    path: '/pages/INTRODUCTION',
+    label: '연구소 소개',
+    nav: null,
+    main: 'h1',
     button: null,
   },
   {
@@ -42,6 +120,16 @@ const PAGES = [
   },
 ];
 
+// P13-T1: 공개 공통 Header가 도입되면서 메인 페이지의 주요 내비게이션(#quick-menu)은
+// 모바일(900px 미만)에서 햄버거 토글(#nav-toggle) 뒤로 접힌다.
+// 900px 이상(태블릿/데스크톱)에서는 기존과 동일하게 내비게이션이 바로 visible해야 한다.
+// P13-T30D(A2): 기존 768px에서 900px로 상향. 최종 IA(top-level 8개)가 label 줄바꿈 없이 한 줄로
+// 들어가는 실측 최소 폭이 900px이고(home.css의 `@media (min-width: 900px)` 블록 주석 참고),
+// 그 아래에서 desktop nav를 강제로 보여주면 정상 기본 상태가 2줄 header가 되므로 hamburger 구간을
+// 이 경계까지 넓혔다 - A1 hover/open 강조, mobile accordion과 항상 같은 900px 경계를 공유한다.
+const HEADER_NAV_SELECTOR = '#quick-menu';
+const MOBILE_BREAKPOINT = 900;
+
 for (const viewport of VIEWPORTS) {
   test.describe(`반응형 뷰포트 ${viewport.name}`, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
@@ -56,7 +144,10 @@ for (const viewport of VIEWPORTS) {
         });
         expect(overflow, '문서 scrollWidth가 clientWidth를 초과하면 수평 overflow가 발생한 것이다').toBeLessThanOrEqual(0);
 
-        if (target.nav) {
+        if (target.nav === HEADER_NAV_SELECTOR && viewport.width < MOBILE_BREAKPOINT) {
+          await expect(page.locator('#nav-toggle')).toBeVisible();
+          await expect(page.locator('#site-nav')).toBeHidden();
+        } else if (target.nav) {
           await expect(page.locator(target.nav).first()).toBeVisible();
         }
         await expect(page.locator(target.main).first()).toBeVisible();
@@ -67,3 +158,5504 @@ for (const viewport of VIEWPORTS) {
     }
   });
 }
+
+// P13-T1: 모바일 햄버거 메뉴 동작/접근성 검증.
+test.describe('모바일 햄버거 메뉴', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test('기본 상태에서는 토글 버튼만 보이고 메뉴는 닫혀 있다', async ({ page }) => {
+    await page.goto('/');
+
+    const toggle = page.locator('#nav-toggle');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#site-nav')).toBeHidden();
+  });
+
+  test('토글 클릭 시 메뉴가 열리고 다시 클릭하면 닫힌다', async ({ page }) => {
+    await page.goto('/');
+    const toggle = page.locator('#nav-toggle');
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    // P14-T2A: "소식·자료"/"강의 후기"가 다시 GROUP이 되어, HOME(정적 링크) + 4개 GROUP trigger
+    // (연구소 소개/수강 신청/소식·자료/강의 후기)가 모바일 accordion에 노출된다. 공지사항/갤러리/
+    // 자료실/전체(강의 후기 REVIEW)는 더 이상 top-level 링크가 아니라 각 GROUP의 submenu child다.
+    // 전체메뉴(mega menu) 트리거는 모바일에서 숨겨진다(hamburger accordion과 동일 정보가 중복되는 것을 피함).
+    await expect(page.locator('#quick-menu > li:first-child > a[href="/"]')).toBeVisible();
+    const groupTriggers = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
+    await expect(groupTriggers).toHaveCount(4);
+    await expect(groupTriggers.nth(0)).toHaveText('연구소 소개');
+    await expect(groupTriggers.nth(1)).toHaveText('수강 신청');
+    await expect(groupTriggers.nth(2)).toHaveText('소식·자료');
+    await expect(groupTriggers.nth(3)).toHaveText('강의 후기');
+    // 강의 후기는 더 이상 top-level 링크가 아니라 GROUP의 submenu child("전체")다.
+    const reviewLeafLink = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) .site-nav__submenu a', { hasText: '전체' });
+    await expect(reviewLeafLink).toHaveAttribute('href', '/boards?boardType=REVIEW');
+    await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#site-nav')).toBeHidden();
+  });
+
+  test('키보드로 토글에 포커스 후 Enter로 열고 Escape로 닫으면 포커스가 토글로 복귀한다', async ({ page }) => {
+    await page.goto('/');
+    const toggle = page.locator('#nav-toggle');
+
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#site-nav')).toBeHidden();
+    await expect(toggle).toBeFocused();
+  });
+
+  test('모바일에서 메뉴를 연 채로 데스크톱 크기로 리사이즈해도 내비게이션이 계속 보인다(CSS 우선 처리)', async ({ page }) => {
+    await page.goto('/');
+    const toggle = page.locator('#nav-toggle');
+
+    await toggle.click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator('#site-nav')).toBeVisible();
+    // P14-T2A: 데스크톱 폭으로 전환되면 4개 GROUP trigger(연구소 소개/수강 신청/소식·자료/강의 후기)에
+    // 더해 전체메뉴(mega menu) 트리거도 다시 노출된다.
+    const groupTriggers = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
+    await expect(groupTriggers).toHaveCount(4);
+    await expect(page.locator('[data-menu-id="all"]')).toBeVisible();
+  });
+});
+
+// P13-T9: Hero 배너 캐러셀.
+// 로컬/Docker DB에 이미 등록돼 있을 수 있는 배너 개수(0개일 수도, N개일 수도 있음)에 의존하지 않기 위해,
+// 이 describe 블록은 매 테스트마다 관리자 API로 고유한 제목의 배너 3개를 만들고 끝나면 그 3개만 삭제한다.
+// 그 외 기존에 등록돼 있던 배너는 절대 건드리지 않는다.
+//
+// "정확히 0개/1개"일 때의 계약(hero__empty 유지, 컨트롤 전부 숨김)은 여기서 검증하지 않는다.
+// 실제 서비스 DB에서 배너를 전부 지우거나 정확히 1개만 남기는 건 파괴적인 작업이라 안전하게 재현할 수 없고,
+// 해당 두 상태는 이미 격리된 DB에서 도는 HomeControllerTest(heroShowsEmptyStateWhenNoBannersExist,
+// heroHidesControlsWhenOnlyOneBannerExists)가 결정적으로 검증하고 있으므로 이 파일의 범위에서 제외한다
+// (Program/Board 상세를 이 파일에서 제외한 것과 동일한 원칙, 4-6행 주석 참고).
+//
+// 실제 5초 자동전환 타이머가 정말 동작하는지 확인하는 케이스는 아래 "기본 상태에서 5초 후 다음 배너로
+// 자동 전환된다" 1건으로 최소화했다. 나머지 케이스(일시정지/hover/reduced-motion)는 상태(재생-일시정지 버튼의
+// 표시 텍스트/aria-label, hidden 속성) 변화만 즉시 확인하거나 5초보다 훨씬 짧은 대기(1.5초)로 "전환되지
+// 않았음"만 확인한다.
+test.describe('Hero 배너 캐러셀', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  async function createBanner(context, baseURL, xsrfToken, title, sortOrder) {
+    const response = await context.request.post(`${baseURL}/api/admin/banners`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      // sortOrder를 매우 큰 값으로 주어, 기존에 등록돼 있을 수 있는 실제 배너보다 항상 뒤쪽에 오도록 한다.
+      // image도 sortOrder 기반으로 배너마다 다른 경로를 줘서, 네트워크 요청을 배너별로 구분할 수 있게 한다
+      // (실제 파일 존재 여부는 이 테스트들의 관심사가 아니다 - 요청이 발생하는 시점만 본다).
+      data: { title, image: `/api/files/${sortOrder}`, sortOrder, isVisible: true },
+    });
+    expect(response.ok()).toBeTruthy();
+    const body = await response.json();
+    return body.data.id;
+  }
+
+  let xsrfToken;
+  let bannerIds;
+  let titles;
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+
+    const runId = Date.now();
+    titles = [`캐러셀 테스트 A ${runId}`, `캐러셀 테스트 B ${runId}`, `캐러셀 테스트 C ${runId}`];
+    bannerIds = [];
+    for (let i = 0; i < titles.length; i++) {
+      const id = tracker.track('banner', await createBanner(context, baseURL, xsrfToken, titles[i], 900000 + i));
+      bannerIds.push(id);
+    }
+  });
+
+  function slideFor(page, title) {
+    return page.locator('.hero__slide').filter({ has: page.locator(`img[alt="${title}"]`) });
+  }
+
+  function indicatorFor(page, title) {
+    return page.getByRole('button', { name: `${title} 배너로 이동` });
+  }
+
+  test('배너 2개 이상이면 이전/다음/재생-일시정지/인디케이터 컨트롤이 모두 보인다', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.locator('#hero-prev')).toBeVisible();
+    await expect(page.locator('#hero-next')).toBeVisible();
+    await expect(page.locator('#hero-play-pause')).toBeVisible();
+    await expect(indicatorFor(page, titles[0])).toBeVisible();
+    await expect(indicatorFor(page, titles[1])).toBeVisible();
+    await expect(indicatorFor(page, titles[2])).toBeVisible();
+  });
+
+  test('인디케이터 클릭 시 해당 배너로 즉시 이동한다', async ({ page }) => {
+    await page.goto('/');
+
+    await indicatorFor(page, titles[1]).click();
+    await expect(slideFor(page, titles[1])).not.toHaveAttribute('hidden', '');
+    await expect(indicatorFor(page, titles[1])).toHaveAttribute('aria-current', 'true');
+  });
+
+  test('다음/이전 버튼으로 배너 사이를 이동할 수 있다', async ({ page }) => {
+    await page.goto('/');
+
+    await indicatorFor(page, titles[0]).click();
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+
+    await page.locator('#hero-next').click();
+    await expect(slideFor(page, titles[1])).not.toHaveAttribute('hidden', '');
+
+    await page.locator('#hero-prev').click();
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+  });
+
+  test('키보드로 컨트롤에 포커스한 뒤 화살표 키로 배너를 전환할 수 있다', async ({ page }) => {
+    await page.goto('/');
+
+    await indicatorFor(page, titles[0]).click();
+    await page.locator('#hero-next').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(slideFor(page, titles[1])).not.toHaveAttribute('hidden', '');
+
+    await page.keyboard.press('ArrowLeft');
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+  });
+
+  test('비활성 슬라이드 내부 링크/이미지는 hidden 처리되어 보이지도, 포커스되지도 않는다', async ({ page }) => {
+    await page.goto('/');
+
+    await indicatorFor(page, titles[0]).click();
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+    await expect(slideFor(page, titles[1])).toHaveAttribute('hidden', '');
+    await expect(slideFor(page, titles[1]).locator('.hero__link')).toBeHidden();
+  });
+
+  test('재생/일시정지 버튼 클릭 시 표시 텍스트와 aria-label이 토글되고, 일시정지 후에는 마우스가 벗어나도 자동전환이 재개되지 않는다', async ({ page }) => {
+    await page.goto('/');
+    const playPause = page.locator('#hero-play-pause');
+
+    // 이 버튼은 "다음 클릭에 일어날 동작"을 라벨로 보여주는 재생/일시정지 토글이므로 aria-pressed는 쓰지 않는다.
+    // 기본 상태는 자동전환 중이므로 "지금 누르면 일시정지된다"는 뜻의 "일시정지"가 보여야 한다.
+    await expect(playPause).toHaveText('일시정지');
+    await expect(playPause).toHaveAttribute('aria-label', '배너 자동 전환 일시정지');
+
+    await playPause.click();
+    // 일시정지 상태가 되면 "지금 누르면 재생된다"는 뜻의 "재생"으로 바뀌어야 한다.
+    await expect(playPause).toHaveText('재생');
+    await expect(playPause).toHaveAttribute('aria-label', '배너 자동 전환 재생');
+
+    await indicatorFor(page, titles[0]).click();
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(1500);
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+  });
+
+  test('마우스 hover 동안에는 자동전환이 일시정지된다', async ({ page }) => {
+    await page.goto('/');
+
+    await indicatorFor(page, titles[0]).click();
+    await page.locator('#hero-viewport').hover();
+    await page.waitForTimeout(1500);
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+  });
+
+  test('prefers-reduced-motion: reduce 환경에서는 자동전환이 시작되지 않는다', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+
+    await indicatorFor(page, titles[0]).click();
+    // 초기 상태가 일시정지이므로 "지금 누르면 재생된다"는 뜻의 "재생"이 보여야 한다.
+    await expect(page.locator('#hero-play-pause')).toHaveText('재생');
+    await expect(page.locator('#hero-play-pause')).toHaveAttribute('aria-label', '배너 자동 전환 재생');
+    await page.waitForTimeout(1500);
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+  });
+
+  test('reduced-motion 환경이어도 재생 버튼을 명시적으로 누르면 자동전환이 허용된다', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    const playPause = page.locator('#hero-play-pause');
+
+    await expect(playPause).toHaveText('재생');
+    await playPause.click();
+    await expect(playPause).toHaveText('일시정지');
+    await expect(playPause).toHaveAttribute('aria-label', '배너 자동 전환 일시정지');
+  });
+
+  test('기본 상태에서 5초 후 다음 배너로 자동 전환된다', async ({ page }) => {
+    await page.goto('/');
+
+    await indicatorFor(page, titles[0]).click();
+    await expect(slideFor(page, titles[0])).not.toHaveAttribute('hidden', '');
+
+    // 인디케이터 클릭 직후 마우스가 캐러셀 위에 남아 있으면 hover-pause 계약(7번)에 따라
+    // 자동전환이 계속 정지된 상태이므로, 순수한 자동전환 동작만 보려면 마우스를 치워야 한다.
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(5500);
+    await expect(slideFor(page, titles[0])).toHaveAttribute('hidden', '');
+  });
+
+  // hero-carousel.js는 자동전환 interval을 시작하는 모든 경로(초기 부트스트랩, prev/next, 인디케이터,
+  // 재생/일시정지, hover/focus 진입·이탈)가 하나의 restartTimerIfNeeded() 함수를 거치고, 그 함수는
+  // 항상 stopTimer()로 기존 interval을 먼저 지운 뒤에만 새로 만든다 - 즉 "생성 전에 항상 정리"가
+  // 구조적으로 보장된다. window.setInterval/clearInterval을 가로채 실제 활성 interval 개수를 세어
+  // 이 불변식이 실제 DOM 배선에서도 깨지지 않는지 확인한다.
+  test('hover/focus 반복, hover 중 재생-일시정지 클릭, reduced-motion에서 명시적 재생을 거쳐도 활성 interval은 항상 최대 1개다', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.__activeIntervalCount = 0;
+      window.__maxActiveIntervalCount = 0;
+      var originalSetInterval = window.setInterval.bind(window);
+      var originalClearInterval = window.clearInterval.bind(window);
+      window.setInterval = function () {
+        window.__activeIntervalCount += 1;
+        window.__maxActiveIntervalCount = Math.max(window.__maxActiveIntervalCount, window.__activeIntervalCount);
+        return originalSetInterval.apply(null, arguments);
+      };
+      window.clearInterval = function (id) {
+        if (id !== undefined && id !== null) {
+          window.__activeIntervalCount = Math.max(0, window.__activeIntervalCount - 1);
+        }
+        return originalClearInterval(id);
+      };
+    });
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    await indicatorFor(page, titles[0]).click();
+
+    const viewport = page.locator('#hero-viewport');
+    const playPause = page.locator('#hero-play-pause');
+    const brandLink = page.locator('.site-header__brand');
+
+    // reduced-motion 상태에서 수동 재생 시작
+    await expect(playPause).toHaveText('재생');
+    await playPause.click();
+    await expect(playPause).toHaveText('일시정지');
+
+    // mouseenter -> mouseleave 반복
+    for (let i = 0; i < 3; i++) {
+      await viewport.hover();
+      await page.mouse.move(0, 0);
+    }
+
+    // focusin -> focusout 반복 (컨트롤 안 <-> 컨트롤 밖)
+    for (let i = 0; i < 3; i++) {
+      await page.locator('#hero-next').focus();
+      await brandLink.focus();
+    }
+
+    // hover 상태에서 재생/일시정지 클릭 (클릭 자체가 마우스를 뷰포트 밖 컨트롤로 옮기므로 mouseleave/mouseenter도 함께 발생한다)
+    await viewport.hover();
+    await playPause.click();
+    await playPause.click();
+    await page.mouse.move(0, 0);
+
+    const maxActiveIntervalCount = await page.evaluate(() => window.__maxActiveIntervalCount);
+    const finalActiveIntervalCount = await page.evaluate(() => window.__activeIntervalCount);
+
+    expect(maxActiveIntervalCount, '위 상호작용 전체에서 동시에 활성화된 interval이 2개 이상이었던 적이 없어야 한다').toBeLessThanOrEqual(1);
+    expect(finalActiveIntervalCount, '마지막에는 재생 중이므로 활성 interval이 정확히 1개여야 한다').toBe(1);
+  });
+
+  // 회귀 배경: hidden 상태인 두 번째 이후 슬라이드는 loading="lazy"였을 때 뷰포트 교차 트리거가
+  // 전혀 발동하지 않아, 최초 전환 순간까지 이미지 요청 자체가 시작되지 않았다(Docker 8088에서 Playwright
+  // 네트워크 이벤트로 직접 확인). 모든 슬라이드를 eager로 바꿔 페이지 로드 시점에 미리 요청되도록 했으므로,
+  // 어떤 인디케이터/버튼도 클릭하지 않은 순수 페이지 로드 직후에 이미 요청이 발생했는지를 검증한다.
+  test('인디케이터/버튼을 클릭하지 않아도 두 번째·세 번째 Hero 이미지 요청이 페이지 로드 시점에 이미 시작된다', async ({ page }) => {
+    const requestedImageUrls = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/api/files/')) {
+        requestedImageUrls.push(req.url());
+      }
+    });
+
+    await page.goto('/');
+
+    const secondSlideImageSrc = await slideFor(page, titles[1]).locator('img').getAttribute('src');
+    const thirdSlideImageSrc = await slideFor(page, titles[2]).locator('img').getAttribute('src');
+    expect(secondSlideImageSrc).toBeTruthy();
+    expect(thirdSlideImageSrc).toBeTruthy();
+
+    expect(
+      requestedImageUrls.some((url) => url.endsWith(secondSlideImageSrc)),
+      `두 번째 배너 이미지(${secondSlideImageSrc}) 요청이 페이지 로드만으로 발생해야 한다. 실제 요청 목록: ${requestedImageUrls.join(', ')}`
+    ).toBeTruthy();
+    expect(
+      requestedImageUrls.some((url) => url.endsWith(thirdSlideImageSrc)),
+      `세 번째 배너 이미지(${thirdSlideImageSrc}) 요청도 페이지 로드만으로 발생해야 한다. 실제 요청 목록: ${requestedImageUrls.join(', ')}`
+    ).toBeTruthy();
+  });
+
+  // P13-T32: 시각적 caption(<p class="hero__caption">)은 사라졌지만, img alt와 indicator
+  // aria-label을 통한 접근성 이름은 배너 title 값 그대로 유지되는지 한 테스트에서 함께 증명한다.
+  test('배너 title이 시각적 caption으로는 노출되지 않지만 img alt/indicator aria-label 접근성 이름은 유지된다', async ({ page }) => {
+    await page.goto('/');
+
+    // 시각적 caption DOM 자체가 없어야 한다.
+    await expect(page.locator('#hero-viewport .hero__caption')).toHaveCount(0);
+
+    for (const title of titles) {
+      const slideImage = slideFor(page, title).locator('img');
+      await expect(slideImage).toHaveAttribute('alt', title);
+
+      const indicator = indicatorFor(page, title);
+      await expect(indicator).toHaveAttribute('aria-label', `${title} 배너로 이동`);
+    }
+  });
+});
+
+// 반응형 조사에서 확인된 회귀 #1: /programs, /boards는 순수 Bootstrap list-group이라
+// overflow-wrap이 없어서, 공백 없는 긴 제목 하나만으로 페이지 전체가 가로 스크롤됐다.
+// (home.css의 #program-list a, #board-list a { overflow-wrap: break-word } 로 수정)
+// 로컬 DB에 이미 있는 데이터에 의존하지 않도록 매 테스트마다 API로 데이터를 만들고 끝나면 지운다.
+test.describe('긴 제목 오버플로우 회귀 검증', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  // 공백이 전혀 없어 정상적인 단어 경계 줄바꿈으로는 절대 해결되지 않는, overflow-wrap이 실제로
+  // 필요한 최악의 케이스를 만든다.
+  function longUnbreakableTitle(prefix) {
+    return `${prefix}${'A'.repeat(150)}${Date.now()}`;
+  }
+
+  let xsrfToken;
+  let programId;
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+
+    const programResponse = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE',
+        title: longUnbreakableTitle('LongProgramTitle'),
+        content: 'overflow regression',
+        isPublic: true,
+      },
+    });
+    expect(programResponse.ok()).toBeTruthy();
+    programId = tracker.track('program', (await programResponse.json()).data.id);
+
+    const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title: longUnbreakableTitle('LongBoardTitle'), isPublic: true },
+    });
+    expect(boardResponse.ok()).toBeTruthy();
+    boardId = tracker.track('board', (await boardResponse.json()).data.id);
+  });
+
+  async function overflowX(page) {
+    return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  }
+
+  test('/programs: 공백 없는 긴 제목이 있어도 가로 스크롤이 생기지 않는다', async ({ page }) => {
+    await page.goto('/programs');
+    expect(await overflowX(page)).toBeLessThanOrEqual(0);
+  });
+
+  test('/boards: 공백 없는 긴 제목이 있어도 가로 스크롤이 생기지 않는다', async ({ page }) => {
+    await page.goto('/boards');
+    expect(await overflowX(page)).toBeLessThanOrEqual(0);
+  });
+});
+
+// 반응형 조사에서 확인된 회귀 #2(P13): 메인 Program/Gallery 카드 grid가 auto-fit이라, 실제 아이템
+// 수보다 들어갈 수 있는 컬럼 수가 많은 상태에서 남는 1fr 공간을 카드가 그대로 나눠 가져 비정상적으로
+// 커졌다. P14-T3C는 고정폭 auto-fit(380/320px)으로 이 회귀를 막았었다.
+//
+// P14-T3D 갱신: Program이 uniform card grid(.program-cards/.program-card, "폭이 있는 카드")에서
+// editorial alternating row(.program-rows/.program-row, "컨테이너 전체 폭을 쓰는 행")로 전면
+// 재구조화되면서 "카드 폭이 비정상적으로 커진다"는 개념 자체가 더 이상 성립하지 않는다(row는 애초에
+// 항상 전체 폭을 쓰도록 설계됨). Gallery도 auto-fit 고정폭에서 `repeat(4, 1fr)` 퍼센트 기반 grid로
+// 바뀌어 같은 이유로 이 회귀 클래스가 구조적으로 불가능해졌다(고정 px 트랙이 아니라 상대 비율이라
+// "남는 공간을 몰아서 가져가는" auto-fit 산술 자체가 개입하지 않음). 따라서 이 규제(상한 px 체크)는
+// 폐기하고, 새 구조가 실제로 지켜야 할 계약(Program 좌우 교대, Gallery 1-large+N-small 비대칭)을
+// 아래 새 describe에서 검증한다 - 테스트를 완화한 것이 아니라 더 이상 유효하지 않은 계약을 실제
+// 새 계약으로 교체한 것이다.
+
+// P14-T3D: Home Art Direction Redesign. 매크로 구성(실루엣) 계약을 검증한다 - 구현 디테일(정확한 px,
+// grid-template-columns/areas 문자열 등)이 아니라 "사용자가 실제로 보는 composition 계약"만
+// 최소한으로 고정한다. P14-T3C가 검증하던 Program/Gallery 계약은 DOM/class 자체가 바뀌어 그대로
+// 유지할 수 없으므로 새 구조에 맞게 selector를 교체했다(값을 완화한 것이 아니라 실제로 바뀐 계약을
+// 반영한 것 - Pinned는 DOM이 무변경이라 기존 assertion을 그대로 재사용한다).
+test.describe('P14-T3D: 메인 섹션 매크로 구성 계약', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let programTitleA;
+  let programTitleB;
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    const runId = Date.now();
+    programTitleA = `T3D 구성 계약 확인용 프로그램 A ${runId}`;
+    programTitleB = `T3D 구성 계약 확인용 프로그램 B ${runId}`;
+
+    // "최신 프로그램"은 createdAt DESC 3건만 노출한다 - A를 먼저 만들어 더 오래되게, B를 나중에
+    // 만들어 더 최신이 되게 해서 B가 1번째(홀수 row, 이미지 왼쪽) A가 2번째(짝수 row, 이미지
+    // 오른쪽으로 교대)가 되는 순서를 보장한다.
+    const resA = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'COURSE', title: programTitleA, content: 'T3D 구성 확인 A', isPublic: true },
+    });
+    expect(resA.ok()).toBeTruthy();
+    tracker.track('program', (await resA.json()).data.id);
+
+    await sleep(1100);
+
+    const resB = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'COURSE', title: programTitleB, content: 'T3D 구성 확인 B', isPublic: true },
+    });
+    expect(resB.ok()).toBeTruthy();
+    tracker.track('program', (await resB.json()).data.id);
+  });
+
+  test('데스크톱(1440px)에서 "최신 프로그램" 1번째(홀수) row는 이미지가 텍스트 왼쪽에 위치한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const row = page.locator('#latest-programs .program-row').filter({ has: page.locator(`text=${programTitleB}`) });
+    await expect(row).toBeVisible();
+    const thumbBox = await row.locator('.program-row__thumb').boundingBox();
+    const bodyBox = await row.locator('.program-row__body').boundingBox();
+    expect(thumbBox.x).toBeLessThan(bodyBox.x);
+    // 좌우 배치일 때 이미지와 텍스트는 위아래로 겹치지 않고 같은 행에 나란히 있어야 한다.
+    expect(Math.abs(thumbBox.y - bodyBox.y)).toBeLessThan(thumbBox.height);
+  });
+
+  test('데스크톱(1440px)에서 "최신 프로그램" 2번째(짝수) row는 이미지가 텍스트 오른쪽으로 교대한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const row = page.locator('#latest-programs .program-row').filter({ has: page.locator(`text=${programTitleA}`) });
+    await expect(row).toBeVisible();
+    const thumbBox = await row.locator('.program-row__thumb').boundingBox();
+    const bodyBox = await row.locator('.program-row__body').boundingBox();
+    expect(thumbBox.x).toBeGreaterThan(bodyBox.x);
+  });
+
+  test('모바일(375px)에서 "최신 프로그램" row는 홀/짝과 무관하게 이미지가 텍스트 위에 위치한다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto('/');
+    const row = page.locator('#latest-programs .program-row').filter({ has: page.locator(`text=${programTitleB}`) });
+    await expect(row).toBeVisible();
+    const thumbBox = await row.locator('.program-row__thumb').boundingBox();
+    const bodyBox = await row.locator('.program-row__body').boundingBox();
+    expect(thumbBox.y).toBeLessThan(bodyBox.y);
+  });
+
+  test('데스크톱(1440px)에서 "주요 소식"은 2열 구성이다(P14-T3C 계약 재사용, Pinned DOM 무변경)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const pinnedSection = page.locator('#home-pinned');
+    test.skip(!(await pinnedSection.count()), '고정된 주요 소식이 없어 섹션 자체가 렌더링되지 않음');
+    const cards = pinnedSection.locator('.gallery-card');
+    const count = await cards.count();
+    test.skip(count < 2, '주요 소식이 2건 미만이라 열 수를 확인할 수 없음');
+    const box0 = await cards.nth(0).boundingBox();
+    const box1 = await cards.nth(1).boundingBox();
+    // 2열이라면 두 번째 카드는 첫 번째 카드의 오른쪽(같은 행)에 위치해야 한다.
+    expect(Math.abs(box0.y - box1.y)).toBeLessThan(box0.height);
+    expect(box1.x).toBeGreaterThan(box0.x);
+  });
+
+  test('"강의 후기" section은 deep navy 배경의 dark section이다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const section = page.locator('#latest-reviews');
+    await expect(section).toBeVisible();
+    const bg = await section.evaluate((el) => getComputedStyle(el).backgroundColor);
+    // --color-primary(#1f3a5f) = rgb(31, 58, 95). 정확한 hex 대신 rgb 채널로 비교해 계산식이
+    // 아니라 실제 렌더 결과를 확인한다.
+    expect(bg).toBe('rgb(31, 58, 95)');
+  });
+
+  test('데스크톱(1440px)에서 "공지사항"은 좌측 identity/우측 list의 2열 구성이다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const titleBox = await page.locator('#latest-notices .section-title').boundingBox();
+    const listBox = await page.locator('#latest-notices .notice-list, #latest-notices .empty-state').first().boundingBox();
+    // 2열이라면 list가 title과 같은 높이 대역에서 title 오른쪽에 위치해야 한다(세로로 쌓이지 않음).
+    expect(listBox.x).toBeGreaterThan(titleBox.x + titleBox.width);
+  });
+
+  test('모바일(375px)에서 "공지사항"은 identity가 list 위에 세로로 쌓인다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto('/');
+    const titleBox = await page.locator('#latest-notices .section-title').boundingBox();
+    const listBox = await page.locator('#latest-notices .notice-list, #latest-notices .empty-state').first().boundingBox();
+    expect(listBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+  });
+});
+
+// P14-T3D: Gallery "1 large + N small" 비대칭 mosaic 계약. :has() 없이 :first-child span +
+// grid-auto-flow:dense auto-placement만으로 구현했으므로, 실제로 첫 item이 더 크게 렌더되는지와
+// sparse(1~2건) 상태에서 layout이 무너지지 않는지를 실측으로 검증한다.
+test.describe('P14-T3D: "갤러리" 비대칭 mosaic', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  const createdBoardIds = [];
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    createdBoardIds.length = 0;
+  });
+
+  async function createGalleryBoard(context, baseURL, title, thumbnail) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'GALLERY', title, thumbnail, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test('첫 item(최신)이 두 번째 item보다 시각적으로 크다(1 large + N small)', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const idOld = await createGalleryBoard(context, baseURL, `T3D 모자이크 확인 구 ${runId}`, '/api/files/900901');
+    tracker.track('board', idOld);
+    await sleep(1100);
+    const idNew = await createGalleryBoard(context, baseURL, `T3D 모자이크 확인 신 ${runId}`, '/api/files/900902');
+    tracker.track('board', idNew);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const items = page.locator('#latest-gallery .gallery-mosaic__item');
+    await expect(items.first()).toBeVisible();
+    const firstBox = await items.nth(0).boundingBox();
+    const secondBox = await items.nth(1).boundingBox();
+    const firstArea = firstBox.width * firstBox.height;
+    const secondArea = secondBox.width * secondBox.height;
+    expect(firstArea).toBeGreaterThan(secondArea);
+  });
+
+  test('item이 1건뿐이어도 lead가 자연스럽게 보이고 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    // 갤러리는 개수 제한이 없는 Pinned와 달리 항상 최신 5건까지만 노출되므로, "1건 상태"를 통제된
+    // 방식으로 재현하려면 기존 데이터를 건드리지 않고는 불가능하다(삭제 금지 원칙). 대신 신규 1건을
+    // 추가해 "최소 1건 이상 보장" 상태에서 lead(:first-child)와 전체 mosaic이 깨지지 않는지만
+        // 확인한다(0/1/2/3/4/5건 전체 조합의 완전한 재현은 QA 단계의 비파괴 admin API 실측으로 이미
+    // 별도 수행함 - 최종 보고 참고).
+    const id = await createGalleryBoard(context, baseURL, `T3D 단일 item 확인 ${Date.now()}`, '/api/files/900903');
+    tracker.track('board', id);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const items = page.locator('#latest-gallery .gallery-mosaic__item');
+    await expect(items.first()).toBeVisible();
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+  });
+
+  test('375px에서 갤러리 mosaic에 가로 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    const id = await createGalleryBoard(context, baseURL, `T3D 모바일 overflow 확인 ${Date.now()}`, '/api/files/900904');
+    tracker.track('board', id);
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-gallery .gallery-mosaic__item').first()).toBeVisible();
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+  });
+});
+
+// P14-T8D: Home Section Visibility. 관리자가 /admin/theme에서 저장한 5개 show* 설정이 실제
+// Public Home section 렌더링을 게이트하는지 검증한다. 32(2^5)개 조합 전수 테스트는 하지 않고,
+// 개별 OFF 5건 + all-OFF/all-ON 조합만 확인한다. 시작 전 실제 SITE_THEME 값을 GET으로 기록해두고
+// afterAll에서 정확히 그 값으로 복원한다(추측한 기본값으로 덮어쓰지 않음). visibility만 바꾸는
+// PUT에도 매번 기존 accentPreset을 그대로 실어 보내 T8C accent 설정이 훼손되지 않게 한다.
+test.describe('P14-T8D: Home Section Visibility', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let adminContext;
+  let originalSetting;
+
+  test.beforeAll(async ({ browser, baseURL }) => {
+    adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
+    await loginAsAdmin(adminContext, baseURL);
+    const res = await adminContext.request.get(`${baseURL}/api/admin/theme`);
+    expect(res.ok()).toBeTruthy();
+    originalSetting = (await res.json()).data;
+  });
+
+  test.afterAll(async ({ baseURL }) => {
+    const xsrfToken = await getXsrfToken(adminContext);
+    const res = await adminContext.request.put(`${baseURL}/api/admin/theme`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: originalSetting,
+    });
+    expect(res.ok()).toBeTruthy();
+
+    // 복원 후 재조회해 완전히 동일한지 재확인한다.
+    const verify = await adminContext.request.get(`${baseURL}/api/admin/theme`);
+    expect((await verify.json()).data).toEqual(originalSetting);
+    await adminContext.close();
+  });
+
+  const ALL_VISIBLE = {
+    showPinned: true, showPrograms: true, showReviews: true, showNotices: true, showGallery: true,
+  };
+
+  async function setTheme(baseURL, overrides) {
+    const xsrfToken = await getXsrfToken(adminContext);
+    const payload = { ...originalSetting, ...ALL_VISIBLE, ...overrides };
+    const res = await adminContext.request.put(`${baseURL}/api/admin/theme`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: payload,
+    });
+    expect(res.ok()).toBeTruthy();
+  }
+
+  test('showPinned=false면 #home-pinned가 렌더링되지 않고 다른 section은 유지된다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showPinned: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#home-pinned')).toHaveCount(0);
+    await expect(page.locator('#latest-programs')).toHaveCount(1);
+  });
+
+  test('showPrograms=false면 #latest-programs가 렌더링되지 않는다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showPrograms: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-programs')).toHaveCount(0);
+    await expect(page.locator('#latest-reviews')).toHaveCount(1);
+  });
+
+  test('showReviews=false면 #latest-reviews(dark section)가 렌더링되지 않고 앞뒤 section이 자연스럽게 이어진다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showReviews: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-reviews')).toHaveCount(0);
+    // dark section 제거 후 이전/다음 section 사이에 이상한 이중 여백이 생기지 않는지, 즉 두 section이
+    // 각자의 padding만으로 자연스럽게 붙어 있는지 y좌표 gap으로 확인한다(margin-collapse가 아니라
+    // padding 기반 리듬이라는 코드 조사 결과를 실측으로 재확인).
+    const programsBox = await page.locator('#latest-programs').boundingBox();
+    const noticesBox = await page.locator('#latest-notices').boundingBox();
+    expect(noticesBox.y).toBeGreaterThanOrEqual(programsBox.y + programsBox.height);
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+  });
+
+  test('showNotices=false면 #latest-notices가 렌더링되지 않는다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showNotices: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-notices')).toHaveCount(0);
+    await expect(page.locator('#latest-gallery')).toHaveCount(1);
+  });
+
+  test('showGallery=false면 #latest-gallery가 렌더링되지 않는다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showGallery: false });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#latest-gallery')).toHaveCount(0);
+  });
+
+  test('5개 전부 false여도 정상 동작하고(신규 validation 없음) Header/Footer는 그대로 유지된다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, {
+      showPinned: false, showPrograms: false, showReviews: false, showNotices: false, showGallery: false,
+    });
+
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    for (const id of ['#home-pinned', '#latest-programs', '#latest-reviews', '#latest-notices', '#latest-gallery']) {
+      await expect(page.locator(id)).toHaveCount(0);
+    }
+    await expect(page.locator('#site-header, header')).toBeVisible();
+    await expect(page.locator('#admin-footer, footer')).toBeVisible();
+
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+    expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+  });
+
+  for (const viewport of [{ width: 900, height: 900 }, { width: 375, height: 1200 }]) {
+    test(`${viewport.width}px: all-ON/all-OFF 전환에도 overflow와 pageerror가 없다`, async ({ page, baseURL }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await setTheme(baseURL, ALL_VISIBLE);
+      await page.setViewportSize(viewport);
+      await page.goto('/');
+      await page.waitForLoadState('networkidle');
+      let overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      await setTheme(baseURL, {
+        showPinned: false, showPrograms: false, showReviews: false, showNotices: false, showGallery: false,
+      });
+      await page.goto('/');
+      await page.waitForLoadState('networkidle');
+      overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+  }
+
+  test('accent 회귀 없음: visibility만 변경해도 html[data-theme]은 기존 accentPreset을 유지한다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, { showGallery: false });
+    await page.goto('/');
+    const dataTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+    expect(dataTheme).toBe(originalSetting.accentPreset);
+  });
+
+  // 실제 관리자 UI(체크박스→저장) end-to-end 흐름을 최소 1회 검증한다(나머지는 Admin API로 빠르게 전환).
+  test('관리자 화면에서 체크박스를 끄고 저장하면 Public Home에 즉시 반영된다', async ({ page, baseURL }) => {
+    await setTheme(baseURL, ALL_VISIBLE);
+
+    await loginViaAdminLoginPage(page, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD });
+
+    await page.goto('/admin/theme');
+    await page.waitForLoadState('networkidle');
+    await page.locator('#showNotices').uncheck();
+    await page.locator('#saveButton').click();
+    await expect(page.locator('#successMessage')).toBeVisible();
+
+    await page.goto('/');
+    await expect(page.locator('#latest-notices')).toHaveCount(0);
+    await expect(page.locator('#latest-gallery')).toHaveCount(1);
+  });
+});
+
+// P13-T12: 메인 섹션 제목 링크화 + Program 목록 썸네일.
+test.describe('P13-T12: 메인 섹션 제목 링크 + Program 목록 썸네일', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test('메인 화면에 "전체보기" 텍스트가 더 이상 존재하지 않는다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('body')).not.toContainText('전체보기');
+  });
+
+  test('"최신 프로그램" 섹션 제목을 클릭하면 /programs로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-programs .section-title__link').click();
+    await expect(page).toHaveURL(/\/programs$/);
+  });
+
+  test('"공지사항" 섹션 제목을 클릭하면 /boards?boardType=NOTICE로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-notices .section-title__link').click();
+    await expect(page).toHaveURL(/\/boards\?boardType=NOTICE$/);
+  });
+
+  test('"갤러리" 섹션 제목을 클릭하면 /boards?boardType=GALLERY로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-gallery .section-title__link').click();
+    await expect(page).toHaveURL(/\/boards\?boardType=GALLERY$/);
+  });
+
+  // P13-T16: #latest-programs 바로 아래 #latest-reviews 섹션 및 header/footer "강의 후기" 링크 추가.
+  test('"강의 후기" 섹션 제목을 클릭하면 /boards?boardType=REVIEW로 이동한다', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#latest-reviews .section-title__link').click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW$/);
+  });
+
+  test('footer에도 "강의 후기" 링크가 /boards?boardType=REVIEW로 존재한다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.site-footer__nav a[href="/boards?boardType=REVIEW"]')).toBeVisible();
+  });
+
+  test('"강의 후기" 섹션은 "최신 프로그램" 섹션 바로 다음, "공지사항" 섹션 이전에 위치한다', async ({ page }) => {
+    await page.goto('/');
+    const programsBox = await page.locator('#latest-programs').boundingBox();
+    const reviewsBox = await page.locator('#latest-reviews').boundingBox();
+    const noticesBox = await page.locator('#latest-notices').boundingBox();
+    expect(reviewsBox.y).toBeGreaterThan(programsBox.y);
+    expect(noticesBox.y).toBeGreaterThan(reviewsBox.y);
+  });
+
+  // P13-T38B: "주요 소식"(#home-pinned)은 관리자가 고정한 pin이 하나라도 있을 때만 렌더링되므로,
+  // 로컬/실 DB에 등록된 pin 개수에 의존하지 않기 위해 이 describe 블록도 매 테스트마다 관리자 API로
+  // 공개 Board 1건 + 고정(pin) 1건을 만들고 끝나면 정리한다. #home-pinned가 실제로 존재할 때만
+  // "최신 프로그램"보다 위에 위치하는지 확인할 수 있으므로, 존재 자체도 함께 확인한다.
+  test.describe('P13-T38B: "주요 소식" 위치', () => {
+    test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+    let xsrfToken;
+    let boardId;
+    let pinnedId;
+
+    test.beforeEach(async ({ context, baseURL, tracker }) => {
+      await loginAsAdmin(context, baseURL);
+      xsrfToken = await getXsrfToken(context);
+
+      const boardResponse = await context.request.post(`${baseURL}/api/admin/boards`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: {
+          boardType: 'NOTICE',
+          title: `주요 소식 위치 확인용 게시글 ${Date.now()}`,
+          isPublic: true,
+        },
+      });
+      expect(boardResponse.ok()).toBeTruthy();
+      boardId = tracker.track('board', (await boardResponse.json()).data.id);
+
+      const pinResponse = await context.request.post(`${baseURL}/api/admin/home-pinned-contents`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: { targetType: 'BOARD', targetId: boardId, sortOrder: 900000 },
+      });
+      expect(pinResponse.ok()).toBeTruthy();
+      pinnedId = tracker.track('pinned', (await pinResponse.json()).data.id);
+    });
+
+    test('"주요 소식" 섹션이 "최신 프로그램" 섹션보다 위에 위치한다', async ({ page }) => {
+      await page.goto('/');
+
+      const pinnedSection = page.locator('#home-pinned');
+      await expect(pinnedSection).toBeVisible();
+
+      const pinnedBox = await pinnedSection.boundingBox();
+      const programsBox = await page.locator('#latest-programs').boundingBox();
+      expect(pinnedBox.y).toBeLessThan(programsBox.y);
+    });
+  });
+
+  test.describe('/programs 목록 썸네일', () => {
+    let xsrfToken;
+    let programIdWithThumb;
+    let programIdWithoutThumb;
+    let titleWithThumb;
+    let titleWithoutThumb;
+
+    test.beforeEach(async ({ context, baseURL, tracker }) => {
+      await loginAsAdmin(context, baseURL);
+      xsrfToken = await getXsrfToken(context);
+      const runId = Date.now();
+      titleWithThumb = `프로그램 썸네일 확인 ${runId}`;
+      titleWithoutThumb = `프로그램 썸네일 없음 확인 ${runId}`;
+
+      const withThumbRes = await context.request.post(`${baseURL}/api/admin/programs`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: {
+          programType: 'COURSE', title: titleWithThumb, content: '내용',
+          thumbnail: '/api/files/900001', isPublic: true,
+        },
+      });
+      expect(withThumbRes.ok()).toBeTruthy();
+      programIdWithThumb = tracker.track('program', (await withThumbRes.json()).data.id);
+
+      const withoutThumbRes = await context.request.post(`${baseURL}/api/admin/programs`, {
+        headers: { 'X-XSRF-TOKEN': xsrfToken },
+        data: { programType: 'COURSE', title: titleWithoutThumb, content: '내용', isPublic: true },
+      });
+      expect(withoutThumbRes.ok()).toBeTruthy();
+      programIdWithoutThumb = tracker.track('program', (await withoutThumbRes.json()).data.id);
+    });
+
+    function itemFor(page, title) {
+      return page.locator('#program-list li').filter({ has: page.locator(`text=${title}`) });
+    }
+
+    test('썸네일이 있으면 img로, 없으면 placeholder로 표시된다', async ({ page }) => {
+      await page.goto('/programs');
+
+      await expect(itemFor(page, titleWithThumb).locator('.program-list__thumb img'))
+        .toHaveAttribute('src', '/api/files/900001');
+      await expect(itemFor(page, titleWithoutThumb).locator('.program-list__thumb-placeholder')).toBeVisible();
+      await expect(itemFor(page, titleWithoutThumb).locator('.program-list__thumb img')).toHaveCount(0);
+    });
+
+    test('썸네일 영역을 클릭해도 상세 페이지로 이동한다(a 전체가 클릭 영역)', async ({ page }) => {
+      await page.goto('/programs');
+
+      await itemFor(page, titleWithThumb).locator('.program-list__thumb').click();
+      await expect(page).toHaveURL(new RegExp(`/programs/${programIdWithThumb}$`));
+    });
+
+    for (const viewport of VIEWPORTS) {
+      test(`${viewport.name}에서 /programs 목록(썸네일 포함)에 overflow가 없다`, async ({ page }) => {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.goto('/programs');
+
+        await expect(itemFor(page, titleWithThumb)).toBeVisible();
+        const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflowX).toBeLessThanOrEqual(0);
+      });
+    }
+  });
+});
+
+// P13-T17: 공개 화면 명칭/네비게이션/홈 구성 정리.
+test.describe('P13-T17: 공개 화면 명칭/네비게이션/홈 구성 정리', () => {
+  test('헤더/푸터 브랜드 텍스트가 "모니카영어교육연구소"로 통일되어 있다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.site-header__brand')).toHaveText('모니카영어교육연구소');
+    await expect(page.locator('.site-footer__brand')).toHaveText('모니카영어교육연구소');
+  });
+
+  // P13-T30C: "연구소 소개"는 GROUP 이름이자 그 하위 페이지 이름으로 동시에 쓰이고, 동일한 링크가
+  // 개별 GROUP dropdown과 전체메뉴(mega menu) 양쪽에 존재하므로 텍스트/href만으로는 모호하다.
+  // GROUP dropdown 안쪽으로 명시적으로 스코프해서 검증한다.
+  test('헤더/푸터의 "연구소 소개" 링크가 /pages/INTRODUCTION으로 이동한다', async ({ page }) => {
+    await page.goto('/');
+
+    const aboutGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    await aboutGroupItem.locator('.site-nav__trigger').click();
+    const aboutPageLink = aboutGroupItem.locator('.site-nav__submenu a[href="/pages/INTRODUCTION"]');
+    await expect(aboutPageLink).toHaveText('연구소 소개');
+    await expect(page.locator('.site-footer__nav a[href="/pages/INTRODUCTION"]')).toHaveText('연구소 소개');
+
+    await aboutPageLink.click();
+    await expect(page).toHaveURL(/\/pages\/INTRODUCTION$/);
+  });
+
+  test('footer에 www.monicaenglish.com 텍스트/링크가 존재한다', async ({ page }) => {
+    await page.goto('/');
+    const domainLink = page.locator('.site-footer__site a');
+    await expect(domainLink).toHaveText('www.monicaenglish.com');
+    await expect(domainLink).toHaveAttribute('href', 'https://www.monicaenglish.com');
+    await expect(domainLink).not.toHaveAttribute('target', /.+/);
+  });
+
+  test('홈 화면에 #greeting, #program-shortcut 영역이 더 이상 존재하지 않는다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#greeting')).toHaveCount(0);
+    await expect(page.locator('#program-shortcut')).toHaveCount(0);
+  });
+
+  test('/pages/GREETING 상세 페이지는 그대로 유지된다', async ({ page }) => {
+    const response = await page.goto('/pages/GREETING');
+    expect(response.status()).toBe(200);
+  });
+
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}에서 footer 도메인 링크를 포함해도 overflow가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto('/');
+      const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+    });
+  }
+});
+
+// P13-T34: 발주처가 웹페이지 하단에 필수로 요청한 연구소/사업자 정보(주소/전화/사업자등록번호)를
+// 모든 공개 페이지 공통 Footer(home/layout/footer.html)에 반영한다. Footer navigation(4개 링크)/
+// domain self-link/브랜드명은 이 Task의 대상이 아니므로 기존 상태 그대로임을 재확인만 한다.
+test.describe('P13-T34: Footer 사업자 정보', () => {
+  test('/ 의 footer에 확정 사업자 정보(주소/전화/사업자등록번호)가 정확히 표시된다', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.locator('.site-footer__address'))
+      .toHaveText('주소: 성남시 분당구 황새울로 200번길 28, 1104-07호');
+
+    const phoneLink = page.locator('.site-footer__phone a');
+    await expect(phoneLink).toHaveText('070-4655-7905');
+    await expect(phoneLink).toHaveAttribute('href', 'tel:070-4655-7905');
+
+    await expect(page.locator('.site-footer__reg-no')).toHaveText('사업자등록번호: 220-10-28936');
+  });
+
+  test('/ 의 footer copyright가 확정 문구(연도 포함, All rights reserved.)로 표시된다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.site-footer__copyright'))
+      .toHaveText('© 2026 모니카영어교육연구소. All rights reserved.');
+  });
+
+  // footer.html은 home/layout/default.html 하나에서만 include되는 공통 fragment이므로, 서로 다른
+  // 템플릿을 쓰는 대표 라우트(/boards) 1개에서 동일 내용이 그대로 노출되는지만 재확인한다 - 모든
+  // route에서 동일 문자열을 반복 검증하지 않는다(공통 fragment 계약은 이 1개로 충분히 증명됨).
+  test('/boards 의 footer에도 동일한 브랜드명/사업자 정보가 공통 fragment로 노출된다', async ({ page }) => {
+    await page.goto('/boards');
+
+    await expect(page.locator('.site-footer__brand')).toHaveText('모니카영어교육연구소');
+    await expect(page.locator('.site-footer__address'))
+      .toHaveText('주소: 성남시 분당구 황새울로 200번길 28, 1104-07호');
+    await expect(page.locator('.site-footer__phone a')).toHaveAttribute('href', 'tel:070-4655-7905');
+    await expect(page.locator('.site-footer__reg-no')).toHaveText('사업자등록번호: 220-10-28936');
+  });
+
+  // P14-T2B: P14-T2A가 Header top-level IA를 "연구소 소개/수강 신청/소식·자료/강의 후기"로 바꾼 뒤에도
+  // Footer가 이전 IA(프로그램/게시판)로 남아 있던 불일치를 동기화했다. 이 테스트는 P13-T34 당시
+  // "이 Task에서는 Footer를 안 건드렸다"는 무변경 확인용이었으므로, 이번 IA Sync에서는 새 확정값으로
+  // 정당하게 갱신한다(4-link flat 구조/순서 자체는 계속 검증).
+  test('Footer navigation 4개 링크가 최신 Header IA와 동일한 label/href/순서로 표시된다', async ({ page }) => {
+    await page.goto('/');
+    const navLinks = page.locator('.site-footer__nav a');
+    await expect(navLinks).toHaveCount(4);
+    expect(await navLinks.allTextContents()).toEqual(['연구소 소개', '수강 신청', '소식·자료', '강의 후기']);
+    expect(await navLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/pages/INTRODUCTION', '/programs?programType=COURSE', '/boards?boardType=NOTICE', '/boards?boardType=REVIEW',
+    ]);
+  });
+
+  // 기존 domain self-link(P13-T17)가 사업자 정보 추가로 영향받지 않았는지 재확인한다.
+  test('기존 www.monicaenglish.com self-link 구조가 무변경이다', async ({ page }) => {
+    await page.goto('/');
+    const domainLink = page.locator('.site-footer__site a');
+    await expect(domainLink).toHaveText('www.monicaenglish.com');
+    await expect(domainLink).toHaveAttribute('href', 'https://www.monicaenglish.com');
+    await expect(domainLink).not.toHaveAttribute('target', /.+/);
+  });
+
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}에서 사업자 정보를 포함한 footer가 horizontal overflow 없이 표시된다`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto('/');
+
+      await expect(page.locator('.site-footer__address')).toBeVisible();
+      await expect(page.locator('.site-footer__phone a')).toBeVisible();
+      await expect(page.locator('.site-footer__reg-no')).toBeVisible();
+
+      const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+    });
+  }
+});
+
+// P13-T18: 관리자 Board/Program 수정 화면에서 기존 thumbnail/attachment가 보이지 않던 문제 검증.
+// 1x1 투명 PNG(순수 데이터 URI, 실제 파일 아님) - 진짜 업로드 검증(magic byte 검사 포함)용.
+const PNG_1PX_BUFFER = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64');
+
+test.describe('P13-T18: 관리자 Board/Program 기존 썸네일/첨부파일 미리보기', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+  let programId;
+
+  async function createBoardWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE', title,
+        thumbnail: '/api/files/900201', attachment: '/api/files/900202',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  async function createProgramWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE', title, content: '내용',
+        thumbnail: '/api/files/900301', attachment: '/api/files/900302',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+    programId = undefined;
+  });
+
+  test('Board 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 썸네일 미리보기 확인 ' + Date.now()));
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900201');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('href', '/api/files/900201');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('target', '_blank');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('Board 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 첨부파일 미리보기 확인 ' + Date.now()));
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+    await expect(page.locator('#attachmentPreviewLink')).toHaveAttribute('href', '/api/files/900202');
+    await expect(page.locator('#attachmentPreviewLink')).not.toHaveAttribute('target', /.+/);
+  });
+
+  test('Program 수정 화면 진입 시 기존 썸네일 미리보기가 표시된다', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 썸네일 미리보기 확인 ' + Date.now()));
+    await page.goto(`/admin/programs/${programId}/edit`);
+
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900301');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('target', '_blank');
+    await expect(page.locator('#thumbnailPreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('Program 수정 화면 진입 시 기존 첨부파일 링크가 표시된다(target 없음)', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 첨부파일 미리보기 확인 ' + Date.now()));
+    await page.goto(`/admin/programs/${programId}/edit`);
+
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+    await expect(page.locator('#attachmentPreviewLink')).toHaveAttribute('href', '/api/files/900302');
+    await expect(page.locator('#attachmentPreviewLink')).not.toHaveAttribute('target', /.+/);
+  });
+
+  test('신규 등록 화면(Board/Program 모두)에서는 미리보기 영역이 표시되지 않는다', async ({ page }) => {
+    await page.goto('/admin/boards/new');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+
+    await page.goto('/admin/programs/new');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+
+  test('Board: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board URL 유지 확인 ' + Date.now()));
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/boards/${boardId}`) && req.method() === 'PUT'),
+      page.locator('#boardForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBe('/api/files/900201');
+    expect(payload.attachment).toBe('/api/files/900202');
+  });
+
+  test('Program: 새 파일을 선택하지 않고 수정 저장하면 기존 thumbnail/attachment URL이 그대로 PUT payload에 담긴다', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program URL 유지 확인 ' + Date.now()));
+    await page.goto(`/admin/programs/${programId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/programs/${programId}`) && req.method() === 'PUT'),
+      page.locator('#programForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBe('/api/files/900301');
+    expect(payload.attachment).toBe('/api/files/900302');
+  });
+
+  test('Board: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 새 썸네일 갱신 확인 ' + Date.now()));
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900201');
+
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    await page.setInputFiles('#thumbnailInput', {
+      name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+    await uploadedFileId;
+
+    await expect(page.locator('#thumbnail')).not.toHaveValue('/api/files/900201');
+    const newUrl = await page.locator('#thumbnail').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', newUrl);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+  });
+
+  test('Program: 새 썸네일 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 새 썸네일 갱신 확인 ' + Date.now()));
+    await page.goto(`/admin/programs/${programId}/edit`);
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', '/api/files/900301');
+
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    await page.setInputFiles('#thumbnailInput', {
+      name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+    await uploadedFileId;
+
+    await expect(page.locator('#thumbnail')).not.toHaveValue('/api/files/900301');
+    const newUrl = await page.locator('#thumbnail').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', newUrl);
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+  });
+});
+
+// P13-T26: Board/Program 수정 화면에서 기존 thumbnail/attachment를 "제거"(detach)할 수 있게 한다.
+// "제거"는 Board/Program이 가진 URL 참조만 비우는 동작이며, File 레코드/실제 파일 삭제
+// (DELETE /api/admin/files/{id})와는 무관하다 - form.html이 그 endpoint를 전혀 참조하지 않는다는
+// 점은 Node 정적 테스트(board-admin-view.test.js/program-admin-view.test.js)로 이미 확인했으므로,
+// 여기서는 별도 network spy 없이 실제 저장 round-trip과 상호 비영향만 검증한다.
+test.describe('P13-T26: 관리자 Board/Program 기존 썸네일/첨부파일 제거', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+  let programId;
+
+  async function createBoardWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE', title,
+        thumbnail: '/api/files/900601', attachment: '/api/files/900602',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  async function createProgramWithFiles(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE', title, content: '내용',
+        thumbnail: '/api/files/900701', attachment: '/api/files/900702',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+    programId = undefined;
+  });
+
+  test('Board: 썸네일/첨부파일 제거 버튼을 각각 클릭하면 hidden input이 비고 해당 preview만 사라지며 서로 영향을 주지 않는다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 제거 상호 비영향 확인 ' + Date.now()));
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await expect(page.locator('#thumbnail')).toHaveValue('');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    // thumbnail만 제거했으므로 attachment preview는 그대로 유지되어야 한다.
+    await expect(page.locator('#attachmentPreview')).toBeVisible();
+    await expect(page.locator('#attachment')).toHaveValue('/api/files/900602');
+
+    await page.locator('#attachmentRemoveButton').click();
+    await expect(page.locator('#attachment')).toHaveValue('');
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+
+  test('Board: 제거 후 저장하면 PUT payload에서 thumbnail/attachment가 null이 되고, 재진입 시 두 preview 모두 hidden으로 유지된다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 제거 저장 round-trip 확인 ' + Date.now()));
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await page.locator('#attachmentRemoveButton').click();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/boards/${boardId}`) && req.method() === 'PUT'),
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('#boardForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBeNull();
+    expect(payload.attachment).toBeNull();
+
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+
+  test('Board: 썸네일 제거 후 새 파일을 업로드하면 정상적으로 새 URL이 설정되고, 다시 제거하면 hidden 상태로 돌아간다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoardWithFiles(context, baseURL, 'Board 제거 후 재업로드 확인 ' + Date.now()));
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    await page.setInputFiles('#thumbnailInput', {
+      name: 'new-thumb.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+    await uploadedFileId;
+
+    // 업로드는 비동기(change 핸들러 안에서 fetch 완료 후 값이 채워짐) - 값이 채워질 때까지
+    // expect의 폴링을 이용해 기다린 뒤(P13-T18 테스트와 동일 패턴) inputValue를 읽는다.
+    await expect(page.locator('#thumbnail')).not.toHaveValue('');
+    const newUrl = await page.locator('#thumbnail').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#thumbnailPreview')).toBeVisible();
+    await expect(page.locator('#thumbnailPreviewImage')).toHaveAttribute('src', newUrl);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await expect(page.locator('#thumbnail')).toHaveValue('');
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+  });
+
+  test('Program: 썸네일/첨부파일 제거 → 저장 → 재진입 round-trip', async ({ page, context, baseURL, tracker }) => {
+    programId = tracker.track('program', await createProgramWithFiles(context, baseURL, 'Program 제거 저장 round-trip 확인 ' + Date.now()));
+    await page.goto(`/admin/programs/${programId}/edit`);
+
+    await page.locator('#thumbnailRemoveButton').click();
+    await page.locator('#attachmentRemoveButton').click();
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((req) => req.url().endsWith(`/api/admin/programs/${programId}`) && req.method() === 'PUT'),
+      page.waitForURL(/\/admin\/programs$/, { timeout: 10000 }),
+      page.locator('#programForm button[type="submit"]').click(),
+    ]);
+
+    const payload = request.postDataJSON();
+    expect(payload.thumbnail).toBeNull();
+    expect(payload.attachment).toBeNull();
+
+    await page.goto(`/admin/programs/${programId}/edit`);
+    await expect(page.locator('#thumbnailPreview')).toBeHidden();
+    await expect(page.locator('#attachmentPreview')).toBeHidden();
+  });
+});
+
+// P13-T14: 게시판/프로그램 목록 필터 · UI · pagination. 실제 Docker DB는 이 세션 전체에서 누적된
+// 데이터가 이미 있을 수 있으므로(격리된 테스트 DB가 아님), "정확히 N페이지"처럼 전체 개수를 못박는
+// 단정은 하지 않는다 - 이번에 새로 만드는 레코드 개수만큼 "최소 이 이상"이라는 사실만 검증한다
+// (새로 만든 레코드는 createdAt DESC 정렬에서 항상 최신이라 페이지 1에 온다는 점만 이용).
+test.describe('P13-T14: 게시판/프로그램 목록 필터 및 pagination', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  async function createNoticeBoard(context, baseURL, xsrfToken, title) {
+    const response = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title, content: '<p>내용</p>', isPublic: true },
+    });
+    expect(response.ok()).toBeTruthy();
+    return (await response.json()).data.id;
+  }
+
+  test('"공지사항" 필터가 active일 때 다른 필터보다 굵게 표시된다', async ({ page }) => {
+    await page.goto('/boards?boardType=NOTICE');
+
+    const active = page.locator('#board-type-filter .filter-nav__link.is-active');
+    const inactive = page.locator('#board-type-filter .filter-nav__link:not(.is-active)').first();
+    await expect(active).toHaveText('공지사항');
+
+    const activeWeight = Number(await active.evaluate((el) => getComputedStyle(el).fontWeight));
+    const inactiveWeight = Number(await inactive.evaluate((el) => getComputedStyle(el).fontWeight));
+    expect(activeWeight).toBeGreaterThan(inactiveWeight);
+  });
+
+  test('boardType 없이 /boards에 진입하면 "전체" 필터가 active다', async ({ page }) => {
+    await page.goto('/boards');
+    await expect(page.locator('#board-type-filter .filter-nav__link.is-active')).toHaveText('전체');
+  });
+
+  // P13-T16: #board-type-filter에 REVIEW 필터 추가. active/query parameter 계약은
+  // 위 "공지사항" 케이스와 동일하게 유지된다.
+  // P14-T2A: /boards?boardType=REVIEW는 이제 "강의 후기 context" 화면이라(§board list context 분리),
+  // programType 없이 전체 REVIEW를 가리키는 필터의 라벨이 "강의 후기"(legacy 전용 라벨)가 아니라
+  // "전체"다 - href/query semantics(REVIEW+programType 없음)는 그대로다.
+  test('"전체"(REVIEW) 필터가 active일 때 다른 필터보다 굵게 표시된다', async ({ page }) => {
+    await page.goto('/boards?boardType=REVIEW');
+
+    const active = page.locator('#board-type-filter .filter-nav__link.is-active');
+    const inactive = page.locator('#board-type-filter .filter-nav__link:not(.is-active)').first();
+    await expect(active).toHaveText('전체');
+
+    const activeWeight = Number(await active.evaluate((el) => getComputedStyle(el).fontWeight));
+    const inactiveWeight = Number(await inactive.evaluate((el) => getComputedStyle(el).fontWeight));
+    expect(activeWeight).toBeGreaterThan(inactiveWeight);
+  });
+
+  test.describe('목록 UI 및 pagination', () => {
+    let xsrfToken;
+    let boardIds;
+    let titlePrefix;
+
+    test.beforeEach(async ({ context, baseURL, tracker }) => {
+      await loginAsAdmin(context, baseURL);
+      xsrfToken = await getXsrfToken(context);
+      titlePrefix = `P13-T14 목록확인 ${Date.now()}`;
+      boardIds = [];
+      for (let i = 0; i < 3; i++) {
+        boardIds.push(tracker.track('board', await createNoticeBoard(context, baseURL, xsrfToken, `${titlePrefix}-${i}`)));
+      }
+    });
+
+    test('게시판 분류명/제목이 한 줄에, 작성일시는 아래 보조 줄에 표시된다', async ({ page }) => {
+      await page.goto('/boards');
+      const item = page.locator('#board-list li').filter({ hasText: titlePrefix }).first();
+
+      const typeBox = await item.locator('.board-list__type').boundingBox();
+      const titleBox = await item.locator('.board-list__title').boundingBox();
+      const dateBox = await item.locator('.board-list__date').boundingBox();
+
+      // 분류명/제목은 세로 위치가 거의 같은 한 줄이다.
+      expect(Math.abs(typeBox.y - titleBox.y)).toBeLessThan(10);
+      // 작성일시는 그 아래 별도 줄이다.
+      expect(dateBox.y).toBeGreaterThan(titleBox.y + 5);
+    });
+
+    // P13-T19: 조회수 기능 완전 제거. 게시판 목록에 기존 형식인 ".board-list__views" 요소/
+    // "조회 N" 표시가 더 이상 없는지 확인한다(페이지 전체 텍스트에서 "조회"라는 단어를 찾는
+    // 과도하게 넓은 assertion은 다른 정상 문구를 오탐할 수 있어 사용하지 않는다).
+    test('게시판 목록에 조회수 표시 요소(.board-list__views)가 더 이상 없다', async ({ page }) => {
+      await page.goto('/boards');
+      await expect(page.locator('.board-list__views')).toHaveCount(0);
+    });
+
+    test('pagination이 하단 가운데 정렬되고 현재 페이지가 active로 표시된다', async ({ page }) => {
+      await page.goto('/boards?boardType=NOTICE&size=1&page=0');
+
+      const bar = page.locator('.pagination-bar');
+      await expect(bar).toBeVisible();
+      const barBox = await bar.boundingBox();
+      const viewportWidth = page.viewportSize().width;
+      const barCenter = barBox.x + barBox.width / 2;
+      expect(Math.abs(barCenter - viewportWidth / 2)).toBeLessThan(40);
+      await expect(page.locator('.pagination-bar__number.is-active')).toHaveText('1');
+    });
+
+    test('직접 페이지 이동: pageJump 폼 제출 시 pageJump 쿼리를 유지한 채 2페이지 내용이 표시된다', async ({ page }) => {
+      await page.goto('/boards?boardType=NOTICE&size=1&page=0');
+      const firstPageTitle = await page.locator('#board-list .board-list__title').first().textContent();
+
+      await page.fill('#page-jump-input', '2');
+      await page.click('#page-jump-submit');
+
+      // 직접 이동은 redirect 설계가 아니다 - URL이 page=1로 바뀌는 게 아니라 pageJump=2를 그대로 유지한다.
+      await expect(page).toHaveURL(/pageJump=2/);
+      await expect(page.locator('.pagination-bar__number.is-active')).toHaveText('2');
+      const secondPageTitle = await page.locator('#board-list .board-list__title').first().textContent();
+      expect(secondPageTitle).not.toEqual(firstPageTitle);
+    });
+
+    for (const viewport of VIEWPORTS) {
+      test(`${viewport.name}에서 게시판 목록+pagination에 overflow가 없다`, async ({ page }) => {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.goto('/boards?boardType=NOTICE&size=1');
+
+        await expect(page.locator('.pagination-bar')).toBeVisible();
+        const overflowX = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflowX).toBeLessThanOrEqual(0);
+      });
+    }
+  });
+});
+
+// P13-T27: /boards?boardType=GALLERY|REVIEW는 이미지 중심 게시판이라 메인 페이지와 동일한
+// .gallery-grid/.gallery-card 마크업(#board-grid)으로 표시하고, NOTICE/ARCHIVE/전체는 기존
+// #board-list 텍스트 목록을 그대로 유지한다. Controller/pagination fragment를 건드리지 않았으므로
+// 필터/keyword/page 유지 회귀는 기존 P13-T14 describe의 무변경 재실행으로 충분히 커버된다.
+test.describe('P13-T27: 공개 게시판 목록 갤러리/강의후기 썸네일 그리드', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  async function createBoard(context, baseURL, boardType, title, thumbnail) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType, title, thumbnail, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  test('GALLERY 필터에서 #board-grid 썸네일 카드가 실제로 노출되고, 카드 클릭 시 상세로 이동한다', async ({ page, context, baseURL, tracker }) => {
+    const title = 'P13-T27 갤러리 그리드 확인 ' + Date.now();
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900801'));
+    await page.goto('/boards?boardType=GALLERY');
+
+    await expect(page.locator('#board-grid')).toBeVisible();
+    await expect(page.locator('#board-list')).toHaveCount(0);
+
+    const card = page.locator('#board-grid .gallery-card').filter({ hasText: title });
+    await expect(card.locator('.gallery-card__thumb img')).toHaveAttribute('src', '/api/files/900801');
+
+    await card.locator('.gallery-card__link').click();
+    // P13-T28: 상세 링크에 boardType/keyword/page 복귀 상태가 쿼리 파라미터로 함께 실리므로
+    // 정확한 URL 일치 대신 접두사만 확인한다.
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}(\\?|$)`));
+  });
+
+  test('REVIEW 필터에서도 #board-grid 썸네일 카드가 노출된다', async ({ page, context, baseURL, tracker }) => {
+    const title = 'P13-T27 강의 후기 그리드 확인 ' + Date.now();
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'REVIEW', title, '/api/files/900802'));
+    await page.goto('/boards?boardType=REVIEW');
+
+    await expect(page.locator('#board-grid')).toBeVisible();
+    await expect(page.locator('#board-list')).toHaveCount(0);
+    const card = page.locator('#board-grid .gallery-card').filter({ hasText: title });
+    await expect(card.locator('.gallery-card__thumb img')).toHaveAttribute('src', '/api/files/900802');
+  });
+
+  test('NOTICE 필터와 전체 목록은 기존 #board-list 텍스트 목록을 유지하고 #board-grid는 노출되지 않는다', async ({ page, context, baseURL, tracker }) => {
+    const title = 'P13-T27 공지 텍스트 목록 유지 확인 ' + Date.now();
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'NOTICE', title, null));
+
+    await page.goto('/boards?boardType=NOTICE');
+    await expect(page.locator('#board-list')).toBeVisible();
+    await expect(page.locator('#board-grid')).toHaveCount(0);
+
+    await page.goto('/boards');
+    await expect(page.locator('#board-list')).toBeVisible();
+    await expect(page.locator('#board-grid')).toHaveCount(0);
+  });
+
+  test('썸네일이 없는 GALLERY 게시글은 카드가 무너지지 않고 placeholder로 표시되며 카드 전체 클릭이 가능하다', async ({ page, context, baseURL, tracker }) => {
+    const title = 'P13-T27 썸네일 없음 확인 ' + Date.now();
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title, null));
+    await page.goto('/boards?boardType=GALLERY');
+
+    const card = page.locator('#board-grid .gallery-card').filter({ hasText: title });
+    await expect(card.locator('.gallery-card__thumb-placeholder')).toBeVisible();
+    await expect(card.locator('.gallery-card__thumb img')).toHaveCount(0);
+
+    await card.locator('.gallery-card__link').click();
+    // P13-T28: 상세 링크에 boardType/keyword/page 복귀 상태가 쿼리 파라미터로 함께 실리므로
+    // 정확한 URL 일치 대신 접두사만 확인한다.
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}(\\?|$)`));
+  });
+
+  test('공백 없는 긴 제목이 있는 GALLERY 카드에서도 가로 스크롤이 생기지 않는다', async ({ page, context, baseURL, tracker }) => {
+    const title = 'P13T27LongGalleryTitle' + 'A'.repeat(150) + Date.now();
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title, '/api/files/900803'));
+    await page.goto('/boards?boardType=GALLERY');
+
+    const overflowX = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+  });
+
+  test('375px/1440px에서 GALLERY 썸네일 그리드에 가로 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', 'P13-T27 반응형 확인 ' + Date.now(), '/api/files/900801'));
+
+    for (const viewport of [{ width: 375, height: 812 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto('/boards?boardType=GALLERY');
+      const overflowX = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+    }
+  });
+});
+
+// P13-T28: 상세 → 목록 복귀 시 boardType/keyword/page(canonical, pageJump 아님)를 보존한다.
+// page>0 복귀는 대량 fixture 없이는 실제 pagination을 거쳐 검증하기 번거로워, 그 부분은
+// BoardViewControllerTest(Java, MockMvc)에서 이미 충분히 검증했으므로 여기서는 확장하지 않는다.
+test.describe('P13-T28: 게시판 상세 → 목록 복귀 상태 보존', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  async function createBoard(context, baseURL, boardType, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType, title, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  test('GALLERY 목록 → 카드 클릭 → 상세 → 목록으로 클릭 시 GALLERY 필터가 유지된다', async ({ page, context, baseURL, tracker }) => {
+    const title = 'P13-T28 갤러리 복귀 확인 ' + Date.now();
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'GALLERY', title));
+    await page.goto('/boards?boardType=GALLERY');
+
+    await page.locator('#board-grid .gallery-card').filter({ hasText: title }).locator('.gallery-card__link').click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}`));
+
+    await page.locator('a:has-text("목록으로")').click();
+    await expect(page).toHaveURL(/boardType=GALLERY/);
+    await expect(page.locator('#board-type-filter .filter-nav__link.is-active')).toHaveText('갤러리');
+    await expect(page.locator('#board-grid')).toBeVisible();
+  });
+
+  test('검색 결과 목록 → 상세 → 목록으로 클릭 시 검색어(keyword)가 유지된다', async ({ page, context, baseURL, tracker }) => {
+    const keyword = 'P13T28SearchKeyword' + Date.now();
+    const title = keyword + ' 검색 복귀 확인';
+    boardId = tracker.track('board', await createBoard(context, baseURL, 'NOTICE', title));
+    await page.goto(`/boards?keyword=${keyword}`);
+
+    await page.locator('.board-list__link').filter({ hasText: title }).click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}`));
+
+    await page.locator('a:has-text("목록으로")').click();
+    await expect(page).toHaveURL(new RegExp(`keyword=${keyword}`));
+    await expect(page.locator('input[type="text"][name="keyword"]')).toHaveValue(keyword);
+  });
+});
+
+// P13-T15: header/title 색상 조합이 WCAG 최소 대비(4.5:1)를 만족하는지 계산하기 위한 헬퍼.
+// exact hex 값을 고정하지 않고 computed rgb()를 그대로 상대휘도 공식에 대입한다.
+function popupParseRgb(rgbString) {
+  const match = rgbString.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function popupRelativeLuminance([r, g, b]) {
+  const channel = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function popupContrastRatio(rgbStringA, rgbStringB) {
+  const lumA = popupRelativeLuminance(popupParseRgb(rgbStringA));
+  const lumB = popupRelativeLuminance(popupParseRgb(rgbStringB));
+  const lighter = Math.max(lumA, lumB);
+  const darker = Math.min(lumA, lumB);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// P13-T11: 공개 Popup 레이어(비차단형, 최대 3개 동시 노출 + 보충 - P13-T10 재정정 계약).
+// 로컬/Docker DB에 이미 실제 Popup이 등록돼 있을 수 있어(개수/순서 통제 불가) 두 가지로 독립성을 확보한다.
+// (1) 테스트가 만드는 A/B/C/D는 매 테스트 고유한 제목으로 만들고 끝나면 그 4건만 삭제한다.
+// (2) "테스트가 만들기 전부터 떠 있던" 실Popup을 이 테스트 브라우저 컨텍스트에서만 오늘 하루 보지
+//     않기 처리하는 로직은 이 describe만이 아니라 파일 전역 beforeEach(위 참고)에 있다 - 실Popup의
+//     카드가 다른 describe의 클릭/포커스를 가로채는 것을 막기 위해서다(이제는 배경 비차단형이라 실제
+//     충돌 가능성은 낮아졌지만 카드 자체는 pointer-events:auto라 여전히 겹치는 위치의 클릭을 가로챌 수
+//     있다). 이 describe는 그 전역 beforeEach가 채워둔 globalPreExistingPopupIds를 자신의 afterEach
+//     정리에 그대로 재사용한다. 실Popup은 삭제/수정/visibility 변경을 전혀 하지 않는다 - 브라우저 쪽
+//     "오늘 하루 보지 않기" localStorage 상태만 조작하며, 그 값도 afterEach에서 지운다(테스트가 만든
+//     A/B/C/D의 상태와 실Popup의 상태는 서로 다른 key(popup id)를 쓰므로 항상 독립적이다).
+test.describe('공개 Popup 레이어', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  function toLocalIsoString(date) {
+    return date.getFullYear() + '-' + popupPad2(date.getMonth() + 1) + '-' + popupPad2(date.getDate())
+      + 'T' + popupPad2(date.getHours()) + ':' + popupPad2(date.getMinutes()) + ':' + popupPad2(date.getSeconds());
+  }
+
+  async function createPopup(context, baseURL, xsrfToken, title, contentHtml) {
+    const now = new Date();
+    const start = new Date(now.getTime() - 60 * 60 * 1000);
+    const end = new Date(now.getTime() + 60 * 60 * 1000);
+    const response = await context.request.post(`${baseURL}/api/admin/popups`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        title,
+        content: contentHtml,
+        startDate: toLocalIsoString(start),
+        endDate: toLocalIsoString(end),
+        isVisible: true,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+    const body = await response.json();
+    return body.data.id;
+  }
+
+  let xsrfToken;
+  let popupIdA;
+  let popupIdB;
+  let popupIdC;
+  let popupIdD;
+  let titleA;
+  let titleB;
+  let titleC;
+  let titleD;
+  let imageUrlA;
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+
+    const runId = Date.now();
+    titleA = `Popup 테스트 A ${runId}`;
+    titleB = `Popup 테스트 B ${runId}`;
+    titleC = `Popup 테스트 C ${runId}`;
+    titleD = `Popup 테스트 D ${runId}`;
+    // HtmlSanitizer(common/util)는 img[src]에 http/https 절대 URL만 허용한다(addProtocols("img",
+    // "src", "http", "https")). 이 describe는 관리자 API를 통해 실제 저장 경로(sanitize 포함)를 타므로,
+    // sanitizer가 실제로 보존하는 형태인 절대 URL을 써야 한다.
+    imageUrlA = `${baseURL}/api/files/900001`;
+
+    // 공개 목록은 createdAt DESC로 정렬된다. created_at 컬럼은 초 단위 정밀도(DATETIME)라
+    // 같은 초 안에 두 Popup을 만들면 createdAt이 동률이 되어 정렬 순서가 보장되지 않는다
+    // (실측: 동률일 때 나중에 만든 쪽이 먼저 온다는 보장이 없었다). A가 항상 가장 최신이 되도록
+    // D->C->B->A 순으로, 매 생성 사이에 최소 1초(1100ms 여유)를 두어 서로 다른 초에 기록되게 한다.
+    // 최대 3개 동시 노출 + 4번째 보충 계약을 검증하려면 최소 4건이 필요하다.
+    popupIdD = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleD, '<p>D 내용</p>'));
+    await sleep(1100);
+    popupIdC = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleC, '<p>C 내용</p>'));
+    await sleep(1100);
+    popupIdB = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleB, '<p>B 내용</p>'));
+    await sleep(1100);
+    popupIdA = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, titleA,
+      `<p>A 내용</p><img src="${imageUrlA}" alt="A 이미지">`));
+  });
+
+  // Popup 리소스(A~D 및 테스트 중 만든 것)의 삭제는 tracker fixture가 책임진다. 여기서는 서버 리소스와
+  // 무관한 localStorage 정리만 한다.
+  test.afterEach(async ({ page }) => {
+    // addInitScript로 심은 값(파일 전역 beforeEach가 심음)은 컨텍스트 종료 시 자동 폐기되지만,
+    // 명시적으로도 정리한다.
+    if (page && !page.isClosed()) {
+      await page.evaluate(
+        ({ ids, prefix }) => {
+          ids.forEach((id) => window.localStorage.removeItem(prefix + id));
+        },
+        { ids: globalPreExistingPopupIds, prefix: POPUP_STORAGE_KEY_PREFIX }
+      ).catch(() => {});
+    }
+  });
+
+  function modalFor(page, title) {
+    return page.locator('.popup-modal').filter({ has: page.locator(`text=${title}`) });
+  }
+
+  test('노출 대상 Popup 중 최신 3개(A/B/C)가 동시에 표시되고 4번째(D)는 최초 hidden이다', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#popup-overlay')).toBeVisible();
+    await expect(modalFor(page, titleA)).toBeVisible();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeHidden();
+  });
+
+  test('제목/content/이미지를 표시한다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    await expect(modal.locator('.popup-modal__title')).toHaveText(titleA);
+    await expect(modal.locator('.popup-modal__body')).toContainText('A 내용');
+    await expect(modal.locator('.popup-modal__body img')).toHaveAttribute('src', imageUrlA);
+  });
+
+  // P13-T13: header/body가 둘 다 흰색이라 구분되지 않던 문제를 개선한다. 배경색 구체적인 값(어떤
+  // 회색인지)이나 border-bottom 존재 여부까지 고정하면 CSS 구현이 바뀔 때마다 깨지기 쉬우므로,
+  // "header가 카드(본문) 배경과 실제로 다른 색"이라는 동작 수준으로만 검증한다.
+  test('제목 영역(header)이 본문/카드와 시각적으로 구분되는 배경을 가진다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const headerBackground = await modal
+      .locator('.popup-modal__header')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    const cardBackground = await modal.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(headerBackground).not.toBe(cardBackground);
+  });
+
+  // P13-T15: --color-surface(#f8f9fa)도 흰색 계열이라 body와 잘 구분되지 않는다는 피드백으로
+  // 불투명한 배경(--color-text)으로 교체했다. exact hex를 고정하면 구현이 바뀔 때마다 깨지기
+  // 쉬우므로, "흰색이 아니다"라는 느슨한 확인과 "제목 텍스트와의 대비가 WCAG 최소 기준(4.5:1)을
+  // 만족한다"는 동작 수준의 확인만 한다.
+  test('제목 영역(header) 배경이 흰색 계열이 아니고 제목 텍스트와 충분한 대비를 가진다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const headerBackground = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const titleColor = await modal
+      .locator('.popup-modal__title')
+      .evaluate((el) => getComputedStyle(el).color);
+
+    expect(headerBackground).not.toBe('rgb(255, 255, 255)');
+    expect(popupContrastRatio(headerBackground, titleColor)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test('하나를 닫으면 다음 대기 Popup(D)이 그 자리를 채워 다시 3개가 유지된다', async ({ page }) => {
+    await page.goto('/');
+    await modalFor(page, titleA).locator('.popup-modal__close').click();
+
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+  });
+
+  test('오늘 하루 보지 않기로 닫아도 동일하게 다음 대기 Popup으로 보충되고, 새로고침 후에도 그 Popup만 계속 숨겨진다', async ({ page }) => {
+    await page.goto('/');
+    // "오늘 하루 보지 않기" 버튼은 카드 폭 대부분을 차지해서(닫기 버튼과 달리) 뒤쪽 카드에서는
+    // 40px offset만으로 안 가려진 영역을 확보하지 못할 수 있다 - 항상 안 가려지는 최상단(A)으로 확인한다.
+    await modalFor(page, titleA).locator('.popup-modal__hide-today').click();
+
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+
+    await page.reload();
+    // 오늘 하루 보지 않기는 localStorage에 영구 저장되므로 A는 새로고침 후에도 계속 제외된다.
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+  });
+
+  test('하나를 닫아도 나머지 Popup은 그대로 유지되고 서로 독립적으로 닫을 수 있다', async ({ page }) => {
+    await page.goto('/');
+    await modalFor(page, titleB).locator('.popup-modal__close').click();
+
+    await expect(modalFor(page, titleB)).toBeHidden();
+    await expect(modalFor(page, titleA)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+
+    await modalFor(page, titleC).locator('.popup-modal__close').click();
+    await expect(modalFor(page, titleC)).toBeHidden();
+    await expect(modalFor(page, titleA)).toBeVisible();
+  });
+
+  test('ESC를 누르면 가장 위(최신) Popup 1건만 닫히고, 반복하면 최신순으로 하나씩 닫힌다', async ({ page }) => {
+    await page.goto('/');
+
+    await page.keyboard.press('Escape');
+    await expect(modalFor(page, titleA)).toBeHidden();
+    await expect(modalFor(page, titleB)).toBeVisible();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(modalFor(page, titleB)).toBeHidden();
+    await expect(modalFor(page, titleC)).toBeVisible();
+    await expect(modalFor(page, titleD)).toBeVisible();
+  });
+
+  test('Popup이 떠 있어도 배경 페이지를 스크롤할 수 있다', async ({ page }) => {
+    await page.goto('/');
+    await expect(modalFor(page, titleA)).toBeVisible();
+
+    const before = await page.evaluate(() => window.scrollY);
+    await page.mouse.wheel(0, 1200);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
+  });
+
+  test('Popup이 떠 있어도 배경 하단의 콘텐츠 링크를 클릭할 수 있다', async ({ page }) => {
+    await page.goto('/');
+    await expect(modalFor(page, titleA)).toBeVisible();
+
+    await page.locator('#latest-programs .section-title__link').click();
+    await expect(page).toHaveURL(/\/programs$/);
+  });
+
+  test('최신 Popup(rank 0)의 z-index가 다른 Popup보다 높다', async ({ page }) => {
+    await page.goto('/');
+    const zIndexOf = (locator) => locator.evaluate((el) => Number(getComputedStyle(el).zIndex));
+
+    const zA = await zIndexOf(modalFor(page, titleA));
+    const zB = await zIndexOf(modalFor(page, titleB));
+    const zC = await zIndexOf(modalFor(page, titleC));
+
+    expect(zA).toBeGreaterThan(zB);
+    expect(zB).toBeGreaterThan(zC);
+  });
+
+  test('데스크톱에서 각 Popup은 오른쪽/아래로 뚜렷하게(40px 안팎) offset을 두고 배치되어 완전히 겹치지 않는다', async ({ page }) => {
+    await page.goto('/');
+    const boxA = await modalFor(page, titleA).boundingBox();
+    const boxB = await modalFor(page, titleB).boundingBox();
+    const boxC = await modalFor(page, titleC).boundingBox();
+
+    expect(boxB.x - boxA.x).toBeGreaterThanOrEqual(36);
+    expect(boxB.y - boxA.y).toBeGreaterThanOrEqual(36);
+    expect(boxC.x - boxB.x).toBeGreaterThanOrEqual(36);
+    expect(boxC.y - boxB.y).toBeGreaterThanOrEqual(36);
+  });
+
+  test('40px offset 덕분에 뒤쪽 Popup의 닫기 버튼도 앞쪽 카드에 가려지지 않고 바로 클릭할 수 있다', async ({ page }) => {
+    await page.goto('/');
+    // B/C는 rank1/2라 A보다 뒤에 있지만, 실제로 눈에 안 가려지는 위치까지 offset이 벌어져 있어야
+    // 클릭이 다른 카드에 가로채이지 않는다(24px였을 때는 이 클릭이 실패했었다).
+    await modalFor(page, titleC).locator('.popup-modal__close').click({ timeout: 3000 });
+    await expect(modalFor(page, titleC)).toBeHidden();
+    await expect(modalFor(page, titleA)).toBeVisible();
+    await expect(modalFor(page, titleB)).toBeVisible();
+  });
+
+  test('1024px/1440px 데스크톱에서 최신 Popup이 화면 수평 중앙 부근, 헤더와 충분한 여백을 두고 배치된다', async ({ page }) => {
+    for (const viewport of [{ width: 1024, height: 768 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto('/');
+      const box = await modalFor(page, titleA).boundingBox();
+      const centerX = box.x + box.width / 2;
+
+      expect(Math.abs(centerX - viewport.width / 2)).toBeLessThan(2);
+      expect(box.y).toBeGreaterThanOrEqual(90);
+    }
+  });
+
+  test('헤더를 드래그하면 Popup 위치가 이동한다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const before = await modal.boundingBox();
+    const headerBox = await header.boundingBox();
+    const startX = headerBox.x + headerBox.width / 2;
+    const startY = headerBox.y + headerBox.height / 2;
+    const dx = 150;
+    const dy = 90;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + dx, startY + dy, { steps: 10 });
+    await page.mouse.up();
+
+    const after = await modal.boundingBox();
+    expect(Math.abs(after.x - (before.x + dx))).toBeLessThan(3);
+    expect(Math.abs(after.y - (before.y + dy))).toBeLessThan(3);
+  });
+
+  test('닫기 버튼 위에서 누른 채 움직여도 드래그로 처리되지 않아 Popup 위치가 그대로다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleC);
+    const closeButton = modal.locator('.popup-modal__close');
+    const before = await modal.boundingBox();
+    const btnBox = await closeButton.boundingBox();
+    const startX = btnBox.x + btnBox.width / 2;
+    const startY = btnBox.y + btnBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 80, startY + 80, { steps: 5 });
+    const duringPointerDown = await modal.boundingBox();
+    await page.mouse.up();
+
+    expect(Math.abs(duringPointerDown.x - before.x)).toBeLessThan(2);
+    expect(Math.abs(duringPointerDown.y - before.y)).toBeLessThan(2);
+  });
+
+  test('드래그를 시작하면 그 Popup이 즉시 다른 Popup보다 z-index 최상단으로 올라온다', async ({ page }) => {
+    await page.goto('/');
+    // B는 rank1이라 원래 A보다 z-index가 낮다 - 드래그하면 A(원래 최상단)보다도 위로 올라와야 한다.
+    // 헤더 "중앙"은 앞쪽 카드(A)에 가려진 영역일 수 있으므로, 실제로 안 가려지는 지점(헤더 오른쪽
+    // 끝에서 살짝 안쪽 - 닫기 버튼 바로 왼쪽)을 좌표로 쓴다.
+    const target = modalFor(page, titleB);
+    const other = modalFor(page, titleA);
+    const header = target.locator('.popup-modal__header');
+    const headerBox = await header.boundingBox();
+    const startX = headerBox.x + headerBox.width - 12;
+    const startY = headerBox.y + headerBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 60, startY + 40, { steps: 5 });
+    await page.mouse.up();
+
+    const zTarget = await target.evaluate((el) => Number(getComputedStyle(el).zIndex));
+    const zOther = await other.evaluate((el) => Number(getComputedStyle(el).zIndex));
+    expect(zTarget).toBeGreaterThan(zOther);
+  });
+
+  test('viewport 밖으로 드래그해도 Popup 전체가 화면 안에 clamp된다', async ({ page }) => {
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const headerBox = await header.boundingBox();
+    const viewport = page.viewportSize();
+
+    await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(viewport.width + 500, viewport.height + 500, { steps: 10 });
+    await page.mouse.up();
+
+    const after = await modal.boundingBox();
+    expect(after.x).toBeGreaterThanOrEqual(0);
+    expect(after.y).toBeGreaterThanOrEqual(0);
+    expect(after.x + after.width).toBeLessThanOrEqual(viewport.width + 1);
+    expect(after.y + after.height).toBeLessThanOrEqual(viewport.height + 1);
+  });
+
+  test('드래그로 옮긴 Popup은 다른 Popup이 닫히고 보충돼도 위치가 유지된다', async ({ page }) => {
+    await page.goto('/');
+    // B(rank1)를 드래그한 뒤 A(rank0)를 닫으면, 드래그하지 않았을 경우 B는 recency reflow로 rank0
+    // 위치로 재배치돼야 정상이다(다른 테스트에서 이미 확인된 동작). 여기서는 드래그로 옮긴 위치가
+    // 그 재배치를 덮어쓰지 않고 그대로 유지되는지를 확인한다.
+    const modal = modalFor(page, titleB);
+    const header = modal.locator('.popup-modal__header');
+    const headerBox = await header.boundingBox();
+    const startX = headerBox.x + headerBox.width - 12;
+    const startY = headerBox.y + headerBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 120, startY + 90, { steps: 8 });
+    await page.mouse.up();
+
+    const draggedPosition = await modal.boundingBox();
+
+    await modalFor(page, titleA).locator('.popup-modal__close').click();
+    await expect(modalFor(page, titleD)).toBeVisible();
+
+    const afterBackfill = await modal.boundingBox();
+    expect(Math.abs(afterBackfill.x - draggedPosition.x)).toBeLessThan(2);
+    expect(Math.abs(afterBackfill.y - draggedPosition.y)).toBeLessThan(2);
+  });
+
+  test('375px에서는 헤더를 드래그해도 Popup 위치가 바뀌지 않는다(모바일 drag 비활성화)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    const modal = modalFor(page, titleA);
+    const header = modal.locator('.popup-modal__header');
+    const before = await modal.boundingBox();
+    const headerBox = await header.boundingBox();
+
+    await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(headerBox.x + 50, headerBox.y + 50, { steps: 5 });
+    await page.mouse.up();
+
+    const after = await modal.boundingBox();
+    expect(Math.abs(after.x - before.x)).toBeLessThan(2);
+    expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+  });
+
+  for (const viewport of VIEWPORTS) {
+    test(`${viewport.name}에서 Popup이 여러 개 떠 있어도 가로 overflow가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto('/');
+      await expect(modalFor(page, titleA)).toBeVisible();
+      await expect(modalFor(page, titleB)).toBeVisible();
+      await expect(modalFor(page, titleC)).toBeVisible();
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      // document.scrollWidth는 position:absolute인 Popup 카드가 viewport 밖으로 나가도 감지하지
+      // 못한다(절대 배치 요소는 문서 스크롤 영역에 반영되지 않음 - 실측으로 확인된 맹점). 가변 폭
+      // 도입 이후에는 각 Popup 카드 자신의 boundingBox가 실제로 viewport 안에 있는지 직접 확인한다.
+      for (const title of [titleA, titleB, titleC]) {
+        const box = await modalFor(page, title).boundingBox();
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width + 0.5);
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 0.5);
+      }
+    });
+  }
+
+  test('콘텐츠 길이에 따라 Popup 폭이 최소 480px~최대 720px 사이에서 자연스럽게 늘어난다(fit-content)', async ({ page, context, baseURL, tracker }) => {
+    async function widthFor(contentHtml) {
+      const runId = Date.now();
+      const title = `폭가변 확인 ${runId}`;
+      const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title, contentHtml));
+      await page.goto('/');
+      const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+      // 다음 측정 전에 이 Popup을 제거하는 것이 원래 동작이므로 tracker로 중간 삭제를 유지한다
+      // (204/404면 등록이 해제되어 최종 cleanup에서 다시 지우지 않는다).
+      await tracker.remove('popup', id);
+      return box.width;
+    }
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    const shortWidth = await widthFor('<p>짧은 안내</p>');
+    const mediumWidth = await widthFor('<p>' + '중간 길이의 안내 문구입니다. '.repeat(3) + '</p>');
+    const longWidth = await widthFor('<p>' + '이것은 실제 관리자 CKEditor로 작성했을 법한 다소 긴 안내 문구입니다. '.repeat(8) + '</p>');
+
+    expect(shortWidth).toBeCloseTo(480, 0);
+    expect(mediumWidth).toBeGreaterThan(shortWidth);
+    expect(mediumWidth).toBeLessThan(720);
+    expect(longWidth).toBeCloseTo(720, 0);
+  });
+
+  test('이미지만 있고 텍스트가 짧으면 이미지 크기와 무관하게 폭이 최소값(480px)에 머문다', async ({ page, context, baseURL, tracker }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const title = `이미지단독 폭확인 ${Date.now()}`;
+    // 실제 파일 존재 여부와 무관하게 width/height 속성으로 큰 이미지의 intrinsic size를 흉내낸다.
+    const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title,
+      `<p>짧은 캡션</p><img src="${imageUrlA}" width="1600" height="900">`));
+
+    await page.goto('/');
+    const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+    expect(box.width).toBeCloseTo(480, 0);
+  });
+
+  test('공백 없는 긴 문자열도 최대폭(720px)에서 카드 내부에 정상적으로 줄바꿈된다(overflow-wrap)', async ({ page, context, baseURL, tracker }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const title = `줄바꿈 확인 ${Date.now()}`;
+    const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title, '<p>' + 'A'.repeat(500) + '</p>'));
+
+    await page.goto('/');
+    const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+    expect(box.width).toBeCloseTo(720, 0);
+
+    const wrap = await page.evaluate((popupId) => {
+      const body = document.querySelector(`#popup-modal-${popupId} .popup-modal__body`);
+      return { scrollWidth: body.scrollWidth, clientWidth: body.clientWidth };
+    }, id);
+    // scrollWidth가 clientWidth를 넘지 않으면 카드 내부에서도 가로 스크롤 없이 정상 줄바꿈된 것이다.
+    expect(wrap.scrollWidth).toBeLessThanOrEqual(wrap.clientWidth + 1);
+  });
+
+  test('375px 모바일에서는 데스크톱 min-width(480px)가 적용되지 않고 화면 폭에 맞춰진다', async ({ page, context, baseURL, tracker }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const title = `모바일 폭확인 ${Date.now()}`;
+    const id = tracker.track('popup', await createPopup(context, baseURL, xsrfToken, title,
+      '<p>' + '이것은 실제 관리자 CKEditor로 작성했을 법한 다소 긴 안내 문구입니다. '.repeat(8) + '</p>'));
+
+    await page.goto('/');
+    const box = await page.locator(`#popup-modal-${id}`).boundingBox();
+    // 데스크톱 min-width(480px)가 재설정 안 되면 375px 화면에서도 480px로 고정돼 밖으로 나간다 -
+    // 실측으로 재현했던 버그를 회귀 테스트로 고정한다.
+    expect(box.width).toBeLessThan(375);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(375.5);
+  });
+
+  test('실제 관리자 CKEditor 업로드 이미지가 공개 Popup 안에서 렌더링된다', async ({ page, tracker }) => {
+    // A~D와 별개로, 진짜 CKEditor 업로드 버튼을 통해 만든 5번째 Popup으로 별도 검증한다
+    // (HtmlSanitizer가 /api/files/{id} 상대 경로를 보존하도록 고친 fix가 실제 렌더링까지 이어지는지 확인).
+    const title = `CKEditor 이미지 렌더링 확인 ${Date.now()}`;
+    await page.goto('/admin/popups/new');
+    await page.locator('#title').fill(title);
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('이미지 테스트');
+
+    const uploadButton = page
+      .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
+      .first();
+    // 업로드 응답의 exact File ID를 파일 선택 전에 관찰해 등록한다(이동 없는 fetch라 waitForResponse로 충분하다).
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await uploadButton.click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({
+      name: 'tiny.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64'
+      ),
+    });
+
+    await uploadedFileId;
+
+    // placeholder만 뜬 시점이 아니라 실제 업로드가 끝나 /api/files/{id} src가 채워질 때까지 기다린다.
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && img.getAttribute('src') && img.getAttribute('src').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+
+    const now = new Date();
+    const start = new Date(now.getTime() - 60 * 60 * 1000);
+    const end = new Date(now.getTime() + 60 * 60 * 1000);
+    await page.locator('#startDate').fill(toLocalIsoString(start).slice(0, 16));
+    await page.locator('#endDate').fill(toLocalIsoString(end).slice(0, 16));
+    await page.locator('#isVisible').check();
+
+    // 저장은 fetch POST 성공 직후 location.href로 이동한다. 이동하면 응답 body를 읽을 수 없으므로 이동 전에
+    // 페이지 안에서 생성 응답의 exact ID를 관찰해 tracker에 등록한다(최신 목록 조회로 ID를 추정하지 않는다).
+    const createdPopup = await observeNavigatingCreate(page, tracker, 'popup', { timeout: 10000 });
+    await Promise.all([
+      page.waitForURL(/\/admin\/popups$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+    const popupId = await createdPopup.id;
+
+    await page.goto('/');
+    const img = page.locator(`#popup-modal-${popupId} img`);
+    await expect(img).toBeVisible();
+    const src = await img.getAttribute('src');
+    expect(src).toMatch(/^\/api\/files\/\d+$/);
+
+    const loaded = await img.evaluate((el) => new Promise((resolve) => {
+      if (el.complete) { resolve(el.naturalWidth > 0); return; }
+      el.addEventListener('load', () => resolve(true));
+      el.addEventListener('error', () => resolve(false));
+      setTimeout(() => resolve(el.naturalWidth > 0), 3000);
+    }));
+    expect(loaded).toBeTruthy();
+  });
+});
+
+test.describe('P13-T20: 게시글 본문 링크 새 탭/내부 이동', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+  let linkedBoardId;
+
+  async function createBoard(context, baseURL, title, content) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title, content, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+    linkedBoardId = undefined;
+  });
+
+  test('본문의 외부 링크를 클릭하면 새 탭에서 열린다', async ({ page, context, baseURL, tracker }) => {
+    boardId = tracker.track('board', await createBoard(
+      context, baseURL,
+      '외부 링크 새 탭 확인 ' + Date.now(),
+      '<p>본문 <a href="https://example.com">외부 링크</a></p>'
+    ));
+
+    await page.goto(`/boards/${boardId}`);
+    const link = page.locator('#board-detail-content a[href="https://example.com"]');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+
+    const [newPage] = await Promise.all([
+      context.waitForEvent('page'),
+      link.click(),
+    ]);
+    await newPage.waitForLoadState();
+    expect(newPage.url()).toContain('example.com');
+    await newPage.close();
+  });
+
+  test('본문의 내부 링크를 클릭하면 같은 탭에서 해당 게시글로 이동한다', async ({ page, context, baseURL, tracker }) => {
+    linkedBoardId = tracker.track('board', await createBoard(context, baseURL, '내부 링크 대상 게시글 ' + Date.now(), '내용'));
+    boardId = tracker.track('board', await createBoard(
+      context, baseURL,
+      '내부 링크 같은 탭 확인 ' + Date.now(),
+      `<p>본문 <a href="/boards/${linkedBoardId}">내부 링크</a></p>`
+    ));
+
+    await page.goto(`/boards/${boardId}`);
+    const link = page.locator(`#board-detail-content a[href="/boards/${linkedBoardId}"]`);
+    await expect(link).not.toHaveAttribute('target', '_blank');
+    await expect(link).not.toHaveAttribute('rel', 'noopener noreferrer');
+
+    await link.click();
+    await page.waitForURL(`**/boards/${linkedBoardId}`);
+    expect(page.url()).toContain(`/boards/${linkedBoardId}`);
+  });
+});
+
+test.describe('P13-T22: Board 기존 첨부파일 파일명 표시', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  test('기존 첨부파일이 있는 게시글 수정 화면에 실제 업로드 원본 파일명이 표시된다', async ({ page, context, baseURL, tracker }) => {
+    const uploadRes = await context.request.post(`${baseURL}/api/admin/files`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      multipart: {
+        file: { name: '강의자료.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER },
+        fileType: 'ATTACHMENT',
+      },
+    });
+    expect(uploadRes.ok()).toBeTruthy();
+    const uploaded = (await uploadRes.json()).data;
+    tracker.track('file', uploaded.id); // 업로드 성공 직후 exact File ID 등록(파일은 콘텐츠 삭제 후 마지막에 정리된다)
+    const uploadedUrl = uploaded.url;
+
+    const boardRes = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE', title: '첨부파일 이름 표시 확인 ' + Date.now(),
+        attachment: uploadedUrl, isPublic: true,
+      },
+    });
+    expect(boardRes.ok()).toBeTruthy();
+    boardId = tracker.track('board', (await boardRes.json()).data.id);
+
+    await page.goto(`/admin/boards/${boardId}/edit`);
+
+    await expect(page.locator('#attachmentPreviewNameWrap')).toBeVisible();
+    await expect(page.locator('#attachmentPreviewName')).toHaveText('강의자료.png');
+    await expect(page.locator('#attachmentPreviewLink')).toHaveAttribute('href', uploadedUrl);
+  });
+});
+
+test.describe('P13-T23: 관리자 이미지 정렬 round-trip', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardId = undefined;
+  });
+
+  // 관리자 편집기에서 정렬 버튼 노출 -> 실제 정렬 적용 -> 저장 -> DB/API 재조회 -> 수정 화면 재진입 시
+  // 스타일 유지 -> 공개 상세 화면에서 동일 정렬 적용 -> 375/768/1024/1440 overflow/겹침 없음까지
+  // 하나의 흐름으로 검증한다(Board 대표 1건, Program/Page/Popup은 HtmlSanitizer/CSS 공용 로직이므로
+  // 반복하지 않는다).
+  test('CKEditor에서 이미지를 왼쪽 정렬로 저장하면 재조회/공개 화면/반응형까지 유지된다', async ({ page, context, baseURL, tracker }) => {
+    await page.goto('/admin/boards/new');
+    await page.locator('#boardType').selectOption('NOTICE');
+    await page.locator('#title').fill('이미지 정렬 round-trip 확인 ' + Date.now());
+
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('이 게시글은 이미지 정렬 확인용 본문입니다. '.repeat(15));
+
+    const uploadButton = page
+      .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
+      .first();
+    // 업로드 응답의 exact File ID를 파일 선택 전에 관찰해 등록한다(이동 없는 fetch라 waitForResponse로 충분하다).
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await uploadButton.click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({
+      name: 'align-test.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+    await uploadedFileId;
+
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && img.getAttribute('src') && img.getAttribute('src').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+
+    // 업로드 직후 이미지는 block 타입(<figure class="image">)이다. 위젯을 선택하면 balloon toolbar가
+    // 뜨고, P13-T25부터는 6개 정렬 style이 "이미지 정렬" dropdown 1개로 묶여 있다(ckeditor-config.js).
+    await page.locator('.ck-editor__editable img').click();
+
+    // dropdown이 정확히 1개이고(정렬 버튼이 balloon toolbar에 평면으로 나열되지 않음), 화살표를 눌러
+    // 연 패널 안에 기존 6개 style이 한글 라벨로 전부 존재하는지 확인한다.
+    await expect(page.locator('.ck-balloon-panel .ck-dropdown')).toHaveCount(1);
+    await page.locator('.ck-balloon-panel .ck-splitbutton__arrow').click();
+    const panel = page.locator('.ck-dropdown__panel:not(.ck-hidden)');
+    const expectedLabels = ['글 안에 배치', '기본', '글 옆에 배치', '왼쪽 정렬', '가운데 정렬', '오른쪽 정렬'];
+    for (const label of expectedLabels) {
+      await expect(panel.locator(`[data-cke-tooltip-text="${label}"]`)).toBeVisible();
+    }
+
+    // 패널 안에서 "왼쪽 정렬"(alignLeft) 항목을 클릭한다.
+    await panel.locator('[data-cke-tooltip-text="왼쪽 정렬"]').click();
+    await page.waitForSelector('.ck-editor__editable figure.image-style-align-left', { timeout: 10000 });
+
+    await page.locator('#isPublic').check();
+    // 저장은 fetch POST 성공 직후 location.href로 이동한다. 이동하면 응답 body를 읽을 수 없으므로 이동 전에
+    // 페이지 안에서 생성 응답의 exact ID를 관찰해 tracker에 등록한다(최신 목록 조회로 ID를 추정하지 않는다).
+    const createdBoard = await observeNavigatingCreate(page, tracker, 'board', { timeout: 10000 });
+    await Promise.all([
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+    boardId = await createdBoard.id;
+
+    // DB/API를 거친 재조회: 수정 화면 재진입 시 정렬이 CKEditor 안에서 그대로 복원되는지 확인.
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await page.waitForSelector('.ck-editor__editable figure.image-style-align-left', { timeout: 10000 });
+
+    // 공개 상세 화면에서 동일 정렬이 반영되는지 확인.
+    await page.goto(`/boards/${boardId}`);
+    const publicImage = page.locator('#board-detail-content .ckeditor-content .image-style-align-left img');
+    await expect(publicImage).toBeVisible();
+
+    // float containment: float 이미지 다음에 이어지는 "목록으로" 버튼이 이미지와 겹치지 않는지 확인.
+    const imageBox = await publicImage.boundingBox();
+    const backLinkBox = await page.locator('#board-detail-content a:has-text("목록으로")').boundingBox();
+    expect(backLinkBox.y).toBeGreaterThanOrEqual(imageBox.y + imageBox.height - 1);
+
+    // 375/768/1024/1440에서 가로 overflow가 없는지 확인.
+    for (const width of [375, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      const overflowCheck = await page.evaluate(() => {
+        const el = document.querySelector('#board-detail-content');
+        return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+      });
+      expect(overflowCheck.scrollWidth).toBeLessThanOrEqual(overflowCheck.clientWidth + 1);
+    }
+  });
+
+  // P13-T25: dropdown 도입 이전(P13-T23)에 이미 저장돼 있었을 법한 HTML이 새 config에서도 그대로
+  // 복원되는지 확인한다. API로 직접 저장해(UI를 거치지 않음) "기존 저장 HTML 자체는 이번 변경으로
+  // 건드리지 않는다"는 것과, dropdown UI로도 그 style이 정확히 업캐스트되는지를 함께 검증한다.
+  test('P13-T23 시절에 저장된 정렬 HTML이 dropdown UI에서도 그대로 복원되고 공개 화면도 무변경이다', async ({ page, context, baseURL, tracker }) => {
+    const boardRes = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: 'P13-T25 기존 저장 HTML 회귀 확인 ' + Date.now(),
+        content: '<p>본문</p><figure class="image image-style-align-right"><img src="/api/files/900501"></figure>',
+        isPublic: true,
+      },
+    });
+    expect(boardRes.ok()).toBeTruthy();
+    boardId = tracker.track('board', (await boardRes.json()).data.id);
+
+    // 수정 화면 재진입 시 dropdown UI에서도 정확히 같은 style(alignRight)로 복원되는지 확인.
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await page.waitForSelector('.ck-editor__editable figure.image-style-align-right', { timeout: 10000 });
+
+    // 공개 화면도 P13-T23과 동일하게 렌더링되는지 확인(CSS/sanitizer 무변경).
+    await page.goto(`/boards/${boardId}`);
+    await expect(
+      page.locator('#board-detail-content .ckeditor-content .image-style-align-right img')
+    ).toBeVisible();
+  });
+});
+
+// P13-T29: CKEditor의 6개 ImageStyle 중 inline("글 안에 배치")만 HtmlSanitizer가 실측 확인한 대로
+// <figure> 래핑 없는 순수 <img>로 저장되어, 기존 `.ckeditor-content .image img` 규칙(figure 조상
+// 필요)이 걸리지 않고 원본 해상도 그대로 렌더링될 수 있었다(home.css 신규 `.ckeditor-content img`
+// 규칙으로 수정). 별도 대용량 binary fixture 없이 canvas로 큰 intrinsic 크기의 PNG를 즉석 생성해
+// 검증한다. Board 대표 1건만 확인하고 Program/Page는 .ckeditor-content CSS를 공유하므로 중복
+// 추가하지 않는다(P13-T23/P13-T27과 동일한 관례).
+test.describe('P13-T29: 공개 게시글 상세 CKEditor inline 이미지 overflow 방지', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let boardId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    boardId = undefined;
+  });
+
+  // 파일 크기(byte)가 아니라 PNG의 intrinsic 가로/세로 픽셀 값이 커야 overflow가 재현되므로,
+  // 브라우저 <canvas>로 즉석 생성한다(별도 대용량 fixture 파일 불필요).
+  async function generateLargePngBuffer(page, width, height) {
+    const dataUrl = await page.evaluate(({ w, h }) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#3366ff';
+      ctx.fillRect(0, 0, w, h);
+      return canvas.toDataURL('image/png');
+    }, { w: width, h: height });
+    return Buffer.from(dataUrl.split(',')[1], 'base64');
+  }
+
+  test('큰 intrinsic 크기의 inline("글 안에 배치") 이미지가 375/768/1440px 어디에서도 overflow를 만들지 않는다', async ({ page, tracker }) => {
+    await page.goto('/admin/boards/new');
+    await page.locator('#boardType').selectOption('NOTICE');
+    await page.locator('#title').fill('inline 이미지 overflow 확인 ' + Date.now());
+
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('이 게시글은 inline 이미지 overflow 확인용 본문입니다. '.repeat(10));
+
+    const largePngBuffer = await generateLargePngBuffer(page, 2400, 1200);
+    const uploadButton = page
+      .locator('.ck-file-dialog-button, button[data-cke-tooltip-text*="Insert image"], .ck-insert-image-icon')
+      .first();
+    // 업로드 응답의 exact File ID를 파일 선택 전에 관찰해 등록한다(이동 없는 fetch라 waitForResponse로 충분하다).
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await uploadButton.click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({
+      name: 'large-inline-test.png', mimeType: 'image/png', buffer: largePngBuffer,
+    });
+    await uploadedFileId;
+
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && img.getAttribute('src') && img.getAttribute('src').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+
+    // 업로드 직후 이미지는 기본(block, <figure class="image">) 상태다. 위젯을 선택해 "이미지 정렬"
+    // dropdown을 열고 "글 안에 배치"(inline)를 선택한다.
+    await page.locator('.ck-editor__editable img').click();
+    await page.locator('.ck-balloon-panel .ck-splitbutton__arrow').click();
+    const panel = page.locator('.ck-dropdown__panel:not(.ck-hidden)');
+    await panel.locator('[data-cke-tooltip-text="글 안에 배치"]').click();
+
+    // inline 전환 확인: figure 래핑이 없는 순수 <img>가 됐는지 직접 확인한다(P13-T29의 핵심 전제).
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable img');
+      return !!(img && !img.closest('figure'));
+    }, { timeout: 10000 });
+
+    await page.locator('#isPublic').check();
+    // 저장은 fetch POST 성공 직후 location.href로 이동한다. 이동하면 응답 body를 읽을 수 없으므로 이동 전에
+    // 페이지 안에서 생성 응답의 exact ID를 관찰해 tracker에 등록한다(최신 목록 조회로 ID를 추정하지 않는다).
+    const createdBoard = await observeNavigatingCreate(page, tracker, 'board', { timeout: 10000 });
+    await Promise.all([
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+    boardId = await createdBoard.id;
+
+    await page.goto(`/boards/${boardId}`);
+    const publicContent = page.locator('#board-detail-content .ckeditor-content');
+    const publicImage = publicContent.locator('img').first();
+    await expect(publicImage).toBeVisible();
+    // 저장된 본문에도 figure 래핑이 없는 순수 inline <img>인지 재확인(공개 화면 기준).
+    await expect(publicContent.locator('figure img')).toHaveCount(0);
+
+    for (const width of [375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+
+      const overflowX = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX, `${width}px에서 페이지 전체 horizontal overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+
+      const contentBox = await publicContent.boundingBox();
+      const imageBox = await publicImage.boundingBox();
+      expect(imageBox.width, `${width}px에서 inline 이미지 렌더 폭이 .ckeditor-content 폭을 넘지 않아야 한다`)
+        .toBeLessThanOrEqual(contentBox.width + 1);
+    }
+  });
+});
+
+test.describe('P13-T24: Banner 수정 화면 기존 이미지 미리보기', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let bannerId;
+
+  async function createBannerWithImage(context, baseURL, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/banners`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { title, image: '/api/files/900401', sortOrder: 0, isVisible: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    bannerId = undefined;
+  });
+
+  test('Banner 수정 화면 진입 시 기존 이미지 미리보기가 표시된다', async ({ page, context, baseURL, tracker }) => {
+    bannerId = tracker.track('banner', await createBannerWithImage(context, baseURL, 'Banner 이미지 미리보기 확인 ' + Date.now()));
+    await page.goto(`/admin/banners/${bannerId}/edit`);
+
+    await expect(page.locator('#imagePreview')).toBeVisible();
+    await expect(page.locator('#imagePreviewImage')).toHaveAttribute('src', '/api/files/900401');
+    await expect(page.locator('#imagePreviewLink')).toHaveAttribute('href', '/api/files/900401');
+    await expect(page.locator('#imagePreviewLink')).toHaveAttribute('target', '_blank');
+    await expect(page.locator('#imagePreviewLink')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('신규 등록 화면에서는 미리보기 영역이 표시되지 않는다', async ({ page }) => {
+    await page.goto('/admin/banners/new');
+
+    await expect(page.locator('#imagePreview')).toBeHidden();
+  });
+
+  test('새 이미지 파일을 업로드하면 미리보기가 즉시 새 URL로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    bannerId = tracker.track('banner', await createBannerWithImage(context, baseURL, 'Banner 새 이미지 갱신 확인 ' + Date.now()));
+    await page.goto(`/admin/banners/${bannerId}/edit`);
+    await expect(page.locator('#imagePreviewImage')).toHaveAttribute('src', '/api/files/900401');
+
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    await page.setInputFiles('#imageInput', {
+      name: 'new-banner.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER,
+    });
+    await uploadedFileId;
+
+    await expect(page.locator('#image')).not.toHaveValue('/api/files/900401');
+    const newUrl = await page.locator('#image').inputValue();
+    expect(newUrl).toBeTruthy();
+    await expect(page.locator('#imagePreviewImage')).toHaveAttribute('src', newUrl);
+    await expect(page.locator('#imagePreview')).toBeVisible();
+  });
+});
+
+// P13-T30B: 현재 V4 seed에는 GROUP이 없으므로, 아래 테스트는 시작 시 admin Menu API로 임시
+// GROUP + child 1개를 생성하고 종료 시 그 테스트가 만든 Menu만 삭제한다(V4 seed 4개와 다른
+// 기존 메뉴는 절대 건드리지 않음). 기존 관리자 로그인/CSRF 헬퍼(loginAsAdmin/getXsrfToken)를
+// 그대로 재사용한다.
+test.describe('P13-T30B: 공개 헤더 동적 메뉴 - GROUP dropdown/submenu', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  const GROUP_LABEL = 'P13-T30B 테스트 그룹';
+  const CHILD_LABEL = 'P13-T30B 테스트 하위메뉴';
+
+  let xsrfToken;
+  let groupId;
+  let childId;
+
+  async function createMenu(context, baseURL, payload) {
+    const res = await context.request.post(`${baseURL}/api/admin/menus`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: payload,
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    groupId = undefined;
+    childId = undefined;
+
+    groupId = tracker.track('menu', await createMenu(context, baseURL, {
+      label: GROUP_LABEL, targetType: 'GROUP', sortOrder: 999, visible: true, openInNewTab: false,
+    }));
+    childId = tracker.track('menu', await createMenu(context, baseURL, {
+      label: CHILD_LABEL, parentId: groupId, targetType: 'BOARD_LIST', targetValue: 'NOTICE',
+      sortOrder: 0, visible: true, openInNewTab: false,
+    }));
+  });
+
+  // Menu 삭제는 tracker fixture가 책임진다. child는 group보다 나중에 등록되므로 LIFO cleanup이 child -> group
+  // 순으로 지워 MENU_HAS_CHILDREN(409)을 피한다. 테스트가 도중에 실패해도 fixture teardown은 항상 실행된다.
+
+  test('Desktop 1440: hover로 열리고 aria-expanded가 실제 open 상태와 동기화되며, submenu 이동 유지/영역 이탈 닫힘/click toggle/Escape/키보드 접근이 모두 정상 동작한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupLi = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL });
+    const trigger = groupLi.locator('.site-nav__trigger');
+    const submenu = groupLi.locator('.site-nav__submenu');
+    const childLink = submenu.locator('a', { hasText: CHILD_LABEL });
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(submenu).toBeHidden();
+
+    // P13-T30D(A1): hover/open 상태의 시각적 강조(활성 trigger)를 검증하기 위해 닫힌 상태의
+    // 기준 font-weight를 먼저 캡처한다 - 구체적인 base 값을 하드코딩하지 않고 "달라지는지"만
+    // 비교해 취약한 assertion을 피한다.
+    const baseFontWeight = await trigger.evaluate((el) => getComputedStyle(el).fontWeight);
+
+    // hover로 열림 + aria-expanded 동기화(실제 시각 상태와 일치)
+    await trigger.hover();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveCSS('font-weight', '700');
+
+    // P13-T30D(A1): trigger 하단과 submenu 상단 사이에 pointer dead-zone(양수 간격)이 없는지
+    // 기하학적으로 확인한다. margin으로 둘이 떨어져 있으면 그 사이를 지나가는 순간 어떤 요소도
+    // hit-test되지 않아 mouseleave가 조기 발동한다.
+    const triggerBox = await trigger.boundingBox();
+    const submenuBox = await submenu.boundingBox();
+    expect(submenuBox.y - (triggerBox.y + triggerBox.height),
+      'trigger 하단과 submenu 상단 사이에 pointer dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+
+    // trigger에서 submenu 하위 링크까지 실제 pointer 이동 궤적(다단계 mousemove)으로 이동해도
+    // 중간에 닫히지 않고 유지된다 - .hover()의 순간이동으로는 이 dead-zone 회귀를 재현하지 못하므로
+    // page.mouse.move()에 steps를 줘서 두 좌표 사이를 실제로 통과시킨다.
+    const childBox = await childLink.boundingBox();
+    await page.mouse.move(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+    await page.mouse.move(childBox.x + childBox.width / 2, childBox.y + childBox.height / 2, { steps: 10 });
+    await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // P13-T30D(A1): trigger→submenu 이동 궤적을 통과한 뒤에도 활성 강조가 유지된다
+    await expect(trigger).toHaveCSS('font-weight', '700');
+
+    // GROUP 영역 밖으로 완전히 벗어나면 닫히고 aria-expanded=false로 동기화된다
+    await page.locator('.site-header__brand').hover();
+    await expect(submenu).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // P13-T30D(A1): 닫히면 활성 강조도 함께 해제된다
+    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
+
+    // click toggle
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveCSS('font-weight', '700');
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(submenu).toBeHidden();
+    // click으로 닫아도 pointer가 여전히 trigger 위에 있으면 :hover 자체는 유효하므로(의도된 동작 -
+    // 요구사항 1의 "hover 시 강조"), 강조 해제를 검증하려면 pointer를 명시적으로 옮긴 뒤 확인한다.
+    await page.locator('.site-header__brand').hover();
+    await expect(trigger).toHaveCSS('font-weight', baseFontWeight);
+
+    // click으로 연 상태도 hover-open과 동일하게, 실제 이동 궤적이 dead-zone을 지나도 유지된다
+    // (mouseleave 처리가 openedByHover 여부와 무관하게 동작해야 하는 요구사항의 회귀 방지).
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const clickTriggerBox = await trigger.boundingBox();
+    const clickChildBox = await childLink.boundingBox();
+    await page.mouse.move(clickTriggerBox.x + clickTriggerBox.width / 2, clickTriggerBox.y + clickTriggerBox.height / 2);
+    await page.mouse.move(clickChildBox.x + clickChildBox.width / 2, clickChildBox.y + clickChildBox.height / 2, { steps: 10 });
+    await expect(submenu).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // P13-T30D(A1): click-open 상태도 hover-open과 동일하게 활성 강조가 유지된다
+    await expect(trigger).toHaveCSS('font-weight', '700');
+
+    // child 링크 접근/이동
+    await childLink.click();
+    await expect(page).toHaveURL(/\/boards\?boardType=NOTICE/);
+    await page.goto('/');
+
+    // 키보드: Tab으로 GROUP trigger에 도달 가능(V4 seed 항목 수에 결합되지 않도록 상한을 넉넉히 둔 탐색)
+    let reachedTrigger = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await trigger.evaluate((el) => el === document.activeElement)) {
+        reachedTrigger = true;
+        break;
+      }
+    }
+    expect(reachedTrigger, 'Tab 이동만으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
+
+    // P13-T36: GROUP trigger는 :focus-visible에도 hover/open과 동일한 tint+font-weight:700을
+    // 적용한다(키보드 focus가 hover와 동등한 가시성을 가져야 한다는 요구사항) - P13-T30D(A1) 당시에는
+    // "단순 focus만으로는 강조가 붙지 않아야 한다"였지만, 이번 Task에서 의도적으로 뒤집힌 동작이다.
+    // 네이티브 outline은 이 강조와 별개로 계속 유지된다(제거하지 않음).
+    await expect(trigger).toHaveCSS('font-weight', '700');
+    const outlineStyle = await trigger.evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(outlineStyle, '키보드 focus 시 native outline이 계속 유지되어야 한다')
+      .not.toBe('none');
+
+    // Enter로 열기, submenu 링크도 다음 Tab으로 자연스럽게 접근 가능
+    await page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(trigger).toHaveCSS('font-weight', '700');
+    await page.keyboard.press('Tab');
+    await expect(childLink).toBeFocused();
+
+    // Escape로 닫히고 trigger로 focus가 복귀한다
+    await page.keyboard.press('Escape');
+    await expect(submenu).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toBeFocused();
+    // P13-T36: Escape 이후에도 trigger가 여전히 focus-visible 상태이므로(포커스만 복귀, 블러되지
+    // 않음) GROUP :focus-visible 강조(font-weight:700)가 계속 유지된다 - is-open은 false여도
+    // focus-visible 자체는 hover/open과 동등하게 강조되어야 한다는 요구사항의 직접적인 결과다.
+    await expect(trigger).toHaveCSS('font-weight', '700');
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '1440px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  test('Desktop 1440: 다른 GROUP을 열면 기존에 열려 있던 GROUP은 자동으로 닫힌다', async ({ page, context, baseURL, tracker }) => {
+    const secondGroupId = tracker.track('menu', await createMenu(context, baseURL, {
+      label: 'P13-T30B 두번째 그룹', targetType: 'GROUP', sortOrder: 1000, visible: true, openInNewTab: false,
+    }));
+    const secondChildId = tracker.track('menu', await createMenu(context, baseURL, {
+      label: 'P13-T30B 두번째 하위메뉴', parentId: secondGroupId, targetType: 'BOARD_LIST', targetValue: 'GALLERY',
+      sortOrder: 0, visible: true, openInNewTab: false,
+    }));
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const firstTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL })
+      .locator('.site-nav__trigger');
+    const secondTrigger = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: '두번째 그룹' })
+      .locator('.site-nav__trigger');
+
+    await firstTrigger.click();
+    await expect(firstTrigger).toHaveAttribute('aria-expanded', 'true');
+    // P13-T30D(A1): 열린 GROUP의 trigger가 활성 강조 상태가 된다
+    await expect(firstTrigger).toHaveCSS('font-weight', '700');
+
+    await secondTrigger.click();
+    await expect(secondTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(firstTrigger).toHaveAttribute('aria-expanded', 'false');
+    // P13-T30D(A1): 다른 GROUP으로 전환되면 기존 강조는 해제되고 새 GROUP만 강조된다
+    await expect(secondTrigger).toHaveCSS('font-weight', '700');
+    await expect(firstTrigger).not.toHaveCSS('font-weight', '700');
+  });
+
+  // hasTouch:true로 실제 터치 기기를 재현한다 - matchMedia(hover:hover)가 false가 되어 nav-submenu.js가
+  // hover 리스너를 붙이지 않고, tap()은 mouseenter를 합성하지 않으므로(click만 발생) 데스크톱
+  // hover 테스트와 상호작용 방식이 실제로 분리되어 검증된다.
+  test.describe('Mobile 375', () => {
+    test.use({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 812 } });
+
+    test('hamburger open → GROUP tap → submenu expand/aria 동기화 → child 접근 → hamburger close 시 submenu reset → 재오픈 시 닫힌 초기 상태, overflow 없음', async ({ page }) => {
+      await page.goto('/');
+
+      const navToggle = page.locator('#nav-toggle');
+      const groupLi = page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL });
+      const trigger = groupLi.locator('.site-nav__trigger');
+      const submenu = groupLi.locator('.site-nav__submenu');
+      const childLink = submenu.locator('a', { hasText: CHILD_LABEL });
+
+      await navToggle.tap();
+      await expect(page.locator('#site-nav')).toBeVisible();
+
+      await trigger.tap();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      await expect(submenu).toBeVisible();
+      await expect(childLink).toBeVisible();
+
+      // P13-T36: 모바일에서 펼친 GROUP trigger 자체가 명확히 강조되어야 한다는 요구사항에 따라,
+      // 900px 미만 전용 .has-submenu.is-open .site-nav__trigger 규칙이 추가되어 데스크톱과 동일하게
+      // font-weight:700(+tint 배경/색상)이 적용된다 - P13-T30D(A1) 당시("모바일은 무변경이어야
+      // 한다")와 의도적으로 뒤집힌 동작이다.
+      const mobileFontWeight = await trigger.evaluate((el) => getComputedStyle(el).fontWeight);
+      expect(mobileFontWeight, '모바일에서 펼친 GROUP trigger는 강조(font-weight:700)되어야 한다(P13-T36)')
+        .toBe('700');
+
+      // hamburger를 닫으면 열려 있던 submenu 상태도 함께 초기화된다
+      await navToggle.tap();
+      await expect(page.locator('#site-nav')).toBeHidden();
+
+      // 다시 열었을 때 submenu는 닫힌 초기 상태여야 한다
+      await navToggle.tap();
+      await expect(page.locator('#site-nav')).toBeVisible();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await expect(submenu).toBeHidden();
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, '375px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+    });
+  });
+
+  // P13-T30D(A2): desktop nav 시작 경계가 768px에서 900px로 상향됐으므로(home.css의
+  // `@media (min-width: 900px)` 블록 참고) 이 회귀 테스트도 새 경계값으로 갱신한다.
+  test('900px/1024px: desktop navigation 경계에서 GROUP이 추가돼도 핵심 navigation/overflow 회귀가 없다', async ({ page }) => {
+    for (const width of [900, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+
+      await expect(page.locator('#site-nav')).toBeVisible();
+      await expect(page.locator('#quick-menu')).toBeVisible();
+      await expect(page.locator('.site-nav__item.has-submenu:not([data-menu-id="all"])', { hasText: GROUP_LABEL })).toBeVisible();
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+    }
+  });
+});
+
+// P13-T30C: 최종 IA(HOME + 연구소 소개/프로그램/게시판 GROUP + 전체메뉴 mega menu)가 V5 seed
+// 그대로 정상 동작하는지 검증한다. GROUP dropdown의 hover/click/keyboard/Escape/outside-click
+// 메커니즘 자체는 P13-T30B가 이미 자체 임시 GROUP으로 전수 검증했으므로 여기서는 반복하지 않고,
+// "연구소 소개" GROUP 1개에서만 대표로 상호작용을 재확인하고 나머지 2개 GROUP과 mega menu는
+// 콘텐츠(라벨/href)가 정확한지에 집중한다. "연구소 소개"가 GROUP명이자 자식명으로 동시에
+// 쓰이므로 모든 selector는 구조 기반(data-menu-id/스코프)으로만 작성한다.
+test.describe('P13-T30C: 최종 메뉴 IA(HOME/GROUP/전체메뉴)', () => {
+  test('Desktop 1440: HOME은 GROUP이 아닌 정적 링크로 항상 "/"로 이동한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/programs');
+
+    const homeLink = page.locator('#quick-menu > li:first-child > a');
+    await expect(homeLink).toHaveText('HOME');
+    await expect(homeLink).toHaveAttribute('href', '/');
+
+    await homeLink.click();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  // P13-T30D(Task C, 후속): '인사말'(GREETING) Menu row는 is_visible=false로 전환되어 공개 dropdown에서
+  // 더 이상 보이지 않는다(CmsPage/PageType.GREETING과 /pages/GREETING 라우트 자체는 무변경 - 별도로
+  // 아래 "/pages/GREETING 상세 페이지는 그대로 유지된다" 테스트가 직접 접근 가능함을 확인한다).
+  test('Desktop 1440: "연구소 소개" GROUP dropdown이 인사말을 제외한 3개 하위 페이지를 정확한 순서/href로 노출하고 클릭 이동된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const aboutGroupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    const trigger = aboutGroupItem.locator('.site-nav__trigger');
+    const dropdownLinks = aboutGroupItem.locator('.site-nav__submenu a');
+
+    await trigger.hover();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(dropdownLinks).toHaveCount(3);
+
+    const hrefs = await dropdownLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual(['/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION']);
+    const texts = await dropdownLinks.allTextContents();
+    expect(texts).toEqual(['연구소 소개', '연혁', '오시는 길']);
+    // 인사말 링크 자체가 아예 렌더링되지 않아야 한다(단순히 숨겨진 것이 아니라 DOM에 없어야 함 -
+    // MenuService.getPublicMenuTree()가 is_visible=false 자식을 애초에 조회에서 제외하기 때문).
+    await expect(aboutGroupItem.locator('.site-nav__submenu a', { hasText: '인사말' })).toHaveCount(0);
+
+    await dropdownLinks.filter({ hasText: '연혁' }).click();
+    await expect(page).toHaveURL(/\/pages\/HISTORY$/);
+  });
+
+  // P13-T30D(Task C): 최종 IA로 전환된 뒤의 "수강 신청" GROUP dropdown 콘텐츠와, 게시판 GROUP에서
+  // 승격된 공지사항/갤러리/자료실 top-level LEAF를 함께 검증한다(대표 hover/click 상호작용 자체는
+  // 위 P13-T30B 테스트에서 이미 확인했으므로 여기서는 콘텐츠/href 정확성에 집중한다).
+  // P14-T2A: "강의 후기"는 다시 GROUP dropdown이다(발주처 요구가 최신으로 변경됨 - P13-T33 당시
+  // 결정을 이번에 다시 뒤집었다. P13-T33 자체는 당시 요구사항 기준으로 올바른 작업이었다). 전체는
+  // /boards?boardType=REVIEW(기존 REVIEW+NULL 포함 semantics 그대로), 수강/특강 후기는 각각
+  // programType 쿼리를 더한다. 공지사항/갤러리/자료실은 top-level LEAF가 아니라 "소식·자료" GROUP의
+  // 자식이다.
+  test('Desktop 1440: "수강 신청"/"소식·자료"/"강의 후기" GROUP dropdown 콘텐츠가 정확하다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupItem = (label) => page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: label,
+    });
+
+    const courseGroupItem = groupItem('수강 신청');
+    await courseGroupItem.locator('.site-nav__trigger').hover();
+    const courseLinks = courseGroupItem.locator('.site-nav__submenu a');
+    await expect(courseLinks).toHaveCount(2);
+    expect(await courseLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/programs?programType=COURSE',
+      '/programs?programType=SPECIAL',
+    ]);
+    expect(await courseLinks.allTextContents()).toEqual(['수강 신청', '특강 신청']);
+    await page.mouse.move(5, 500);
+
+    const newsGroupItem = groupItem('소식·자료');
+    await newsGroupItem.locator('.site-nav__trigger').hover();
+    const newsLinks = newsGroupItem.locator('.site-nav__submenu a');
+    await expect(newsLinks).toHaveCount(3);
+    expect(await newsLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
+    ]);
+    expect(await newsLinks.allTextContents()).toEqual(['공지사항', '갤러리', '자료실']);
+    await page.mouse.move(5, 500);
+
+    const reviewGroupItem = groupItem('강의 후기');
+    await reviewGroupItem.locator('.site-nav__trigger').hover();
+    const reviewLinks = reviewGroupItem.locator('.site-nav__submenu a');
+    await expect(reviewLinks).toHaveCount(3);
+    expect(await reviewLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=REVIEW', '/boards?boardType=REVIEW&programType=COURSE',
+      '/boards?boardType=REVIEW&programType=SPECIAL',
+    ]);
+    expect(await reviewLinks.allTextContents()).toEqual(['전체', '수강 후기', '특강 후기']);
+
+    // top-level에는 더 이상 공지사항/갤러리/자료실/강의 후기 LEAF가 없다(전부 GROUP 자식으로 이동).
+    const topLevelLeaf = (label) => page.locator('#quick-menu > li.site-nav__item:not(.has-submenu) > a', {
+      hasText: label,
+    });
+    await expect(topLevelLeaf('공지사항')).toHaveCount(0);
+    await expect(topLevelLeaf('갤러리')).toHaveCount(0);
+    await expect(topLevelLeaf('자료실')).toHaveCount(0);
+    await expect(topLevelLeaf('강의 후기')).toHaveCount(0);
+  });
+
+  // P14-T2A: top-level 항목의 실제 DOM 순서 - dropdown이 있는 GROUP 4개(연구소 소개/수강 신청/
+  // 소식·자료/강의 후기)를 먼저 묶고, 전체메뉴가 마지막이다. typography/spacing/layout(Task A2)은
+  // 이 테스트 범위가 아니다 - 순서만 검증한다.
+  test('Desktop 1440: top-level Header 항목이 HOME/연구소 소개/수강 신청/소식·자료/강의 후기/전체메뉴 순서로 배치된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const topLevelLabels = await page.locator('#quick-menu > li').evaluateAll((items) => items.map((li) => {
+      const trigger = li.querySelector('.site-nav__trigger');
+      const link = li.querySelector(':scope > a');
+      return (trigger || link).textContent.trim();
+    }));
+
+    expect(topLevelLabels).toEqual([
+      'HOME', '연구소 소개', '수강 신청', '소식·자료', '강의 후기', '전체메뉴',
+    ]);
+  });
+
+  // P13-T30D(Task C, 후속): 전체메뉴(mega menu)는 headerMenuItems를 그대로 재사용하므로(header.html
+  // 무변경), top-level sort_order 재배치가 자동으로 컬럼 순서에 반영된다. '인사말'이 비노출되면
+  // 연구소 소개 컬럼의 하위 링크도 3개로 줄어든다. GROUP은 <p> 헤딩 + 하위 링크 목록, LEAF는 헤딩
+  // 자체가 <a> 링크라는 기존 템플릿 분기를 그대로 따른다.
+  // P13-T33: "강의 후기"가 GROUP에서 top-level LEAF로 전환되어(발주처 요구 - 강의 후기는 하나의
+  // 게시판), 컬럼 순서는 dropdown GROUP 2개(연구소 소개/수강 신청) 먼저, 그다음 top-level LEAF 4개
+  // (강의 후기/공지사항/갤러리/자료실)로 바뀐다. "강의 후기" 컬럼도 이제 공지사항/갤러리/자료실과
+  // 동일하게 헤딩 자체가 단일 링크이고 하위 목록(수강 후기/특강 후기)이 없어야 한다.
+  // P14-T2A: "소식·자료"/"강의 후기"가 top-level LEAF에서 GROUP으로 바뀌어 mega 컬럼이 6개(GROUP
+  // 2 + LEAF 4)에서 4개(GROUP 4)로 줄고, 모든 컬럼이 "헤딩 + child 목록" 형태가 된다(더 이상
+  // "헤딩 자체가 링크인 LEAF 컬럼"은 없다).
+  test('Desktop 1440: 전체메뉴(mega menu)는 최종 IA(GROUP 4)를 4개 컬럼으로 노출하고 hover/Escape/outside-click이 정상 동작하며 viewport를 벗어나지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    const megaMenu = page.locator('.site-nav__megamenu');
+
+    await expect(megaTrigger).toHaveText('전체메뉴');
+    await megaTrigger.hover();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(megaMenu).toBeVisible();
+
+    const columns = megaMenu.locator('.site-nav__megamenu-column');
+    await expect(columns).toHaveCount(4);
+    const headings = await columns.locator('.site-nav__megamenu-heading').allTextContents();
+    expect(headings).toEqual(['연구소 소개', '수강 신청', '소식·자료', '강의 후기']);
+
+    // 연구소 소개 컬럼은 인사말을 제외한 3개 하위 링크만 갖는다(무변경).
+    const aboutColumn = columns.filter({ hasText: '연구소 소개' }).first();
+    const aboutLinks = aboutColumn.locator('a');
+    await expect(aboutLinks).toHaveCount(3);
+    expect(await aboutLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
+    ]);
+
+    // 소식·자료 컬럼: 공지사항/갤러리/자료실 3개 child, "전체" 없음.
+    const newsColumn = columns.filter({ hasText: '소식·자료' });
+    const newsLinks = newsColumn.locator('a');
+    await expect(newsLinks).toHaveCount(3);
+    expect(await newsLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
+    ]);
+
+    // 강의 후기 컬럼: 전체/수강 후기/특강 후기 3개 child.
+    const reviewColumn = columns.filter({ hasText: '강의 후기' });
+    const reviewLinks = reviewColumn.locator('a');
+    await expect(reviewLinks).toHaveCount(3);
+    expect(await reviewLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual([
+      '/boards?boardType=REVIEW', '/boards?boardType=REVIEW&programType=COURSE',
+      '/boards?boardType=REVIEW&programType=SPECIAL',
+    ]);
+
+    const allLinks = megaMenu.locator('a');
+    // GROUP 4개(연구소소개 3 + 수강신청 2 + 소식·자료 3 + 강의후기 3) = 11개.
+    await expect(allLinks).toHaveCount(11);
+    const hrefs = await allLinks.evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual([
+      '/pages/INTRODUCTION', '/pages/HISTORY', '/pages/LOCATION',
+      '/programs?programType=COURSE', '/programs?programType=SPECIAL',
+      '/boards?boardType=NOTICE', '/boards?boardType=GALLERY', '/boards?boardType=ARCHIVE',
+      '/boards?boardType=REVIEW', '/boards?boardType=REVIEW&programType=COURSE',
+      '/boards?boardType=REVIEW&programType=SPECIAL',
+    ]);
+
+    // viewport 이탈 없음
+    const box = await megaMenu.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1440);
+
+    // Escape로 닫히고 trigger로 focus 복귀
+    await page.keyboard.press('Escape');
+    await expect(megaMenu).toBeHidden();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(megaTrigger).toBeFocused();
+
+    // outside click로 닫힘
+    await megaTrigger.click();
+    await expect(megaMenu).toBeVisible();
+    await page.locator('.site-header__brand').click();
+    await expect(megaMenu).toBeHidden();
+  });
+
+  // P13-T30D(A1): GROUP dropdown과 동일한 dead-zone 회귀가 mega menu에도 적용되는지만 최소로
+  // 확인한다(hover/Escape/outside-click/컬럼 구성 등 나머지 상태 머신은 위 테스트에서 이미 검증
+  // 완료했으므로 반복하지 않는다).
+  test('Desktop 1440: 전체메뉴(mega menu)도 trigger-패널 사이에 pointer dead-zone이 없고, 실제 이동 궤적으로 진입해도 열림 상태가 유지된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    const megaMenu = page.locator('.site-nav__megamenu');
+
+    await megaTrigger.hover();
+    await expect(megaMenu).toBeVisible();
+
+    const triggerBox = await megaTrigger.boundingBox();
+    const menuBox = await megaMenu.boundingBox();
+    expect(menuBox.y - (triggerBox.y + triggerBox.height),
+      'mega menu trigger 하단과 패널 상단 사이에 pointer dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+
+    const firstLink = megaMenu.locator('a').first();
+    const linkBox = await firstLink.boundingBox();
+    await page.mouse.move(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+    await page.mouse.move(linkBox.x + linkBox.width / 2, linkBox.y + linkBox.height / 2, { steps: 10 });
+    await expect(megaMenu).toBeVisible();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('Desktop 1024: 전체메뉴가 viewport를 벗어나지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    await megaTrigger.hover();
+    const box = await page.locator('.site-nav__megamenu').boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1024);
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '1024px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  // P13-T30D(A2): CSS breakpoint가 768px에서 900px로 상향됐으므로(home.css의
+  // `@media (max-width: 899.98px)` / `@media (min-width: 900px)`) 새 경계 양쪽에서 desktop/mobile
+  // nav가 동시에 보이거나 동시에 숨는 off-by-one 회귀가 없는지 실측한다. 기존 767/768/769 경계도
+  // 여전히 mobile 쪽으로 정상 동작하는지 함께 확인한다(과거 breakpoint였던 지점의 무회귀).
+  test('899px/900px/901px 경계(및 기존 767/768/769)에서 desktop/mobile navigation이 정확히 한쪽만 노출된다', async ({ page }) => {
+    const cases = [
+      { width: 767, mobile: true },
+      { width: 768, mobile: true },
+      { width: 769, mobile: true },
+      { width: 899, mobile: true },
+      { width: 900, mobile: false },
+      { width: 901, mobile: false },
+    ];
+
+    for (const { width, mobile } of cases) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+
+      if (mobile) {
+        await expect(page.locator('#nav-toggle')).toBeVisible();
+        await expect(page.locator('#site-nav')).toBeHidden();
+      } else {
+        await expect(page.locator('#nav-toggle')).toBeHidden();
+        await expect(page.locator('#site-nav')).toBeVisible();
+        await expect(page.locator('[data-menu-id="all"]')).toBeVisible();
+      }
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test('Mobile 375: 전체메뉴 트리거는 노출되지 않고, hamburger accordion만으로 전체 메뉴가 노출된다(중복 UI 없음)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+    await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
+
+    // P14-T2A: "소식·자료"/"강의 후기"가 다시 GROUP이 되어 GROUP trigger는 4개
+    // (연구소 소개/수강 신청/소식·자료/강의 후기)다.
+    const groupTriggers = page.locator(
+      '#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger');
+    await expect(groupTriggers).toHaveCount(4);
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '375px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  // P13-T30D(Task C, 후속): 모바일 accordion도 desktop과 동일한 headerMenuItems를 렌더링하므로
+  // (header.html 무변경), 인사말 비노출과 top-level 순서 재배치가 자동으로 동일하게 반영되는지
+  // 확인한다.
+  test('Mobile 375: hamburger accordion에서도 인사말이 숨겨지고 top-level 순서가 새 배치와 동일하다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    const topLevelLabels = await page.locator('#quick-menu > li:not([data-menu-id="all"])').evaluateAll((items) =>
+      items.map((li) => {
+        const trigger = li.querySelector('.site-nav__trigger');
+        const link = li.querySelector(':scope > a');
+        return (trigger || link).textContent.trim();
+      }));
+    expect(topLevelLabels).toEqual(['HOME', '연구소 소개', '수강 신청', '소식·자료', '강의 후기']);
+
+    const aboutTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+    await aboutTrigger.click();
+    const aboutSubmenuLinks = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__submenu a');
+    await expect(aboutSubmenuLinks).toHaveCount(3);
+    await expect(aboutSubmenuLinks.filter({ hasText: '인사말' })).toHaveCount(0);
+  });
+
+  // 헤더 IA가 GROUP 구조로 바뀌어도 기존 통합 URL/query parameter 동작 자체는 전혀 깨지지 않는다
+  // (헤더에서 클릭 경로가 사라진 것과 URL 자체가 살아있는 것은 별개 - 지시사항 그대로).
+  test('기존 통합 URL(/boards, /programs)은 헤더 링크가 사라져도 직접 접근 시 정상 동작한다', async ({ page }) => {
+    await page.goto('/boards');
+    await expect(page.locator('#board-list, #board-grid').first()).toBeVisible();
+
+    await page.goto('/programs');
+    await expect(page.locator('#program-list')).toBeVisible();
+  });
+});
+
+// P13-T30D(A2): desktop/tablet Header top-level 배치(치우침 개선)·타이포그래피(font-size/gap) 최적화.
+// IA/기능은 무변경(그 검증은 위 P13-T30C가 담당) - 여기서는 오직 기하(위치/폭/폰트/gap/줄바꿈)만 다룬다.
+// 기존 desktop breakpoint(768px)에서는 최종 IA top-level 8개가 물리적으로 한 줄에 들어가지 않음이
+// 실측으로 확인되어(§1) 900px로 상향했고, home.css의 두 media query(`max-width:899.98px` /
+// `min-width:900px`)가 이 값을 공유한다. 이 파일 상단 MOBILE_BREAKPOINT 상수도 동일하게 900으로
+// 갱신되어 있다(§ 반응형 뷰포트 루프가 자동으로 새 경계를 검증).
+test.describe('P13-T30D(A2): Header desktop/tablet nav 배치·타이포그래피', () => {
+  const DESKTOP_BREAKPOINT = 900;
+
+  // top-level li 각각의 boundingBox + 텍스트를 가져와 "한 줄인지", "겹치는지"를 기하로 판정하는
+  // 공통 헬퍼. GROUP/LEAF/HOME/전체메뉴를 구분하지 않고 현재 DOM에 노출된 모든 top-level item을 그대로
+  // 사용하므로, synthetic fixture로 item이 늘어나도(§ 아래 degradation 테스트) 그대로 재사용된다.
+  async function readTopLevelItems(page) {
+    return page.locator('#quick-menu > li').evaluateAll((items) => items
+      .filter((li) => getComputedStyle(li).display !== 'none')
+      .map((li) => {
+        const r = li.getBoundingClientRect();
+        const el = li.querySelector(':scope > a, :scope > button');
+        return {
+          label: el.textContent.trim(),
+          x: r.x, right: r.right, top: r.top, bottom: r.bottom, width: r.width,
+          whiteSpace: getComputedStyle(el).whiteSpace,
+        };
+      }));
+  }
+
+  function rowsOf(items) {
+    const rows = new Map();
+    for (const it of items) {
+      const key = Math.round(it.top);
+      if (!rows.has(key)) rows.set(key, []);
+      rows.get(key).push(it);
+    }
+    return [...rows.values()].map((row) => row.sort((a, b) => a.x - b.x));
+  }
+
+  function maxOverlap(items) {
+    let worst = -Infinity;
+    for (const row of rowsOf(items)) {
+      for (let i = 1; i < row.length; i++) worst = Math.max(worst, row[i - 1].right - row[i].x);
+    }
+    return worst;
+  }
+
+  test.describe('Mobile/tablet 구간(hamburger) - 375 / 767 / 768 / 899', () => {
+    for (const width of [375, 767, 768, 899]) {
+      test(`${width}px: desktop nav가 노출되지 않고 hamburger accordion만 정상 동작한다`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        // 닫힌 기본 상태: hamburger만 보이고 desktop nav는 숨어 있다(오검출 없음 - 새 900px 경계
+        // 바로 아래인 899px까지 desktop nav가 새어 나오지 않는지가 이 테스트의 핵심).
+        await expect(page.locator('#nav-toggle')).toBeVisible();
+        await expect(page.locator('#site-nav')).toBeHidden();
+
+        await page.locator('#nav-toggle').click();
+        await expect(page.locator('#site-nav')).toBeVisible();
+        // 전체메뉴는 hamburger accordion과 중복 노출되지 않는다(기존 정책, 무회귀).
+        await expect(page.locator('[data-menu-id="all"]')).toBeHidden();
+
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+      });
+    }
+  });
+
+  test.describe('Desktop 구간 - 900 / 901 / 1024 / 1366 / 1440', () => {
+    for (const width of [900, 901, 1024, 1366, 1440]) {
+      test(`${width}px: 최종 IA 6개가 한 줄로, label 줄바꿈/겹침 없이 배치된다`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        await expect(page.locator('#nav-toggle')).toBeHidden();
+        await expect(page.locator('#site-nav')).toBeVisible();
+
+        const items = await readTopLevelItems(page);
+        // P14-T2A: 공지사항/갤러리/자료실/강의 후기가 top-level LEAF에서 GROUP(소식·자료/강의 후기)
+        // 자식으로 옮겨져 기본 top-level 개수가 8→6이 됐다.
+        expect(items.map((i) => i.label)).toEqual([
+          'HOME', '연구소 소개', '수강 신청', '소식·자료', '강의 후기', '전체메뉴',
+        ]);
+
+        // 한 줄 배치(§5 - flex-wrap은 기본 IA를 여기서 우겨넣는 용도가 아니라 순수 degradation
+        // 안전장치이므로, 정상 기본 상태에서는 반드시 1줄이어야 한다).
+        const rows = rowsOf(items);
+        expect(rows.length, `${width}px에서 기본 IA 6개는 1줄로 배치돼야 한다`).toBe(1);
+
+        // label이 중간에 줄바꿈되지 않는다(연구소 소개처럼 공백 포함 라벨도 한 덩어리로 유지).
+        for (const it of items) expect(it.whiteSpace).toBe('nowrap');
+
+        // 겹침 없음(같은 줄 내 인접 item)
+        expect(maxOverlap(items), `${width}px에서 top-level item이 서로 겹치면 안 된다`).toBeLessThanOrEqual(0);
+
+        // 로고-nav 겹침 없음
+        const brandBox = await page.locator('.site-header__brand').boundingBox();
+        const firstItem = items[0];
+        expect(brandBox.x + brandBox.width, `${width}px에서 로고와 nav가 겹치면 안 된다`)
+          .toBeLessThanOrEqual(firstItem.x);
+
+        // 전체메뉴는 viewport 안에 있어야 한다(트리거 자체 - mega panel의 viewport 이탈 여부는
+        // 기존 P13-T30C 테스트가 이미 1440에서 커버하므로 여기서는 반복하지 않는다).
+        const lastItem = items[items.length - 1];
+        expect(lastItem.label).toBe('전체메뉴');
+        expect(lastItem.right, `${width}px에서 전체메뉴 트리거가 viewport 밖으로 나가면 안 된다`)
+          .toBeLessThanOrEqual(width);
+
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+      });
+    }
+
+    // P14-T2(Editorial Rule): 기존(P13-T30D A2)의 "nav를 로고를 제외한 잔여 영역 안에서 중앙 정렬"이라는
+    // 구현 방식에 묶인 검증(nav 중심의 viewport 중심 오프셋, 좌/우 여백 차이)을 확정된 새 디자인 계약의
+    // 결과 검증으로 교체한다. 새 계약: brand는 header inner(container)의 좌측 정렬선에, nav 마지막 셀은 우측
+    // 정렬선에 붙는다(T1의 --container-max/gutter 체계). "어디쯤 있어야 한다"가 아니라 그 정렬선을 직접 확인하고,
+    // 로고와 nav가 겹치지 않으며 충분한 여백(>= 48px)이 있음을 함께 검증한다(원래 의도였던 "nav가 로고에 붙지
+    // 않고, 한쪽으로 극단적으로 쏠려 어색해지지 않음"을 보존).
+    for (const width of [1024, 1440]) {
+      test(`${width}px: brand는 container 좌측, nav는 container 우측 정렬선에 붙고 서로 겹치지 않으며 충분한 여백이 있다(boundingBox 근거)`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        const items = await readTopLevelItems(page);
+        const menuStart = Math.min(...items.map((i) => i.x));
+        const menuEnd = Math.max(...items.map((i) => i.right));
+
+        const brandBox = await page.locator('.site-header__brand').boundingBox();
+        const inner = await page.locator('.site-header__inner').evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return { left: r.left + parseFloat(cs.paddingLeft), right: r.right - parseFloat(cs.paddingRight) };
+        });
+
+        expect(Math.abs(brandBox.x - inner.left), `${width}px에서 brand 좌측이 container 좌측 정렬선과 일치해야 한다`)
+          .toBeLessThanOrEqual(1);
+        expect(Math.abs(menuEnd - inner.right), `${width}px에서 nav 우측 끝이 container 우측 정렬선과 일치해야 한다`)
+          .toBeLessThanOrEqual(1);
+
+        const brandRight = brandBox.x + brandBox.width;
+        expect(brandRight, `${width}px에서 brand와 nav의 bounding box가 겹치면 안 된다`)
+          .toBeLessThanOrEqual(menuStart);
+        expect(menuStart - brandRight, `${width}px에서 brand와 nav 사이에 충분한 여백(>= 48px)이 있어야 한다`)
+          .toBeGreaterThanOrEqual(48);
+      });
+    }
+
+    test('1024px: top-level font-size가 16px 초과 18px 이하로, 지나치게 압축되지 않고 커진다', async ({ page }) => {
+      await page.setViewportSize({ width: 1024, height: 900 });
+      await page.goto('/');
+      const fs = await page.locator('#quick-menu > li:first-child > a').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(fs, '1024px font-size는 900px 기준값(16px)보다 커야 한다').toBeGreaterThan(16);
+      expect(fs, '1024px font-size가 목표 상한(18px)을 넘으면 안 된다').toBeLessThanOrEqual(18);
+    });
+
+    test('1440px: top-level font-size가 목표값 18px에 도달한다', async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto('/');
+      const fs = await page.locator('#quick-menu > li:first-child > a').evaluate((el) => getComputedStyle(el).fontSize);
+      expect(fs).toBe('18px');
+    });
+
+    test(`${DESKTOP_BREAKPOINT}px(breakpoint 시작점): font-size/항목 간 간격(셀 padding 합)이 기존 모바일 기준값에서 축소되지 않는다`, async ({ page }) => {
+      await page.setViewportSize({ width: DESKTOP_BREAKPOINT, height: 900 });
+      await page.goto('/');
+      const fs = await page.locator('#quick-menu > li:first-child > a')
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      // P14-T2(Editorial Rule): 항목 간 리듬을 #quick-menu의 column-gap이 아니라 각 top-level 셀의
+      // padding-inline이 만든다(셀이 header 높이 전체를 쓰며 서로 맞닿는 구조, column-gap은 0). 기존 "gap >= 20px"의
+      // 의도(900px에서 항목 사이 실제 간격이 기존 P13 값 20px 아래로 압축되지 않는다)는 인접 셀 글자 사이의 실제
+      // 간격 = 셀 좌우 padding 합(computed style)으로 그대로 검증한다.
+      const cellSpacing = await page.locator('#quick-menu > li:first-child > a').evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      });
+      expect(fs, `${DESKTOP_BREAKPOINT}px font-size는 기존 16px 아래로 줄어들면 안 된다`).toBeGreaterThanOrEqual(16);
+      expect(cellSpacing, `${DESKTOP_BREAKPOINT}px 셀 좌우 padding 합(항목 간 실제 간격)은 기존 20px 아래로 줄어들면 안 된다`)
+        .toBeGreaterThanOrEqual(20);
+    });
+  });
+
+  test.describe('A1 hover/open dead-zone 무회귀 (레이아웃 변경 후 재확인)', () => {
+    for (const width of [900, 1024, 1440]) {
+      test(`${width}px: "연구소 소개" GROUP dropdown이 dead-zone 없이 열리고 mouse trajectory로도 유지된다`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+
+        const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+          hasText: '연구소 소개',
+        });
+        const trigger = groupItem.locator('.site-nav__trigger');
+        const submenu = groupItem.locator('.site-nav__submenu');
+        const childLink = submenu.locator('a').first();
+
+        await trigger.hover();
+        await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        await expect(submenu).toBeVisible();
+        // A1이 막았던 pointer dead-zone 회귀 - trigger 하단과 submenu 상단 사이에 양수 간격이
+        // 있으면 그 사이를 지나가는 순간 mouseleave가 조기 발동한다(§6). A2가 도입한 clamp()
+        // font-size가 소수점 값을 만들 때 재현되는 것을 실측으로 확인했다.
+        const triggerBox = await trigger.boundingBox();
+        const submenuBox = await submenu.boundingBox();
+        expect(submenuBox.y - (triggerBox.y + triggerBox.height),
+          `${width}px에서 trigger-submenu 사이에 pointer dead-zone이 없어야 한다`).toBeLessThanOrEqual(0);
+
+        // 실제 mouse trajectory(순간이동이 아닌 다단계 이동)로 trigger에서 하위 링크까지 이동해도
+        // 중간에 닫히지 않아야 한다.
+        const childBox = await childLink.boundingBox();
+        await page.mouse.move(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+        await page.mouse.move(childBox.x + childBox.width / 2, childBox.y + childBox.height / 2, { steps: 10 });
+        await expect(submenu).toBeVisible();
+        await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        // hover/open 활성 강조(A1)도 레이아웃 변경 후 그대로 유지된다.
+        await expect(trigger).toHaveCSS('font-weight', '700');
+      });
+    }
+  });
+
+  test.describe('>6 top-level Menu synthetic - wrap degradation (실 IA E2E를 대체하지 않음, 보조 검증)', () => {
+    // 관리자가 top-level LEAF Menu를 추가로 만든 상황을 DOM 복제로 시뮬레이션한다. 실 DB/Menu API를
+    // 전혀 건드리지 않고 순수 CSS 레이아웃 규칙(flex-wrap degradation)만 검증하는 것이 목적이므로,
+    // admin 로그인/실제 Menu 생성이 필요한 P13-T30B 패턴 대신 DOM 조작을 쓴다.
+    // P14-T2A: 기본 top-level 개수가 8(연구소 소개/수강 신청 GROUP + 강의 후기/공지사항/갤러리/자료실
+    // LEAF 4개)에서 6(연구소 소개/수강 신청/소식·자료/강의 후기 GROUP 4개, LEAF 없음)으로 줄었다.
+    const BASE_TOP_LEVEL_COUNT = 6;
+
+    async function addSyntheticTopLevelItems(page, count) {
+      await page.evaluate((n) => {
+        const ul = document.querySelector('#quick-menu');
+        const mega = ul.querySelector('[data-menu-id="all"]');
+        for (let i = 0; i < n; i++) {
+          const li = document.createElement('li');
+          li.className = 'site-nav__item';
+          li.innerHTML = `<a href="/synthetic-${i}">추가메뉴${i + 1}</a>`;
+          ul.insertBefore(li, mega);
+        }
+      }, count);
+    }
+
+    for (const extraCount of [2, 6]) {
+      test(`top-level 총 ${BASE_TOP_LEVEL_COUNT + extraCount}개일 때 900px/1440px에서 겹침·overflow 없이 wrap되고 전체메뉴는 계속 접근 가능하다`, async ({ page }) => {
+        for (const width of [900, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.goto('/');
+          await addSyntheticTopLevelItems(page, extraCount);
+
+          const items = await readTopLevelItems(page);
+          expect(items.length).toBe(BASE_TOP_LEVEL_COUNT + extraCount);
+          expect(maxOverlap(items), `${width}px, ${BASE_TOP_LEVEL_COUNT + extraCount}개 item에서 겹침이 없어야 한다`)
+            .toBeLessThanOrEqual(0);
+
+          const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+          expect(overflow, `${width}px, ${BASE_TOP_LEVEL_COUNT + extraCount}개 item에서 가로 overflow가 없어야 한다`)
+            .toBeLessThanOrEqual(0);
+
+          const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+          await expect(megaTrigger, '전체메뉴 트리거는 item이 늘어나도 계속 노출/접근 가능해야 한다').toBeVisible();
+          const megaBox = await megaTrigger.boundingBox();
+          expect(megaBox.x).toBeGreaterThanOrEqual(0);
+          expect(megaBox.x + megaBox.width).toBeLessThanOrEqual(width);
+        }
+      });
+    }
+  });
+});
+
+// P13-T30D(Task C): 공개 강의 후기(REVIEW) subtype 필터링 + pagination/keyword/목록 복귀 state 보존.
+// typography/spacing/layout 조정(Task A2)은 이 블록에서 다루지 않는다 - 구조/링크/state만 검증한다.
+test.describe('P13-T30D: Task C 콘텐츠 subtype + 최종 IA', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardIds;
+
+  async function createBoard(context, baseURL, payload) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: payload,
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardIds = [];
+  });
+
+  test('필터 nav에서 수강 후기/특강 후기를 클릭하면 정확한 programType으로만 필터링된다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const courseTitle = `T30D 수강후기 ${runId}`;
+    const specialTitle = `T30D 특강후기 ${runId}`;
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
+    })));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: specialTitle, programType: 'SPECIAL', isPublic: true,
+    })));
+
+    await page.goto('/boards');
+    await page.locator('#board-type-filter a', { hasText: '수강 후기' }).click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW&programType=COURSE/);
+    await expect(page.locator('body')).toContainText(courseTitle);
+    await expect(page.locator('body')).not.toContainText(specialTitle);
+
+    await page.locator('#board-type-filter a', { hasText: '특강 후기' }).click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW&programType=SPECIAL/);
+    await expect(page.locator('body')).toContainText(specialTitle);
+    await expect(page.locator('body')).not.toContainText(courseTitle);
+  });
+
+  // REVIEW without programType은 기존 generic 호환 경로다 - subtype과 무관하게 전부 노출된다.
+  test('boardType=REVIEW만 있고 programType이 없으면 subtype과 무관하게 전체 강의 후기가 노출된다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const courseTitle = `T30D 전체보기 수강 ${runId}`;
+    const specialTitle = `T30D 전체보기 특강 ${runId}`;
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
+    })));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: specialTitle, programType: 'SPECIAL', isPublic: true,
+    })));
+
+    await page.goto('/boards?boardType=REVIEW');
+    await expect(page.locator('body')).toContainText(courseTitle);
+    await expect(page.locator('body')).toContainText(specialTitle);
+  });
+
+  // P14-T2A: boardType=REVIEW는 이제 "강의 후기 context"라 그 필터 nav에는 더 이상 "공지사항" 링크가
+  // 없다(§board list context 분리 - 소식·자료 계열과 공존하지 않음). 원래 의도(필터를 전환할 때 이전
+  // 필터의 programType 같은 stale query가 새 링크에 섞여 들어가지 않는다)는 legacy(/boards, boardType
+  // 없음) 화면에서 그대로 검증한다 - legacy는 7개 필터가 모두 한 화면에 공존하므로, URL에 남아있는
+  // stale programType(예: 뒤로가기/직접 URL 편집으로 남을 수 있는 값)이 legacy의 "공지사항" 링크
+  // (애초에 programType 파라미터를 싣지 않는 href)를 눌렀을 때 결과 URL에 섞여 들어가지 않아야 한다.
+  test('legacy 목록에서 stale programType 쿼리가 있어도 공지사항 필터 클릭 결과에는 남지 않는다', async ({ page }) => {
+    await page.goto('/boards?programType=COURSE');
+    await page.locator('#board-type-filter a', { hasText: '공지사항' }).click();
+
+    await expect(page).toHaveURL(/\/boards\?boardType=NOTICE/);
+    const url = new URL(page.url());
+    expect(url.searchParams.has('programType'),
+      'NOTICE로 전환하면 stale programType 파라미터가 URL에 남아있지 않아야 한다').toBeFalsy();
+  });
+
+  test('REVIEW 상세 페이지의 "목록으로" 링크가 programType을 보존해 필터된 목록으로 정확히 복귀한다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const courseTitle = `T30D 상세복귀 ${runId}`;
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
+      boardType: 'REVIEW', title: courseTitle, programType: 'COURSE', isPublic: true,
+    })));
+
+    await page.goto('/boards?boardType=REVIEW&programType=COURSE');
+    await page.locator('a', { hasText: courseTitle }).click();
+    await expect(page.locator('#board-detail-content h1')).toContainText(courseTitle);
+
+    const backLink = page.locator('a', { hasText: '목록으로' });
+    await expect(backLink).toHaveAttribute('href', /boardType=REVIEW.*programType=COURSE|programType=COURSE.*boardType=REVIEW/);
+    await backLink.click();
+    await expect(page).toHaveURL(/\/boards\?boardType=REVIEW&programType=COURSE/);
+  });
+
+  // pagination fragment는 programType 슬롯을 이미 갖고 있었다(board/list.html이 이번에 null 대신
+  // 실값을 전달하도록만 바뀌었다) - 필터된 목록에서 pagination 링크에도 programType이 실려 있는지 확인.
+  test('강의 후기 subtype 필터 상태에서 pagination 링크도 programType을 함께 실어 보낸다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    for (let i = 0; i < 12; i++) {
+      boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
+        boardType: 'REVIEW', title: `T30D 페이지네이션 ${runId} #${i}`, programType: 'COURSE', isPublic: true,
+      })));
+    }
+
+    await page.goto('/boards?boardType=REVIEW&programType=COURSE');
+    const nextPage = page.locator('#next-page');
+    await expect(nextPage).toBeVisible();
+    await expect(nextPage).toHaveAttribute('href', /boardType=REVIEW/);
+    await expect(nextPage).toHaveAttribute('href', /programType=COURSE/);
+
+    await nextPage.click();
+    await expect(page).toHaveURL(/programType=COURSE/);
+    await expect(page.locator('body')).toContainText(`T30D 페이지네이션 ${runId}`);
+  });
+
+  // NOTICE/GALLERY/ARCHIVE 공개 목록은 REVIEW subtype 도입과 무관하게 기존 그대로 동작해야 한다.
+  test('NOTICE/GALLERY/ARCHIVE 공개 목록은 REVIEW subtype 도입 이후에도 기존과 동일하게 동작한다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const noticeTitle = `T30D 공지 회귀 ${runId}`;
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, {
+      boardType: 'NOTICE', title: noticeTitle, isPublic: true,
+    })));
+
+    await page.goto('/boards?boardType=NOTICE');
+    await expect(page.locator('body')).toContainText(noticeTitle);
+
+    // stale programType 쿼리가 실려도(예: 잘못 만들어진 링크) NOTICE 결과가 오염되지 않는다.
+    await page.goto('/boards?boardType=NOTICE&programType=COURSE');
+    await expect(page.locator('body')).toContainText(noticeTitle);
+  });
+});
+
+// P13-T30E(Task B): Admin Menu UI Polish 최소 E2E. 신규 Menu row를 만들지 않고, 이미 seed되어 있는
+// 최종 IA(연구소 소개/수강 신청/소식·자료/강의 후기 GROUP + 각 GROUP의 child - P13-T30D Task C/A2/
+// P13-T33/P14-T2A가 이미 이 구조 자체를 전수 검증했다)를 그대로 검증 대상으로 삼아, Task B가 바꾼
+// "표현"(들여쓰기 class/badge/target 라벨/datalist)만 확인한다. Bootstrap 실제 RGB 색상이나 pixel
+// 값은 검증하지 않고 class 존재/텍스트만 본다.
+test.describe('P13-T30E(Task B): 관리자 메뉴 UI Polish', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  // P13-T33: seed에 더 이상 targetSubvalue를 가진 행이 없으므로(강의 후기가 단일 LEAF로 전환되며
+  // 수강 후기/특강 후기 Menu row 자체가 삭제됨), "BOARD_LIST+REVIEW+targetSubvalue 조합의 표시
+  // formatter"는 seed row가 아니라 이 describe 전용으로 만든 임시 Menu 1개로 검증한다(관리자 Menu
+  // 기능 자체는 REVIEW/COURSE targetSubvalue를 여전히 표시할 수 있어야 하며, 이번 migration으로
+  // seed에서 사라졌다고 해서 그 표시 능력 자체가 사라져야 하는 것은 아니다).
+  let xsrfToken;
+  let syntheticMenuId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    syntheticMenuId = undefined;
+  });
+
+  test('/admin/menus: GROUP/child 계층이 CSS class로 구분되고, 유형/공개여부는 badge로, 대상은 사람이 읽는 라벨로 표시된다', async ({ page }) => {
+    await page.goto('/admin/menus');
+
+    const rows = page.locator('#menu-list-body tr');
+    await expect(rows.first()).toBeVisible();
+
+    // 최상위 GROUP 행("연구소 소개"): 자식 class가 없고, 유형 badge는 "그룹", 대상은 '-'다.
+    // "부모 바로 뒤에 자식" 응답 순서상 같은 라벨을 가진 행 중 GROUP 자신이 항상 먼저 오므로 first()로
+    // 특정한다("연구소 소개"는 GROUP명이자 그 자식 PAGE의 라벨이기도 해 구조 기반으로만 구분한다).
+    const aboutGroupRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '연구소 소개' }) }).first();
+    await expect(aboutGroupRow).not.toHaveClass(/admin-menu-row--child/);
+    await expect(aboutGroupRow.locator('.badge', { hasText: '그룹' })).toBeVisible();
+    const aboutCells = aboutGroupRow.locator('td');
+    await expect(aboutCells.nth(3)).toHaveText('-');
+    // GROUP도 다른 행과 동일하게 공개/숨김 badge를 갖는다(생략되지 않음).
+    await expect(aboutCells.nth(5).locator('.badge')).toBeVisible();
+
+    // 자식 행("인사말", PAGE, seed 데이터상 is_visible=false): admin-menu-row--child class, PAGE
+    // badge, 대상은 raw "GREETING"이 아니라 한글 라벨 "인사말", 공개여부는 "숨김".
+    const greetingRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '인사말' }) }).first();
+    await expect(greetingRow).toHaveClass(/admin-menu-row--child/);
+    await expect(greetingRow.locator('.badge', { hasText: '고정 페이지' })).toBeVisible();
+    const greetingCells = greetingRow.locator('td');
+    await expect(greetingCells.nth(3)).toHaveText('인사말');
+    await expect(greetingCells.nth(5).locator('.badge')).toHaveText('숨김');
+
+    // P14-T2A: "공지사항"은 더 이상 top-level LEAF가 아니라 "소식·자료" GROUP의 child다.
+    const noticeRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '공지사항' }) }).first();
+    await expect(noticeRow).toHaveClass(/admin-menu-row--child/);
+    await expect(noticeRow.locator('.badge', { hasText: '게시판' })).toBeVisible();
+    const noticeCells = noticeRow.locator('td');
+    await expect(noticeCells.nth(3)).toHaveText('공지사항');
+    await expect(noticeCells.nth(5).locator('.badge')).toHaveText('공개');
+
+    // P14-T2A: "강의 후기"는 다시 top-level GROUP이다(P13-T33이 LEAF로 되돌렸던 것을 최신 요구사항에
+    // 따라 다시 GROUP으로 전환) - 자식 class 없음, 유형 badge "그룹", 대상은 '-'.
+    const reviewGroupRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '강의 후기' }) }).first();
+    await expect(reviewGroupRow).not.toHaveClass(/admin-menu-row--child/);
+    await expect(reviewGroupRow.locator('.badge', { hasText: '그룹' })).toBeVisible();
+    await expect(reviewGroupRow.locator('td').nth(3)).toHaveText('-');
+
+    // 그 자식 "전체"(BOARD_LIST/REVIEW, targetSubvalue 없음): child class, 대상 컬럼은 (row 자신의
+    // label "전체"가 아니라) target formatter가 만드는 BoardType 한글 라벨 "강의 후기"다(subvalue가
+    // 없으므로 괄호 없음 - "강의 후기(수강)" 같은 조합 표시와의 차이는 아래 formatter 테스트가 검증).
+    const allReviewRow = rows.filter({ has: page.locator('.admin-menu-row__label', { hasText: '전체' }) }).first();
+    await expect(allReviewRow).toHaveClass(/admin-menu-row--child/);
+    await expect(allReviewRow.locator('.badge', { hasText: '게시판' })).toBeVisible();
+    await expect(allReviewRow.locator('td').nth(3)).toHaveText('강의 후기');
+  });
+
+  // P13-T33: BOARD_LIST+REVIEW+targetSubvalue 조합의 "강의 후기(정규 강좌)" 표시는 seed row가 아니라
+  // Menu UI의 범용 formatter 기능이다 - 관리자가 이 조합의 메뉴를 새로 만들 가능성은 여전히 남아있고
+  // (예: 과거처럼 REVIEW를 다시 세분화하고 싶어질 경우), 이 능력 자체가 seed 구조 변경으로 사라져서는
+  // 안 되므로 자체 임시 Menu 1개로 formatter 동작을 직접 검증한다(seed 데이터는 건드리지 않음).
+  // P14-T9C-1: 관리자 REVIEW 하위유형 표시를 "강의 후기(정규 강좌)"로 통일했다("강의 후기(수강)"은 더 이상 쓰지 않는다).
+  test('/admin/menus: BOARD_LIST+REVIEW+targetSubvalue 조합은 "강의 후기(정규 강좌)"처럼 조합 표시된다(범용 formatter, seed와 무관)', async ({ page, context, baseURL, tracker }) => {
+    const res = await context.request.post(`${baseURL}/api/admin/menus`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        label: 'P13-T33 formatter 확인용',
+        parentId: null,
+        targetType: 'BOARD_LIST',
+        targetValue: 'REVIEW',
+        targetSubvalue: 'COURSE',
+        sortOrder: 999,
+        visible: true,
+        openInNewTab: false,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    syntheticMenuId = tracker.track('menu', (await res.json()).data.id);
+
+    await page.goto('/admin/menus');
+    const row = page.locator('#menu-list-body tr')
+      .filter({ has: page.locator('.admin-menu-row__label', { hasText: 'P13-T33 formatter 확인용' }) });
+    await expect(row.locator('td').nth(3)).toHaveText('강의 후기(정규 강좌)');
+  });
+
+  test('/admin/menus/new: targetType을 바꾸면 targetValue datalist 후보가 그에 맞게 갱신된다', async ({ page }) => {
+    await page.goto('/admin/menus/new');
+
+    await page.locator('#targetType').selectOption('PAGE');
+    let optionValues = await page.locator('#targetValueCandidates option').evaluateAll(
+      (options) => options.map((o) => o.getAttribute('value')));
+    expect(optionValues).toEqual(['GREETING', 'INTRODUCTION', 'HISTORY', 'LOCATION']);
+
+    await page.locator('#targetType').selectOption('BOARD_LIST');
+    optionValues = await page.locator('#targetValueCandidates option').evaluateAll(
+      (options) => options.map((o) => o.getAttribute('value')));
+    expect(optionValues).toEqual(['NOTICE', 'GALLERY', 'ARCHIVE', 'REVIEW']);
+
+    // GROUP/HOME/INTERNAL_URL/EXTERNAL_URL은 자유 입력(또는 빈 값)이라 후보를 두지 않는다.
+    await page.locator('#targetType').selectOption('GROUP');
+    await expect(page.locator('#targetValueCandidates option')).toHaveCount(0);
+
+    // datalist는 힌트일 뿐 다른 값 입력 자체를 막지 않는다(자유 텍스트 input 그대로).
+    await page.locator('#targetType').selectOption('PAGE');
+    await page.locator('#targetValue').fill('NOT_IN_DATALIST');
+    await expect(page.locator('#targetValue')).toHaveValue('NOT_IN_DATALIST');
+  });
+
+  test('/admin/menus/new: 상위 메뉴 select는 기존과 동일하게 top-level GROUP만 후보로 제공한다(무회귀)', async ({ page }) => {
+    await page.goto('/admin/menus/new');
+
+    const parentOptions = page.locator('#parentId option');
+    const texts = await parentOptions.allTextContents();
+
+    // GROUP이 아닌 LEAF/자식 메뉴는 후보에 없어야 한다(기존 필터링 로직 무회귀).
+    expect(texts.some((t) => t.includes('공지사항'))).toBe(false);
+    expect(texts.some((t) => t.includes('인사말'))).toBe(false);
+    // top-level GROUP은 후보에 있고, 표시 텍스트에만 "(그룹)"이 덧붙는다.
+    expect(texts).toContain('연구소 소개 (그룹)');
+  });
+});
+
+// P13-T31: 관리자 게시판/프로그램 목록의 boardType/programType select를 검색 버튼 없이 즉시 적용한다.
+// 서버 API/쿼리 계약은 무변경(순수 프론트 이벤트 배선 변경)이므로, 여기서는 실제 사용자가 보는 목록
+// 결과가 select 변경만으로 즉시 갱신되는지를 행동 기반으로 검증한다. state.page 같은 내부 JS 상태는
+// 직접 읽지 않는다 - page reset의 구조적 계약은 board/program-admin-view.test.js(Node)가 이미 검증한다.
+test.describe('P13-T31: Admin 목록 필터(boardType/programType) 즉시 적용', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let boardIds;
+  let programIds;
+
+  async function createBoard(context, baseURL, boardType, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType, title, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  async function createProgram(context, baseURL, programType, title) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType, title, isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    boardIds = [];
+    programIds = [];
+  });
+
+  test('게시판 관리: boardType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const noticeTitle = `P13-T31 공지 ${runId}`;
+    const galleryTitle = `P13-T31 갤러리 ${runId}`;
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', noticeTitle)));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'GALLERY', galleryTitle)));
+
+    await page.goto('/admin/boards');
+    await expect(page.locator('#board-list-body')).toContainText(noticeTitle);
+    await expect(page.locator('#board-list-body')).toContainText(galleryTitle);
+
+    // 검색 버튼을 누르지 않고 select만 변경한다.
+    await page.locator('#searchBoardType').selectOption('NOTICE');
+
+    await expect(page.locator('#board-list-body')).toContainText(noticeTitle);
+    await expect(page.locator('#board-list-body')).not.toContainText(galleryTitle);
+    // 필터 변경은 항상 첫 페이지 기준으로 갱신된다 - "이전" 버튼이 비활성인지로 사용자 관점에서 확인한다.
+    await expect(page.locator('#prev-page')).toBeDisabled();
+  });
+
+  test('게시판 관리: 검색 버튼으로 확정한 keyword는 boardType select 변경 후에도 유지된다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const matchTitle = `P13-T31 키워드유지 ${runId} 확인용`;
+    const otherNoticeTitle = `P13-T31 다른공지 ${runId}`;
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', matchTitle)));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', otherNoticeTitle)));
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'GALLERY', matchTitle)));
+
+    await page.goto('/admin/boards');
+    await page.locator('#searchKeyword').fill(`키워드유지 ${runId}`);
+    await page.locator('#searchForm button[type="submit"]').click();
+
+    await expect(page.locator('#board-list-body')).toContainText(matchTitle);
+    await expect(page.locator('#board-list-body')).not.toContainText(otherNoticeTitle);
+
+    // keyword를 검색 버튼으로 확정한 뒤에는 boardType만 select로 바꾼다(검색 버튼은 다시 누르지 않는다).
+    await page.locator('#searchBoardType').selectOption('GALLERY');
+
+    // GALLERY + 이미 확정된 keyword 조건이 함께 적용되어야 한다(keyword가 사라지지 않음).
+    await expect(page.locator('#board-list-body')).toContainText(matchTitle);
+  });
+
+  test('게시판 관리: 검색창에 아직 확정하지 않은 입력은 boardType select 변경으로 자동 실행되지 않는다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const title = `P13-T31 미확정 ${runId}`;
+    boardIds.push(tracker.track('board', await createBoard(context, baseURL, 'NOTICE', title)));
+
+    await page.goto('/admin/boards');
+    // 검색 버튼을 누르지 않고 keyword만 입력한다(미확정 상태).
+    await page.locator('#searchKeyword').fill('절대매칭되지않는존재하지않는검색어');
+    await page.locator('#searchBoardType').selectOption('NOTICE');
+
+    // 미확정 keyword는 select change로 조건에 반영되지 않았으므로 여전히 목록에 보인다.
+    await expect(page.locator('#board-list-body')).toContainText(title);
+  });
+
+  test('프로그램 관리: programType select 변경만으로(검색 버튼 클릭 없이) 목록이 즉시 해당 유형으로 갱신된다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const courseTitle = `P13-T31 정규 ${runId}`;
+    const specialTitle = `P13-T31 특강 ${runId}`;
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'COURSE', courseTitle)));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'SPECIAL', specialTitle)));
+
+    await page.goto('/admin/programs');
+    await expect(page.locator('#program-list-body')).toContainText(courseTitle);
+    await expect(page.locator('#program-list-body')).toContainText(specialTitle);
+
+    await page.locator('#searchProgramType').selectOption('SPECIAL');
+
+    await expect(page.locator('#program-list-body')).toContainText(specialTitle);
+    await expect(page.locator('#program-list-body')).not.toContainText(courseTitle);
+    await expect(page.locator('#prev-page')).toBeDisabled();
+  });
+
+  test('프로그램 관리: 검색 버튼으로 확정한 keyword는 programType select 변경 후에도 유지된다', async ({ page, context, baseURL, tracker }) => {
+    const runId = Date.now();
+    const matchTitle = `P13-T31 프로그램키워드유지 ${runId} 확인용`;
+    const otherCourseTitle = `P13-T31 다른정규 ${runId}`;
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'COURSE', matchTitle)));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'COURSE', otherCourseTitle)));
+    programIds.push(tracker.track('program', await createProgram(context, baseURL, 'SPECIAL', matchTitle)));
+
+    await page.goto('/admin/programs');
+    await page.locator('#searchKeyword').fill(`프로그램키워드유지 ${runId}`);
+    await page.locator('#searchForm button[type="submit"]').click();
+
+    await expect(page.locator('#program-list-body')).toContainText(matchTitle);
+    await expect(page.locator('#program-list-body')).not.toContainText(otherCourseTitle);
+
+    await page.locator('#searchProgramType').selectOption('SPECIAL');
+
+    await expect(page.locator('#program-list-body')).toContainText(matchTitle);
+  });
+});
+
+// P13-T35: Header/Footer 반응형 최종 QA. 새 IA/기능을 추가하는 Task가 아니라 기존 구현에서 발견된
+// 실제 결함(A1)과 테스트 공백(B3/B4)만 다룬다. 합성 Menu를 만들지 않고 실제 production Menu(연구소
+// 소개/수강 신청 GROUP, 전체메뉴 mega menu)를 그대로 사용한다.
+test.describe('P13-T35: Header/Footer 반응형 최종 QA', () => {
+  // A1: Docker 8088 실브라우저로 재현 확인된 실제 결함 - 키보드로 GROUP을 연 뒤 Escape 없이 Tab만
+  // 으로 그룹 밖(다음 top-level trigger)까지 포커스가 이동해도 기존에는 submenu가 열린 채 남아
+  // 이후 콘텐츠 위에 겹칠 수 있었다. nav-submenu.js의 focusout 자동 닫힘(P13-T35)으로 수정됐다.
+  test('Desktop 1440: 키보드로 GROUP을 연 뒤 Escape 없이 Tab으로 밖으로 나가면 submenu가 자동으로 닫힌다(A1)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    const trigger = groupItem.locator('.site-nav__trigger');
+    const submenu = groupItem.locator('.site-nav__submenu');
+
+    let reachedTrigger = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await trigger.evaluate((el) => el === document.activeElement)) {
+        reachedTrigger = true;
+        break;
+      }
+    }
+    expect(reachedTrigger, 'Tab 이동만으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
+
+    await page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(submenu).toBeVisible();
+
+    const nextGroupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '수강 신청',
+    }).locator('.site-nav__trigger');
+
+    let reachedNext = false;
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press('Tab');
+      if (await nextGroupTrigger.evaluate((el) => el === document.activeElement)) {
+        reachedNext = true;
+        break;
+      }
+    }
+    expect(reachedNext, '다음 top-level trigger로 Tab 이동이 가능해야 한다').toBeTruthy();
+
+    await expect(submenu, '포커스가 그룹 밖으로 나가면 submenu도 자동으로 닫혀야 한다(A1)').toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // B3: 모바일 hamburger accordion을 실제로 사용한 뒤(goto 없이) 같은 page에서 데스크톱 폭으로
+  // 리사이즈해도, CSS 브레이크포인트만으로 즉시 정상적인 desktop 상태가 되고 stale mobile 상태
+  // (열려 있던 accordion/hamburger aria-expanded 등) 때문에 desktop UI가 깨지지 않는지 확인한다.
+  test('Mobile 375 → Desktop 1440: hamburger accordion 사용 후 리사이즈해도 stale mobile 상태 없이 desktop UI가 정상 동작한다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    await expect(page.locator('#site-nav')).toBeVisible();
+
+    const aboutGroup = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    await aboutGroup.locator('.site-nav__trigger').click();
+    await expect(aboutGroup.locator('.site-nav__submenu')).toBeVisible();
+
+    // goto 없이 같은 page에서 데스크톱 폭으로 전환.
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await expect(page.locator('#nav-toggle')).toBeHidden();
+    await expect(page.locator('#site-nav')).toBeVisible();
+    await expect(page.locator('[data-menu-id="all"]')).toBeVisible();
+
+    // desktop 메뉴가 실제로 사용 가능한지(모바일 accordion에서 열어둔 상태가 desktop hover 동작을
+    // 막지 않는지) "수강 신청" GROUP을 hover해 확인한다.
+    const courseGroup = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '수강 신청',
+    });
+    await courseGroup.locator('.site-nav__trigger').hover();
+    await expect(courseGroup.locator('.site-nav__submenu')).toBeVisible();
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '리사이즈 후 1440px에서 가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  // B4: 실제 production "전체메뉴"(mega menu) trigger 자체의 키보드 접근성. 기존 P13-T30B 키보드
+  // 테스트는 합성 GROUP만 사용했으므로, "전체메뉴" 요소 자체가 키보드로 동작한다는 공백만 메운다
+  // (hover/Escape/outside-click 등 나머지 상태 머신은 P13-T30C가 이미 검증했으므로 반복하지 않는다).
+  test('Desktop 1440: 전체메뉴(mega menu) trigger가 Tab/Enter/Tab/Escape 키보드로 정상 동작한다(B4)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    const megaMenu = page.locator('.site-nav__megamenu');
+    const firstLink = megaMenu.locator('a').first();
+
+    let reachedTrigger = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await megaTrigger.evaluate((el) => el === document.activeElement)) {
+        reachedTrigger = true;
+        break;
+      }
+    }
+    expect(reachedTrigger, 'Tab 이동만으로 전체메뉴 trigger에 도달할 수 있어야 한다').toBeTruthy();
+
+    await page.keyboard.press('Enter');
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(megaMenu).toBeVisible();
+
+    await page.keyboard.press('Tab');
+    await expect(firstLink).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(megaMenu).toBeHidden();
+    await expect(megaTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(megaTrigger).toBeFocused();
+  });
+});
+
+// P13-T36: Header/Menu Visual Polish. 새 IA/기능이 아니라 기존 hover/focus/open 상태의 "가시성"만
+// CSS로 개선한다(디자인안 B - Warm Premium Tint). 실제 production Menu(연구소 소개 GROUP, 공지사항
+// LEAF)를 그대로 쓰고 합성 Menu는 만들지 않는다. 정확한 hex/px 값보다 "상태 전후 비교"로 검증한다
+// (P13-T30B의 baseFontWeight capture-then-compare 패턴 재사용).
+test.describe('P13-T36: Header/Menu Visual Polish', () => {
+  // P14-T2A: 이전에는 top-level LEAF(공지사항 등)가 실제로 존재해 그것으로 검증했지만, 새 IA에서는
+  // top-level이 전부 GROUP이라 유일하게 남은 top-level LEAF는 정적 HOME 링크뿐이다. is-active 상태의
+  // 배경/색이 hover와 겹치지 않도록(P14-T2 current 계약: 배경 없음) HOME이 active가 아닌 다른 페이지
+  // (/pages/INTRODUCTION)에서 검증한다.
+  test('Desktop 1440: top-level LEAF(HOME) hover 시 배경/색상이 기본 상태와 달라진다(font-weight는 무변경)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/pages/INTRODUCTION');
+
+    const leaf = page.locator('#quick-menu > li > a', { hasText: 'HOME' });
+    const base = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+
+    await leaf.hover();
+    // P13-T36 CSS가 background-color/color에 150ms transition을 걸어두므로, 전환이 끝난 뒤(여유
+    // 포함) computed style을 읽어야 중간값(interpolated color)을 캡처하는 flaky 실패를 피한다.
+    await page.waitForTimeout(350);
+    const hovered = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+
+    expect(hovered.background, 'hover 시 배경이 기본 상태와 달라야 한다').not.toBe(base.background);
+    expect(hovered.color, 'hover 시 색상이 기본 상태와 달라야 한다').not.toBe(base.color);
+    // 승인 조건: top-level LEAF는 GROUP과 달리 font-weight를 바꾸지 않는다(glyph 폭 변화로 인한
+    // 900px 부근 wrap 회귀 방지).
+    expect(hovered.fontWeight, 'LEAF는 hover해도 font-weight가 바뀌지 않아야 한다').toBe(base.fontWeight);
+  });
+
+  test('Desktop 1440: GROUP trigger hover/open 시 배경이 기본 상태와 달라지고 font-weight:700은 유지된다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    const trigger = groupItem.locator('.site-nav__trigger');
+    const base = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    await trigger.hover();
+    await page.waitForTimeout(350); // transition(150ms) 완료 대기
+    const hoverBg = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(hoverBg, 'GROUP hover 시 배경이 기본 상태와 달라야 한다').not.toBe(base);
+    await expect(trigger).toHaveCSS('font-weight', '700');
+
+    // click-open(.is-open) 상태도 동일하게 배경이 적용된다.
+    await page.locator('.site-header__brand').hover();
+    await trigger.click();
+    await page.waitForTimeout(350);
+    const openBg = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(openBg, '.is-open 상태에서도 배경이 기본 상태와 달라야 한다').not.toBe(base);
+    await expect(trigger).toHaveCSS('font-weight', '700');
+  });
+
+  test('Desktop 1440: submenu/mega menu 일반 링크 hover 시 배경이 기본 상태와 달라진다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    const groupItem = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    });
+    await groupItem.locator('.site-nav__trigger').hover();
+    const submenuLink = groupItem.locator('.site-nav__submenu a').first();
+    await expect(submenuLink).toBeVisible();
+
+    const base = await submenuLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await submenuLink.hover();
+    await page.waitForTimeout(350); // transition(150ms) 완료 대기
+    const hovered = await submenuLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(hovered, 'submenu item hover 시 배경이 기본 상태와 달라야 한다').not.toBe(base);
+
+    // mega menu 일반 링크(같은 .site-nav__submenu 클래스를 공유)도 동일하게 적용된다.
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    await megaTrigger.hover();
+    const megaLink = page.locator('.site-nav__megamenu a').first();
+    const megaBase = await megaLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await megaLink.hover();
+    await page.waitForTimeout(350);
+    const megaHovered = await megaLink.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(megaHovered, 'mega menu 링크 hover 시 배경이 기본 상태와 달라야 한다').not.toBe(megaBase);
+  });
+
+  test('Desktop 1440: keyboard focus-visible 상태가 hover 상태와 동일한 배경/색상을 제공한다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // P14-T2A: 유일하게 남은 top-level LEAF는 HOME이다. is-active 상태에서는 hover도 focus도 동일한
+    // tint를 주므로(§위 테스트와 동일 이유) 비교 자체는 active 여부와 무관하게 유효하지만, 다른
+    // 테스트와 일관되게 HOME이 active가 아닌 페이지에서 검증한다.
+    await page.goto('/pages/INTRODUCTION');
+
+    // top-level LEAF
+    const leaf = page.locator('#quick-menu > li > a', { hasText: 'HOME' });
+    await leaf.hover();
+    await page.waitForTimeout(350); // transition(150ms) 완료 대기
+    const leafHover = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color };
+    });
+    await page.locator('.site-header__brand').hover();
+    await page.waitForTimeout(350);
+
+    let reached = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await leaf.evaluate((el) => el === document.activeElement)) {
+        reached = true;
+        break;
+      }
+    }
+    expect(reached, 'Tab으로 top-level LEAF에 도달할 수 있어야 한다').toBeTruthy();
+    await page.waitForTimeout(350);
+    const leafFocus = await leaf.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color };
+    });
+    expect(leafFocus, 'top-level LEAF의 focus-visible 상태는 hover 상태와 동일해야 한다').toEqual(leafHover);
+
+    // GROUP trigger
+    await page.goto('/');
+    const groupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+    await groupTrigger.hover();
+    await page.waitForTimeout(350);
+    const groupHover = await groupTrigger.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+    await page.locator('.site-header__brand').hover();
+    await page.waitForTimeout(350);
+
+    reached = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await groupTrigger.evaluate((el) => el === document.activeElement)) {
+        reached = true;
+        break;
+      }
+    }
+    expect(reached, 'Tab으로 GROUP trigger에 도달할 수 있어야 한다').toBeTruthy();
+    await page.waitForTimeout(350);
+    const groupFocus = await groupTrigger.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { background: s.backgroundColor, color: s.color, fontWeight: s.fontWeight };
+    });
+    expect(groupFocus, 'GROUP trigger의 focus-visible 상태는 hover 상태와 동일해야 한다').toEqual(groupHover);
+
+    // native outline은 제거되지 않는다.
+    const outlineStyle = await groupTrigger.evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(outlineStyle, 'native outline이 유지되어야 한다').not.toBe('none');
+  });
+
+  test('Mobile 375: 펼친 GROUP의 trigger 자체가 닫힘 상태와 시각적으로 구분된다(자식 목록 노출과 무관한 독립 신호)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    await page.locator('#nav-toggle').click();
+    const groupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+
+    const closedBg = await groupTrigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await groupTrigger.click();
+    await expect(groupTrigger).toHaveAttribute('aria-expanded', 'true');
+    const openBg = await groupTrigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    expect(openBg, '모바일에서 펼친 GROUP trigger는 닫힘 상태와 배경이 달라야 한다').not.toBe(closedBg);
+    await expect(groupTrigger).toHaveCSS('font-weight', '700');
+  });
+
+  // 32px는 WCAG 등 보편적 권장치가 아니라, "기존 대비 실제로 커졌고 조작에 충분하다"를 판단하기 위한
+  // 이번 프로젝트의 회귀 기준값이다(패딩 추가 전 트리거/링크의 padding:0 상태보다 명백히 커야 함).
+  test('Mobile 375: top-level/submenu 항목의 터치 영역이 기존보다 소폭 확대된다(프로젝트 회귀 기준)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    await page.locator('#nav-toggle').click();
+
+    // P14-T2A: top-level LEAF는 HOME뿐이다(나머지는 전부 GROUP).
+    const leaf = page.locator('#quick-menu > li > a', { hasText: 'HOME' });
+    const leafBox = await leaf.boundingBox();
+    expect(leafBox.height, 'top-level 항목의 터치 영역이 충분히 확보되어야 한다').toBeGreaterThanOrEqual(32);
+
+    const groupTrigger = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', {
+      hasText: '연구소 소개',
+    }).locator('.site-nav__trigger');
+    await groupTrigger.click();
+    const childLink = page.locator('.site-nav__submenu a').first();
+    const childBox = await childLink.boundingBox();
+    expect(childBox.height, 'submenu child 항목의 터치 영역이 충분히 확보되어야 한다').toBeGreaterThanOrEqual(32);
+  });
+
+  for (const width of [899, 900, 901, 1024]) {
+    test(`${width}px: tint 배경/padding 추가 후에도 horizontal overflow와 top-level wrap 회귀가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+
+      if (width >= 900) {
+        const rowYs = await page.locator('#quick-menu > li').evaluateAll((items) =>
+          [...new Set(items.map((li) => Math.round(li.getBoundingClientRect().y)))]);
+        expect(rowYs.length, `${width}px에서 top-level 메뉴가 한 줄로 유지되어야 한다`).toBe(1);
+      }
+    });
+  }
+});
+
+// P13-T37: Header/Menu Active(Current Page) 표시. 실제 production Menu(연구소 소개/수강 신청 GROUP,
+// 강의 후기/공지사항 LEAF)를 그대로 쓰고, Board/Program 상세 검증에만 격리된 테스트 데이터를 만든다.
+// 전체 query string equality가 아니라 semantic parameter(boardType/programType)만 비교하고 noise
+// query(page/size/keyword/pageJump)는 무시한다는 것이 핵심 계약이다.
+test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+  let noticeBoardId;
+  let reviewBoardId;
+  let courseProgramId;
+  let specialProgramId;
+  // beforeAll/afterAll은 test-scoped tracker fixture를 쓸 수 없으므로 이 describe 전용 tracker를 쓴다.
+  // cleanup은 로그인된 별도 세션으로 하므로(예전 afterAll은 로그인하지 않은 새 context로 DELETE해서
+  // 항상 403이었다) 실제로 삭제된다.
+  let resourceCleanup;
+
+  test.beforeAll(async ({ browser, baseURL }) => {
+    // 생성 전에 만들어 두어, 중간에 실패해도 이미 만든 리소스가 tracker에 남아 afterAll이 정리한다.
+    resourceCleanup = createTracker({ baseURL });
+    const context = await browser.newContext({ ignoreHTTPSErrors: true });
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    const runId = Date.now();
+
+    const notice = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'NOTICE', title: `P13-T37 공지 ${runId}`, isPublic: true },
+    });
+    noticeBoardId = resourceCleanup.tracker.track('board', (await notice.json()).data.id);
+
+    const review = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'REVIEW', title: `P13-T37 후기 ${runId}`, isPublic: true },
+    });
+    reviewBoardId = resourceCleanup.tracker.track('board', (await review.json()).data.id);
+
+    const course = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'COURSE', title: `P13-T37 정규 ${runId}`, content: '내용', isPublic: true },
+    });
+    courseProgramId = resourceCleanup.tracker.track('program', (await course.json()).data.id);
+
+    const special = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { programType: 'SPECIAL', title: `P13-T37 특강 ${runId}`, content: '내용', isPublic: true },
+    });
+    specialProgramId = resourceCleanup.tracker.track('program', (await special.json()).data.id);
+
+    await context.close();
+  });
+
+  test.afterAll(async () => {
+    if (!resourceCleanup) {
+      return;
+    }
+    try {
+      await resourceCleanup.tracker.cleanup();
+    } finally {
+      await resourceCleanup.dispose();
+    }
+  });
+
+  const homeLeaf = (page) => page.locator('#quick-menu > li.site-nav__item:first-child > a');
+  const groupItem = (page, label) => page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"])', { hasText: label });
+  // P14-T2A: 공지사항/갤러리/자료실/전체(강의 후기)는 더 이상 top-level LEAF가 아니라 GROUP(소식·자료/
+  // 강의 후기)의 submenu child다. class/attribute는 submenu가 열려있지 않아도(display:none이어도)
+  // DOM에는 그대로 존재하므로 hover 없이도 검증 가능하다(기존 PAGE/PROGRAM_LIST 테스트와 동일 전제).
+  const childLeaf = (page, groupLabel, childLabel) =>
+    groupItem(page, groupLabel).locator('.site-nav__submenu a', { hasText: childLabel });
+
+  test('/ 에서 HOME만 active이고 다른 항목은 active가 아니다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+
+    await expect(homeLeaf(page)).toHaveClass(/is-active/);
+    await expect(homeLeaf(page)).toHaveAttribute('aria-current', 'page');
+    await expect(childLeaf(page, '소식·자료', '공지사항')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).not.toHaveClass(/is-active/);
+  });
+
+  test('PAGE: /pages/INTRODUCTION, /pages/HISTORY 각각 해당 child만 active + 부모 GROUP has-active-child', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.goto('/pages/INTRODUCTION');
+    const aboutGroup = groupItem(page, '연구소 소개');
+    await aboutGroup.locator('.site-nav__trigger').hover();
+    await expect(aboutGroup).toHaveClass(/has-active-child/);
+    await expect(aboutGroup).not.toHaveClass(/(^|\s)is-active(\s|$)/);
+    const introLink = aboutGroup.locator('.site-nav__submenu a', { hasText: '연구소 소개' });
+    await expect(introLink).toHaveClass(/is-active/);
+    await expect(introLink).toHaveAttribute('aria-current', 'page');
+    const historyLink = aboutGroup.locator('.site-nav__submenu a', { hasText: '연혁' });
+    await expect(historyLink).not.toHaveClass(/is-active/);
+
+    await page.goto('/pages/HISTORY');
+    await groupItem(page, '연구소 소개').locator('.site-nav__trigger').hover();
+    await expect(groupItem(page, '연구소 소개').locator('.site-nav__submenu a', { hasText: '연혁' }))
+      .toHaveClass(/is-active/);
+  });
+
+  // P14-T2A: 공지사항/갤러리/자료실은 "소식·자료" GROUP의 child, REVIEW(programType 없음)는
+  // "강의 후기" GROUP의 "전체" child다. 각 child leaf의 is-active/aria-current와 함께, 부모 GROUP의
+  // has-active-child도 함께 확인한다.
+  test('BOARD_LIST: NOTICE/GALLERY/ARCHIVE 각각 active(소식·자료 GROUP has-active-child), REVIEW는 전체 active(강의 후기 GROUP has-active-child), noise query 무시, boardType 없으면 active 없음', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    const newsGroup = groupItem(page, '소식·자료');
+    const reviewGroup = groupItem(page, '강의 후기');
+
+    for (const label of ['공지사항', '갤러리', '자료실']) {
+      const typeMap = { 공지사항: 'NOTICE', 갤러리: 'GALLERY', 자료실: 'ARCHIVE' };
+      await page.goto(`/boards?boardType=${typeMap[label]}`);
+      const leaf = childLeaf(page, '소식·자료', label);
+      await expect(leaf).toHaveClass(/is-active/);
+      await expect(leaf).toHaveAttribute('aria-current', 'page');
+      await expect(newsGroup).toHaveClass(/has-active-child/);
+    }
+
+    // noise query(page/keyword/size/pageJump) 무시 확인
+    await page.goto('/boards?boardType=REVIEW&page=2&keyword=test&size=10');
+    await expect(childLeaf(page, '강의 후기', '전체')).toHaveClass(/is-active/);
+    await expect(reviewGroup).toHaveClass(/has-active-child/);
+
+    // boardType 없는 /boards → 어떤 header child leaf/GROUP도 active 아님(대응 항목 없음, P13-T33 원칙 유지)
+    await page.goto('/boards');
+    await expect(childLeaf(page, '소식·자료', '공지사항')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '갤러리')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '자료실')).not.toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).not.toHaveClass(/is-active/);
+    await expect(newsGroup).not.toHaveClass(/has-active-child/);
+    await expect(reviewGroup).not.toHaveClass(/has-active-child/);
+  });
+
+  test('Board 상세: 목록 경유(query 있음)와 직접 URL(query 없음) 둘 다 엔티티 기준으로 올바르게 active', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // 목록에서 클릭한 것과 동일한 형태(query 포함)
+    await page.goto(`/boards/${noticeBoardId}?boardType=NOTICE&keyword=&page=0`);
+    await expect(childLeaf(page, '소식·자료', '공지사항')).toHaveClass(/is-active/);
+    await expect(childLeaf(page, '강의 후기', '전체')).not.toHaveClass(/is-active/);
+
+    // 직접 URL 진입(query 전혀 없음) - board.boardType() ground truth로만 판정되어야 한다(핵심 회귀 지점)
+    await page.goto(`/boards/${noticeBoardId}`);
+    await expect(childLeaf(page, '소식·자료', '공지사항')).toHaveClass(/is-active/);
+
+    await page.goto(`/boards/${reviewBoardId}`);
+    await expect(childLeaf(page, '강의 후기', '전체')).toHaveClass(/is-active/);
+    await expect(childLeaf(page, '소식·자료', '공지사항')).not.toHaveClass(/is-active/);
+  });
+
+  test('PROGRAM_LIST: COURSE/SPECIAL 각각 active, programType 없으면 active 없음', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.goto('/programs?programType=COURSE');
+    const programGroup = groupItem(page, '수강 신청');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).toHaveClass(/is-active/);
+    await expect(programGroup).toHaveClass(/has-active-child/);
+
+    await page.goto('/programs?programType=SPECIAL');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).toHaveClass(/is-active/);
+
+    await page.goto('/programs');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).not.toHaveClass(/is-active/);
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).not.toHaveClass(/is-active/);
+    await expect(programGroup).not.toHaveClass(/has-active-child/);
+  });
+
+  test('Program 상세: query가 전혀 없어도 엔티티 기준으로 COURSE/SPECIAL이 정확히 active된다(핵심 회귀 지점)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    await page.goto(`/programs/${courseProgramId}`);
+    const programGroup = groupItem(page, '수강 신청');
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).toHaveClass(/is-active/);
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).not.toHaveClass(/is-active/);
+
+    await page.goto(`/programs/${specialProgramId}`);
+    await programGroup.locator('.site-nav__trigger').hover();
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '특강 신청' })).toHaveClass(/is-active/);
+    await expect(programGroup.locator('.site-nav__submenu a', { hasText: '수강 신청' })).not.toHaveClass(/is-active/);
+  });
+
+  // P14-T2A: "강의 후기"가 GROUP이 되어(더 이상 헤딩 자체가 단일 링크인 LEAF 컬럼이 아님) mega의
+  // 활성 표시 대상이 "전체" child link로 바뀐다. GROUP heading(<p>)은 leaf active(is-active)가 아니라
+  // has-active-child만 갖는다(기존 "연구소 소개" GROUP heading과 동일한 정책).
+  test('Desktop mega menu: 개별 dropdown과 동일하게 active leaf에 is-active + aria-current가 부여된다(양쪽 사본 모두)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/boards?boardType=REVIEW');
+
+    const primaryLeaf = childLeaf(page, '강의 후기', '전체');
+    await expect(primaryLeaf).toHaveClass(/is-active/);
+    await expect(primaryLeaf).toHaveAttribute('aria-current', 'page');
+
+    const megaTrigger = page.locator('[data-menu-id="all"] > .site-nav__trigger');
+    await megaTrigger.hover();
+    const megaColumn = page.locator('.site-nav__megamenu-column', { hasText: '강의 후기' });
+    const megaChildLink = megaColumn.locator('ul a', { hasText: '전체' });
+    await expect(megaChildLink).toHaveClass(/is-active/);
+    await expect(megaChildLink).toHaveAttribute('aria-current', 'page');
+    await expect(megaColumn.locator('p.site-nav__megamenu-heading')).toHaveClass(/has-active-child/);
+
+    // GROUP has-active-child도 mega menu 컬럼 heading(<p>)에 동일하게 표시된다.
+    await page.goto('/pages/HISTORY');
+    await megaTrigger.hover();
+    const megaGroupHeading = page.locator('p.site-nav__megamenu-heading', { hasText: '연구소 소개' });
+    await expect(megaGroupHeading).toHaveClass(/has-active-child/);
+  });
+
+  test('Mobile 375: active leaf와 has-active-child GROUP이 표시되고 .is-open과 동시에도 구분 가능하다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/boards/${noticeBoardId}`);
+
+    await page.locator('#nav-toggle').click();
+    const newsGroup = groupItem(page, '소식·자료');
+    await expect(newsGroup).toHaveClass(/has-active-child/);
+    const noticeLeaf = childLeaf(page, '소식·자료', '공지사항');
+    await expect(noticeLeaf).toHaveClass(/is-active/);
+    await expect(noticeLeaf).toHaveAttribute('aria-current', 'page');
+
+    // active child를 가진 GROUP(닫힘 상태)도 표시된다.
+    await page.goto('/pages/HISTORY');
+    await page.locator('#nav-toggle').click();
+    const aboutGroup = groupItem(page, '연구소 소개');
+    await expect(aboutGroup).toHaveClass(/has-active-child/);
+
+    // .is-open(연 상태)과 has-active-child가 동시에 걸려도 둘 다 유지된다(서로 다른 CSS 속성이라 공존).
+    await aboutGroup.locator('.site-nav__trigger').click();
+    await expect(aboutGroup).toHaveClass(/is-open/);
+    await expect(aboutGroup).toHaveClass(/has-active-child/);
+    await expect(aboutGroup.locator('.site-nav__submenu a', { hasText: '연혁' })).toHaveClass(/is-active/);
+  });
+
+  test('키보드: aria-current 존재 확인 및 기존 Tab/Escape/focusout(P13-T35) 동작 무회귀', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/boards?boardType=NOTICE');
+
+    await expect(childLeaf(page, '소식·자료', '공지사항')).toHaveAttribute('aria-current', 'page');
+
+    // 기존 GROUP 키보드 계약(Tab 도달 → Enter로 열기 → Escape로 닫힘)이 active 도입 후에도 그대로 동작.
+    const groupTrigger = groupItem(page, '연구소 소개').locator('.site-nav__trigger');
+    let reached = false;
+    for (let i = 0; i < 20; i++) {
+      await page.keyboard.press('Tab');
+      if (await groupTrigger.evaluate((el) => el === document.activeElement)) {
+        reached = true;
+        break;
+      }
+    }
+    expect(reached).toBeTruthy();
+    await page.keyboard.press('Enter');
+    await expect(groupTrigger).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(groupTrigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  for (const width of [375, 768, 899, 900, 901, 1024, 1440]) {
+    test(`${width}px: active 표시(box-shadow accent line) 추가 후에도 horizontal overflow와 wrap 회귀가 없다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/boards/${reviewBoardId}`);
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px에서 가로 overflow가 없어야 한다`).toBeLessThanOrEqual(0);
+
+      if (width >= 900) {
+        const rowYs = await page.locator('#quick-menu > li').evaluateAll((items) =>
+          [...new Set(items.map((li) => Math.round(li.getBoundingClientRect().y)))]);
+        expect(rowYs.length, `${width}px에서 top-level 메뉴가 한 줄로 유지되어야 한다`).toBe(1);
+      }
+    });
+  }
+});
+
+// P14-T2: 공개 Header sticky. header는 position: sticky; top: 0(normal flow 유지 - main에 padding을 더하지 않는다),
+// z-index 10(Popup 1000보다 낮음)이며 배경은 불투명하다. sticky는 parent(body)의 content box 안에서만 유지되므로,
+// 실제 데이터 양에 상관없이 긴 페이지를 재현하려고 #site-main에 min-height만 준다(body padding은 sticky 범위 밖이라 쓰지 않는다).
+test.describe('P14-T2: sticky Header', () => {
+  async function makeTall(page) {
+    await page.evaluate(() => { document.querySelector('#site-main').style.minHeight = '3500px'; });
+  }
+  const headerTop = (page) => page.locator('#site-header').evaluate((el) => el.getBoundingClientRect().top);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 667 }]) {
+    test(`${viewport.width}px: 스크롤해도 header가 viewport 상단(top 0)에 유지되고 layout이 밀리지 않는다`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.goto('/');
+      await makeTall(page);
+
+      const style = await page.locator('#site-header').evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { position: cs.position, zIndex: cs.zIndex, background: cs.backgroundColor };
+      });
+      expect(style.position, 'header는 fixed가 아니라 sticky여야 한다').toBe('sticky');
+      expect(style.zIndex, 'header z-index는 10 유지(Popup 1000보다 낮음)').toBe('10');
+      expect(style.background, '스크롤 중 본문이 비치지 않도록 배경이 불투명해야 한다').not.toMatch(/rgba\(.*,\s*0\)|transparent/);
+
+      const before = await page.evaluate(() => ({
+        headerH: document.querySelector('#site-header').getBoundingClientRect().height,
+        mainTop: document.querySelector('#site-main').getBoundingClientRect().top,
+      }));
+      expect(before.mainTop, 'main은 normal flow대로 header 바로 아래에서 시작해야 한다(sticky는 공간을 유지)')
+        .toBeCloseTo(before.headerH, 0);
+
+      const max = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+      expect(max, '스크롤 가능한 긴 페이지여야 한다').toBeGreaterThan(600);
+      for (const y of [100, 500, Math.round(max / 2), max]) {
+        await page.evaluate((top) => window.scrollTo(0, top), y);
+        await page.waitForTimeout(50);
+        expect(await headerTop(page), `scrollY=${y}에서 header 상단이 viewport 상단(0)에 있어야 한다`)
+          .toBeCloseTo(0, 0);
+        const h = await page.locator('#site-header').evaluate((el) => el.getBoundingClientRect().height);
+        expect(h, 'header 높이는 스크롤과 무관하게 같아야 한다').toBeCloseTo(before.headerH, 0);
+      }
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, '가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+    });
+  }
+
+  for (const width of [900, 1440]) {
+    test(`${width}px: 스크롤된 상태에서 GROUP dropdown과 전체메뉴(mega)가 header에 붙어 viewport 안에서 열린다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      await makeTall(page);
+      await page.evaluate(() => window.scrollTo(0, 800));
+      await page.waitForTimeout(50);
+      expect(await headerTop(page), '스크롤된 상태에서 header가 상단에 고정되어 있어야 한다').toBeCloseTo(0, 0);
+
+      const group = page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger').first();
+      await group.hover();
+      const submenu = page.locator('#quick-menu > li.has-submenu.is-open .site-nav__submenu');
+      await expect(submenu).toBeVisible();
+      const dd = await page.evaluate(() => {
+        const t = document.querySelector('#quick-menu > li.has-submenu.is-open > .site-nav__trigger').getBoundingClientRect();
+        const s = document.querySelector('#quick-menu > li.has-submenu.is-open .site-nav__submenu').getBoundingClientRect();
+        const top = document.elementFromPoint(s.left + s.width / 2, s.top + s.height / 2);
+        return { gap: s.top - t.bottom, inViewport: s.top >= 0 && s.bottom <= window.innerHeight, onTop: !!(top && top.closest('.site-nav__submenu')) };
+      });
+      expect(dd.gap, '스크롤 상태에서도 trigger 하단과 dropdown 상단 사이에 dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+      expect(dd.inViewport, 'dropdown이 viewport 안에 있어야 한다').toBe(true);
+      expect(dd.onTop, 'dropdown이 본문보다 위에 그려져야 한다').toBe(true);
+
+      await page.mouse.move(5, 700);
+      const mega = page.locator('#megamenu');
+      await page.locator('[data-menu-id="all"] > .site-nav__trigger').hover();
+      await expect(mega).toBeVisible();
+      const mg = await page.evaluate((vw) => {
+        const t = document.querySelector('[data-menu-id="all"] > .site-nav__trigger').getBoundingClientRect();
+        const m = document.querySelector('#megamenu').getBoundingClientRect();
+        const top = document.elementFromPoint(m.left + m.width / 2, m.top + m.height / 2);
+        return {
+          gap: m.top - t.bottom,
+          contained: m.left >= 0 && m.right <= vw && m.top >= 0 && m.bottom <= window.innerHeight,
+          rightAligned: Math.abs(m.right - t.right) <= 1,
+          onTop: !!(top && top.closest('#megamenu')),
+        };
+      }, width);
+      expect(mg.gap, '스크롤 상태의 전체메뉴도 dead-zone이 없어야 한다').toBeLessThanOrEqual(0);
+      expect(mg.contained, 'mega가 viewport 안에 있어야 한다').toBe(true);
+      expect(mg.rightAligned, 'mega 우측이 trigger(= container 우측)에 정렬되어야 한다').toBe(true);
+      expect(mg.onTop, 'mega가 본문보다 위에 그려져야 한다').toBe(true);
+    });
+  }
+
+  test('모바일: 스크롤된 상태에서 nav를 열어도 header가 상단에 있고, 낮은 viewport에서도 열린 GROUP 하단 메뉴까지 접근할 수 있다', async ({ page }) => {
+    await page.setViewportSize({ width: 667, height: 375 });
+    await page.goto('/');
+    await makeTall(page);
+    await page.evaluate(() => window.scrollTo(0, 500));
+    await page.locator('#nav-toggle').click();
+    await page.locator('#quick-menu > li.has-submenu:not([data-menu-id="all"]) > .site-nav__trigger').first().click();
+
+    const m = await page.evaluate(() => {
+      const nav = document.querySelector('#site-nav');
+      const h = document.querySelector('#site-header').getBoundingClientRect();
+      return { headerTop: h.top, headerBottom: h.bottom, vh: window.innerHeight, scrollable: nav.scrollHeight > nav.clientHeight };
+    });
+    expect(m.headerTop, '스크롤 후 nav를 열어도 header 상단이 viewport 상단에 있어야 한다').toBeCloseTo(0, 0);
+    expect(m.headerBottom, '열린 header가 viewport보다 커서 아래쪽 메뉴가 잘리면 안 된다(nav 자체가 스크롤된다)')
+      .toBeLessThanOrEqual(m.vh + 1);
+    expect(m.scrollable, '낮은 viewport에서는 열린 nav 안에서 스크롤할 수 있어야 한다').toBe(true);
+
+    await page.locator('#site-nav').evaluate((nav) => { nav.scrollTop = nav.scrollHeight; });
+    const lastBottom = await page.evaluate(() => {
+      const items = [...document.querySelectorAll('#quick-menu > li')].filter((li) => li.getBoundingClientRect().height > 0);
+      return items[items.length - 1].getBoundingClientRect().bottom;
+    });
+    expect(lastBottom, '마지막 메뉴 항목이 nav 스크롤로 viewport 안에 나타나야 한다').toBeLessThanOrEqual(m.vh + 1);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, '가로 overflow가 없어야 한다').toBeLessThanOrEqual(0);
+  });
+
+  test('keyboard focus 이동으로 스크롤되어도 focus된 요소가 sticky header 뒤에 가려지지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await makeTall(page);
+    const headerBottom = await page.locator('#site-header').evaluate((el) => el.getBoundingClientRect().bottom);
+    const max = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    const count = Math.min(await page.locator('#site-main a').count(), 16);
+    for (let i = 0; i < count; i++) {
+      await page.evaluate((m) => window.scrollTo(0, m), max);
+      await page.waitForTimeout(30);
+      await page.evaluate((idx) => { document.querySelectorAll('#site-main a')[idx].focus(); }, i);
+      // 스크롤 정착 후 focus된 요소의 상단이 header 하단 아래에 있어야 한다(scroll-padding-top 검증).
+      await expect.poll(() => page.evaluate((idx) => document.querySelectorAll('#site-main a')[idx].getBoundingClientRect().top, i),
+        { message: `#site-main a[${i}]가 sticky header(하단 ${headerBottom}px) 뒤에 가려지면 안 된다`, timeout: 3000 })
+        .toBeGreaterThanOrEqual(headerBottom - 1);
+    }
+  });
+});
+
+// P14-T10: Admin Content Read View. 목록 제목 → 읽기 전용 관리자 상세 → 수정/목록 이동, 공개 여부에 따른
+// "공개 페이지 보기" 노출, 375px overflow를 실제 브라우저로 확인한다. 비로그인 redirect/404/model/본문 링크
+// 처리/sidebar active는 AdminBoardViewControllerTest/AdminProgramViewControllerTest에서 검증하므로 반복하지 않는다.
+test.describe('P14-T10: Admin Content Read View', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  let xsrfToken;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+  });
+
+  async function createBoard(context, baseURL, isPublic) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: `P14-T10 ${isPublic ? '공개' : '비공개'} 상세 확인 ${Date.now()}`,
+        content: '<h2>본문 소제목</h2><p>관리자 상세 본문 문단입니다.</p>',
+        isPublic,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data;
+  }
+
+  test('Board: 목록 제목 → 상세(본문 표시) → 수정 → 뒤로 → 목록으로, 공개 게시글은 공개 페이지 보기가 있다', async ({ page, context, baseURL, tracker }) => {
+    const board = await createBoard(context, baseURL, true);
+    tracker.track('board', board.id);
+
+    await page.goto('/admin/boards');
+    await page.locator(`#board-list-body a[href="/admin/boards/${board.id}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`/admin/boards/${board.id}$`));
+    await expect(page.locator('#admin-board-detail-content h2').first()).toHaveText(board.title);
+    await expect(page.locator('.admin-content-detail .ckeditor-content p')).toHaveText('관리자 상세 본문 문단입니다.');
+    await expect(page.locator('#admin-detail-public-link')).toHaveAttribute('href', `/boards/${board.id}`);
+
+    await page.locator('#admin-detail-edit-link').click();
+    await expect(page).toHaveURL(new RegExp(`/admin/boards/${board.id}/edit$`));
+    await page.goBack();
+    await page.locator('#admin-detail-list-link').click();
+    await expect(page).toHaveURL(/\/admin\/boards$/);
+  });
+
+  test('Board: 비공개 게시글도 관리자 상세에서 보이고 공개 페이지 보기는 없다', async ({ page, context, baseURL, tracker }) => {
+    const board = await createBoard(context, baseURL, false);
+    tracker.track('board', board.id);
+
+    await page.goto(`/admin/boards/${board.id}`);
+    await expect(page.locator('#admin-detail-visibility')).toHaveText('비공개');
+    await expect(page.locator('.admin-content-detail .ckeditor-content p')).toHaveText('관리자 상세 본문 문단입니다.');
+    await expect(page.locator('#admin-detail-public-link')).toHaveCount(0);
+  });
+
+  test('Program: 목록 제목 → 상세, CLOSED여도 공개 프로그램은 공개 페이지 보기가 있다', async ({ page, context, baseURL, tracker }) => {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        programType: 'COURSE',
+        title: `P14-T10 프로그램 상세 확인 ${Date.now()}`,
+        content: '<p>프로그램 상세 본문입니다.</p>',
+        recruitStatus: 'CLOSED',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    const program = (await res.json()).data;
+    tracker.track('program', program.id);
+
+    await page.goto('/admin/programs');
+    await page.locator(`#program-list-body a[href="/admin/programs/${program.id}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`/admin/programs/${program.id}$`));
+    // P14-T9C-1: 상세의 모집 상태도 목록과 같은 관리자 표시명(CLOSED → 마감)이다.
+    await expect(page.locator('#admin-detail-recruit-status')).toHaveText('마감');
+    await expect(page.locator('#admin-detail-public-link')).toHaveAttribute('href', `/programs/${program.id}`);
+  });
+
+  test('375px: 긴 제목과 표가 있는 관리자 상세에서 가로 overflow와 pageerror가 없다', async ({ page, context, baseURL, tracker }) => {
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: `P14-T10 모바일 확인 ${'아주긴제목'.repeat(12)} ${Date.now()}`,
+        content: '<table><tr><th>항목</th><th>설명</th><th>비고</th><th>추가 열</th><th>추가 열 2</th></tr>'
+          + '<tr><td>1</td><td>아주 긴 설명 텍스트가 들어가는 셀입니다</td><td>-</td><td>값</td><td>값</td></tr></table>',
+        isPublic: false,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    const board = (await res.json()).data;
+    tracker.track('board', board.id);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/admin/boards/${board.id}`);
+    await page.waitForLoadState('networkidle');
+
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowX).toBeLessThanOrEqual(0);
+    expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+  });
+});
+
+// P14-T9C-1: Admin List Presentation & Feedback. 공통 helper(admin-display.js)는 Node 단위 테스트에서 깊게 검증하므로,
+// 여기서는 대표 화면(Board/Program 목록·상세, Popup)으로 실제 브라우저의 표시명/semantic badge/empty·error row/
+// 삭제·전환 feedback/XSS 안전성을 확인한다. 실패 경로는 page.route로 해당 요청만 mock한다(서버 데이터 무변경).
+test.describe('P14-T9C-1: Admin List Presentation & Feedback', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  // route mock이 일부러 만든 실패 응답에 대해 브라우저가 스스로 남기는 네트워크 로그만 허용한다(JS 오류는 허용하지 않음).
+  const EXPECTED_MOCK_NETWORK_ERROR = /^Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)$/;
+
+  let xsrfToken;
+  let runId;
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+    xsrfToken = await getXsrfToken(context);
+    runId = `T9C1-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  });
+
+  function trackErrors(page) {
+    const consoleErrors = [];
+    const pageErrors = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    return {
+      assertClean({ allowMockNetworkError = false } = {}) {
+        const unexpected = consoleErrors.filter((text) => !(allowMockNetworkError && EXPECTED_MOCK_NETWORK_ERROR.test(text)));
+        expect(unexpected, `console error: ${unexpected.join(' | ')}`).toEqual([]);
+        expect(pageErrors, `pageerror: ${pageErrors.join(' | ')}`).toEqual([]);
+      },
+    };
+  }
+
+  async function createBoard(context, baseURL, data) {
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { content: '<p>T9C-1</p>', ...data },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data;
+  }
+
+  async function createProgram(context, baseURL, data) {
+    const res = await context.request.post(`${baseURL}/api/admin/programs`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { content: '<p>T9C-1</p>', ...data },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data;
+  }
+
+  // 현재 검색 UI 그대로(검색어 입력 → 검색) 이번 테스트가 만든 행만 남긴다. URL state는 쓰지 않는다(T9C-2 범위).
+  async function searchList(page, path, keyword) {
+    await page.goto(path);
+    await page.locator('#searchKeyword').fill(keyword);
+    await Promise.all([
+      page.waitForResponse((response) => new URL(response.url()).searchParams.get('keyword') === keyword),
+      page.locator('#searchForm button[type="submit"]').click(),
+    ]);
+  }
+
+  function rowByTitle(page, tbodySelector, title) {
+    return page.locator(`${tbodySelector} tr`).filter({ has: page.locator('a', { hasText: title }) });
+  }
+
+  test('Board 목록: 표시명(REVIEW 하위유형 포함)/semantic badge, 사용자 제목은 textContent로만 표시된다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const xssTitle = `<img src=x onerror="window.__t9c1Xss=1">${runId}`;
+    const review = await createBoard(context, baseURL, {
+      boardType: 'REVIEW', programType: 'COURSE', title: xssTitle, isPublic: true,
+    });
+    tracker.track('board', review.id);
+    const notice = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `공지 ${runId}`, isPublic: false });
+    tracker.track('board', notice.id);
+
+    await searchList(page, '/admin/boards', runId);
+
+    // P14-T9C-2: 검색 후의 제목 링크는 현재 목록 state(allowlist된 canonical query)를 싣는다.
+    const reviewHref = `/admin/boards/${review.id}?${new URLSearchParams({ keyword: runId })}`;
+    const reviewRow = page.locator('#board-list-body tr').filter({ has: page.locator(`a[href="${reviewHref}"]`) });
+    await expect(reviewRow.locator('a').first()).toHaveText(xssTitle);
+    await expect(reviewRow.locator('img')).toHaveCount(0);
+    await expect(reviewRow.locator('td').nth(1).locator('.badge.admin-badge.admin-badge--neutral')).toHaveText('강의 후기(정규 강좌)');
+    await expect(reviewRow.locator('td').nth(2).locator('.admin-badge--positive')).toHaveText('공개');
+
+    const noticeRow = rowByTitle(page, '#board-list-body', `공지 ${runId}`);
+    await expect(noticeRow.locator('td').nth(1).locator('.admin-badge--neutral')).toHaveText('공지사항');
+    await expect(noticeRow.locator('td').nth(2).locator('.admin-badge--muted')).toHaveText('비공개');
+
+    await expect(page.locator('#board-list-body')).not.toContainText(/REVIEW|NOTICE|COURSE|수강 후기/);
+    await expect(page.locator('[class*="text-bg-"]')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__t9c1Xss)).toBeUndefined();
+    errors.assertClean();
+  });
+
+  test('Program 목록: 유형(neutral)/모집 상태(모집중 positive·마감 muted)/공개 여부 badge', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const course = await createProgram(context, baseURL, {
+      programType: 'COURSE', title: `정규 ${runId}`, recruitStatus: 'OPEN', isPublic: true,
+    });
+    tracker.track('program', course.id);
+    const special = await createProgram(context, baseURL, {
+      programType: 'SPECIAL', title: `특강 ${runId}`, recruitStatus: 'CLOSED', isPublic: false,
+    });
+    tracker.track('program', special.id);
+
+    await searchList(page, '/admin/programs', runId);
+
+    const courseCells = rowByTitle(page, '#program-list-body', `정규 ${runId}`).locator('td');
+    await expect(courseCells.nth(1).locator('.admin-badge--neutral')).toHaveText('정규 강좌');
+    await expect(courseCells.nth(2).locator('.admin-badge--positive')).toHaveText('모집중');
+    await expect(courseCells.nth(3).locator('.admin-badge--positive')).toHaveText('공개');
+
+    const specialCells = rowByTitle(page, '#program-list-body', `특강 ${runId}`).locator('td');
+    await expect(specialCells.nth(1).locator('.admin-badge--neutral')).toHaveText('특강');
+    await expect(specialCells.nth(2).locator('.admin-badge--muted')).toHaveText('마감');
+    await expect(specialCells.nth(3).locator('.admin-badge--muted')).toHaveText('비공개');
+
+    await expect(page.locator('#program-list-body')).not.toContainText(/COURSE|SPECIAL|OPEN|CLOSED/);
+    errors.assertClean();
+  });
+
+  test('상세: Board REVIEW+SPECIAL은 "강의 후기(특강)", Program COURSE/CLOSED는 "정규 강좌"/"마감" badge로 표시된다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, {
+      boardType: 'REVIEW', programType: 'SPECIAL', title: `상세 후기 ${runId}`, isPublic: true,
+    });
+    tracker.track('board', board.id);
+    const program = await createProgram(context, baseURL, {
+      programType: 'COURSE', title: `상세 프로그램 ${runId}`, recruitStatus: 'CLOSED', isPublic: false,
+    });
+    tracker.track('program', program.id);
+
+    await page.goto(`/admin/boards/${board.id}`);
+    await expect(page.locator('#admin-detail-board-type .admin-badge--neutral')).toHaveText('강의 후기(특강)');
+    await expect(page.locator('#admin-detail-board-type')).toHaveText('강의 후기(특강)');
+    await expect(page.locator('#admin-detail-visibility .admin-badge--positive')).toHaveText('공개');
+
+    await page.goto(`/admin/programs/${program.id}`);
+    await expect(page.locator('#admin-detail-program-type .admin-badge--neutral')).toHaveText('정규 강좌');
+    await expect(page.locator('#admin-detail-recruit-status .admin-badge--muted')).toHaveText('마감');
+    await expect(page.locator('#admin-detail-visibility .admin-badge--muted')).toHaveText('비공개');
+    errors.assertClean();
+  });
+
+  test('Empty: 조건 검색 결과 0건과 목록 0건은 서로 다른 문구의 단일 empty row로 표시된다', async ({ page }) => {
+    const errors = trackErrors(page);
+    await searchList(page, '/admin/boards', `없는검색어-${runId}`);
+    const emptyCell = page.locator('#board-list-body td.admin-list-empty');
+    await expect(emptyCell).toHaveText('조건에 맞는 게시글이 없습니다.');
+    await expect(emptyCell).toHaveAttribute('colspan', '4');
+    await expect(page.locator('#board-list-body tr')).toHaveCount(1);
+
+    // 실제 팝업 데이터를 지우지 않고, 목록 조회 응답만 빈 배열로 대체한다.
+    await page.route('**/api/admin/popups', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [], error: null }),
+    }));
+    await page.goto('/admin/popups');
+    await expect(page.locator('#popup-list-body td.admin-list-empty')).toHaveText('등록된 팝업이 없습니다.');
+    await expect(page.locator('#popup-list-body tr')).toHaveCount(1);
+    errors.assertClean();
+  });
+
+  test('Fetch 실패: 이전 행을 지우고 오류 행만 남기며 pageerror가 없다(Board 500 / Popup HTML 200)', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `실패 확인 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+    await expect(rowByTitle(page, '#board-list-body', `실패 확인 ${runId}`)).toHaveCount(1);
+
+    await page.route((url) => url.pathname === '/api/admin/boards', (route) => route.fulfill({
+      status: 500, contentType: 'application/json',
+      body: JSON.stringify({ success: false, data: null, error: { code: 'INTERNAL_SERVER_ERROR', message: '서버 오류' } }),
+    }));
+    await page.locator('#searchBoardType').selectOption('NOTICE');
+    const errorCell = page.locator('#board-list-body td.admin-list-empty--error');
+    await expect(errorCell).toHaveText('게시글 목록을 불러오지 못했습니다.');
+    await expect(page.locator('#board-list-body tr')).toHaveCount(1);
+    await expect(page.locator('#next-page')).toBeDisabled();
+
+    // 세션 만료 등으로 JSON이 아닌 HTML이 200으로 오는 경우.
+    await page.route('**/api/admin/popups', (route) => route.fulfill({
+      status: 200, contentType: 'text/html', body: '<!DOCTYPE html><html><body>login</body></html>',
+    }));
+    await page.goto('/admin/popups');
+    await expect(page.locator('#popup-list-body td.admin-list-empty--error')).toHaveText('팝업 목록을 불러오지 못했습니다.');
+    await expect(page.locator('#popup-list-body tr')).toHaveCount(1);
+    errors.assertClean({ allowMockNetworkError: true });
+  });
+
+  test('삭제 성공: role=status 성공 메시지가 목록 재조회 후에도 남고 행이 사라진다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `삭제 성공 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowByTitle(page, '#board-list-body', `삭제 성공 ${runId}`).locator('button', { hasText: '삭제' }).click();
+
+    const status = page.locator('#admin-list-status');
+    await expect(status).toHaveAttribute('role', 'status');
+    await expect(status).toHaveText('삭제되었습니다.');
+    await expect(page.locator('#board-list-body td.admin-list-empty')).toHaveText('조건에 맞는 게시글이 없습니다.');
+    await expect(status).toBeVisible();
+    await expect(status).toHaveText('삭제되었습니다.');
+    errors.assertClean();
+  });
+
+  test('삭제 성공 후 목록 재조회 실패: 성공 메시지는 유지되고 표에는 오류 행이 표시된다(서로 덮어쓰지 않음)', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `재조회 실패 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    // DELETE(/api/admin/boards/{id})는 실제 서버로 보내고, 그 뒤의 목록 GET만 500으로 바꾼다.
+    await page.route((url) => url.pathname === '/api/admin/boards', (route) => route.fulfill({
+      status: 500, contentType: 'application/json', body: '{}',
+    }));
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowByTitle(page, '#board-list-body', `재조회 실패 ${runId}`).locator('button', { hasText: '삭제' }).click();
+
+    await expect(page.locator('#board-list-body td.admin-list-empty--error')).toHaveText('게시글 목록을 불러오지 못했습니다.');
+    await expect(page.locator('#admin-list-status')).toHaveAttribute('role', 'status');
+    await expect(page.locator('#admin-list-status')).toHaveText('삭제되었습니다.');
+    errors.assertClean({ allowMockNetworkError: true });
+  });
+
+  test('삭제 실패: role=alert 오류 메시지(비 JSON 응답은 일반 문구)가 보이고 행은 유지된다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `삭제 실패 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    await page.route((url) => url.pathname === `/api/admin/boards/${board.id}`, (route) => (
+      route.request().method() === 'DELETE'
+        ? route.fulfill({ status: 500, contentType: 'text/html', body: '<html>error</html>' })
+        : route.continue()
+    ));
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowByTitle(page, '#board-list-body', `삭제 실패 ${runId}`).locator('button', { hasText: '삭제' }).click();
+
+    const status = page.locator('#admin-list-status');
+    await expect(status).toHaveAttribute('role', 'alert');
+    await expect(status).toHaveText('삭제 중 오류가 발생했습니다.');
+    await expect(rowByTitle(page, '#board-list-body', `삭제 실패 ${runId}`)).toHaveCount(1);
+    errors.assertClean({ allowMockNetworkError: true });
+  });
+
+  test('PATCH 전환 실패: 서버 사용자 메시지(없으면 일반 문구)를 role=alert로 표시하고 기존 상태 badge를 유지한다', async ({ page, context, baseURL, tracker }) => {
+    const errors = trackErrors(page);
+    const board = await createBoard(context, baseURL, { boardType: 'NOTICE', title: `전환 실패 ${runId}`, isPublic: true });
+    tracker.track('board', board.id);
+    await searchList(page, '/admin/boards', runId);
+
+    await page.route((url) => url.pathname === `/api/admin/boards/${board.id}/visibility`, (route) => route.fulfill({
+      status: 500, contentType: 'text/html', body: '<html>error</html>',
+    }));
+    const boardRow = rowByTitle(page, '#board-list-body', `전환 실패 ${runId}`);
+    await boardRow.locator('button', { hasText: '비공개로 전환' }).click();
+    await expect(page.locator('#admin-list-status')).toHaveAttribute('role', 'alert');
+    await expect(page.locator('#admin-list-status')).toHaveText('상태 변경 중 오류가 발생했습니다.');
+    await expect(boardRow.locator('td').nth(2).locator('.admin-badge--positive')).toHaveText('공개');
+
+    const program = await createProgram(context, baseURL, {
+      programType: 'SPECIAL', title: `모집 전환 실패 ${runId}`, recruitStatus: 'OPEN', isPublic: true,
+    });
+    tracker.track('program', program.id);
+    await searchList(page, '/admin/programs', runId);
+    await page.route((url) => url.pathname === `/api/admin/programs/${program.id}/status`, (route) => route.fulfill({
+      status: 500, contentType: 'application/json',
+      body: JSON.stringify({ success: false, data: null, error: { code: 'TEST', message: '모집 상태를 바꿀 수 없습니다.' } }),
+    }));
+    const programRow = rowByTitle(page, '#program-list-body', `모집 전환 실패 ${runId}`);
+    await programRow.locator('button', { hasText: '마감으로 전환' }).click();
+    await expect(page.locator('#admin-list-status')).toHaveAttribute('role', 'alert');
+    await expect(page.locator('#admin-list-status')).toHaveText('모집 상태를 바꿀 수 없습니다.');
+    await expect(programRow.locator('td').nth(2).locator('.admin-badge--positive')).toHaveText('모집중');
+    errors.assertClean({ allowMockNetworkError: true });
+  });
+});
+
+// P14-T5: Detail / Static Page Reading Experience. 상세 전체가 --reading-max(800px) 읽기 칼럼으로 묶이고,
+// CKEditor resize(%)는 줄어든 본문 폭 기준으로 그대로 유지되며, 공백 없는 긴 URL/표가 어떤 폭에서도 가로
+// overflow를 만들지 않는지 확인한다. 표시명(raw enum 미노출)은 Java view test가 검증하므로 여기서 반복하지 않는다.
+test.describe('P14-T5: 상세 읽기 칼럼', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  const LONG_URL = 'https://blog.naver.com/monicalab/222440692380/very/long/unbroken/path/segment/0123456789';
+
+  async function createReadingBoard(context, baseURL) {
+    const xsrfToken = await getXsrfToken(context);
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: `P14-T5 읽기 칼럼 확인 ${Date.now()}`,
+        content: '<p>' + '모니카영어교육연구소 상세 본문 읽기 폭 확인 문단입니다. '.repeat(8) + '</p>'
+          + `<p><a href="${LONG_URL}">${LONG_URL}</a></p>`
+          + '<figure class="image image_resized" style="width:50%;"><img src="/api/files/900501"></figure>'
+          + '<h2>본문 소제목</h2>'
+          + '<table><tr><th>항목</th><th>설명</th><th>비고</th></tr>'
+          + '<tr><td>1</td><td>unbreakable_long_token_value_without_spaces_0123456789_abcdef</td><td>-</td></tr></table>',
+        isPublic: true,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).data.id;
+  }
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+  });
+
+  test('1440px에서 상세가 800px 읽기 칼럼이 되고 50% resize figure는 본문 폭의 절반을 유지한다', async ({ page, context, baseURL, tracker }) => {
+    const boardId = tracker.track('board', await createReadingBoard(context, baseURL));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/boards/${boardId}`);
+
+    const containerBox = await page.locator('#board-detail-content').boundingBox();
+    const contentBox = await page.locator('#board-detail-content .ckeditor-content').boundingBox();
+    const figureBox = await page.locator('#board-detail-content .ckeditor-content figure.image_resized').boundingBox();
+
+    expect(containerBox.width, '상세 컨테이너는 --reading-max(800px)를 넘지 않는다').toBeLessThanOrEqual(800);
+    expect(contentBox.width, '본문 폭은 800px - gutter 2rem(768px) 이하').toBeLessThanOrEqual(769);
+    // 가운데 정렬: 좌우 여백이 같다.
+    expect(Math.abs(containerBox.x - (1440 - containerBox.x - containerBox.width))).toBeLessThanOrEqual(2);
+    expect(Math.abs(figureBox.width - contentBox.width * 0.5), '50% resize는 본문 폭 기준 절반').toBeLessThanOrEqual(2);
+    await expect(page.locator('h1')).toHaveCount(1);
+  });
+
+  test('375/768/1440px에서 긴 URL과 긴 토큰 표가 가로 overflow를 만들지 않는다', async ({ page, context, baseURL, tracker }) => {
+    const boardId = tracker.track('board', await createReadingBoard(context, baseURL));
+
+    for (const width of [375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/boards/${boardId}`);
+
+      const overflow = await page.evaluate(() => {
+        const root = document.querySelector('#board-detail-content');
+        return {
+          doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          root: root.scrollWidth - root.clientWidth,
+        };
+      });
+      expect(overflow.doc, `${width}px 문서 가로 overflow`).toBeLessThanOrEqual(0);
+      expect(overflow.root, `${width}px 상세 컨테이너 가로 overflow`).toBeLessThanOrEqual(0);
+
+      const contentBox = await page.locator('#board-detail-content .ckeditor-content').boundingBox();
+      const tableBox = await page.locator('#board-detail-content .ckeditor-content table').boundingBox();
+      expect(tableBox.width, `${width}px 표는 본문 폭 안에 들어온다`).toBeLessThanOrEqual(contentBox.width + 1);
+    }
+  });
+});
+
+// P14-T6A: 공개 접근성 보완. skip link(첫 focus, 평소 화면 밖, Enter 후 다음 Tab이 #site-main 안), 목록 h1,
+// pagination 숫자 target 24x24 이상(WCAG 2.2 2.5.8). aria-current/aria-label 계약은 Java view test가 검증한다.
+test.describe('P14-T6A: 공개 접근성 보완', () => {
+  for (const width of [1440, 375]) {
+    test.describe(`${width}px`, () => {
+      test.use({ viewport: { width, height: 900 } });
+
+      test('skip link는 평소 화면 밖에 있고, 첫 Tab에 보이며 Enter 후 다음 Tab이 본문(#site-main)으로 간다', async ({ page }) => {
+        await page.goto('/boards?boardType=NOTICE');
+        const skip = page.locator('a.skip-link');
+        await expect(skip).toHaveAttribute('href', '#site-main');
+        const hiddenBox = await skip.boundingBox();
+        expect(hiddenBox.y + hiddenBox.height, '평소에는 viewport 위쪽 밖').toBeLessThanOrEqual(0);
+
+        await page.keyboard.press('Tab');
+        await expect(skip).toBeFocused();
+        const box = await skip.boundingBox();
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        // sticky header보다 위에 그려져 실제로 보이는지(가운데 지점의 최상위 요소가 skip link).
+        const onTop = await page.evaluate(() => {
+          const r = document.querySelector('a.skip-link').getBoundingClientRect();
+          return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('a.skip-link') !== null;
+        });
+        expect(onTop, 'focus된 skip link가 header에 가려지지 않는다').toBeTruthy();
+
+        await page.keyboard.press('Enter');
+        await expect(page).toHaveURL(/#site-main$/);
+        await page.keyboard.press('Tab');
+        const inMain = await page.evaluate(() => !!document.activeElement.closest('#site-main'));
+        expect(inMain, 'skip 후 다음 Tab은 본문 안의 focus 대상').toBeTruthy();
+      });
+
+      test('공개 목록(/programs, /boards)은 h1이 정확히 하나다', async ({ page }) => {
+        for (const path of ['/programs', '/boards']) {
+          await page.goto(path);
+          await expect(page.locator('h1'), `${path} h1`).toHaveCount(1);
+        }
+      });
+    });
+  }
+});
+
+test.describe('P14-T6A: pagination 숫자 target 크기', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test('현재 페이지 숫자(한 자리)가 1440/375px에서 24x24 이상이다', async ({ page, context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    const xsrfToken = await getXsrfToken(context);
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: { boardType: 'GALLERY', title: `P14-T6A pagination 확인 ${Date.now()}`, content: '<p>내용</p>', isPublic: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    tracker.track('board', (await res.json()).data.id);
+
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/boards?boardType=GALLERY');
+      const current = page.locator('#pagination .pagination-bar__number[aria-current="page"]');
+      await expect(current).toHaveText('1');
+      const box = await current.boundingBox();
+      expect(box.width, `${width}px 현재 페이지 숫자 폭`).toBeGreaterThanOrEqual(24);
+      expect(box.height, `${width}px 현재 페이지 숫자 높이`).toBeGreaterThanOrEqual(24);
+    }
+  });
+});
+
+// P14-T7: Public Final QA에서 확인한 실제 결함 2건의 회귀 방지. (1) Popup 닫기 "×"가 어두운 header 위에서
+// 대비 2.76:1이던 문제 - axe는 기호 한 글자를 대비 검사에서 제외하므로 computed color로 직접 계산한다.
+// (2) Program/Board 목록 검색 버튼만 Bootstrap 기본 파랑으로 남아 있던 문제.
+function p14t7RelativeLuminance(rgb) {
+  const [r, g, b] = rgb.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number).map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function p14t7Contrast(fg, bg) {
+  const [l1, l2] = [p14t7RelativeLuminance(fg), p14t7RelativeLuminance(bg)].sort((a, b) => b - a);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+
+test.describe('P14-T7: Popup 닫기 버튼 대비', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  function toLocalIsoString(date) {
+    return date.getFullYear() + '-' + popupPad2(date.getMonth() + 1) + '-' + popupPad2(date.getDate())
+      + 'T' + popupPad2(date.getHours()) + ':' + popupPad2(date.getMinutes()) + ':' + popupPad2(date.getSeconds());
+  }
+
+  test('1440/375px에서 닫기 "×"가 header 배경 대비 4.5:1 이상이고 focus 표시와 닫기가 정상이다', async ({ page, context, baseURL, tracker }) => {
+    await loginAsAdmin(context, baseURL);
+    const xsrfToken = await getXsrfToken(context);
+    const title = `P14-T7 Popup 대비 ${Date.now()}`;
+    const now = Date.now();
+    const res = await context.request.post(`${baseURL}/api/admin/popups`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        title, content: '<p>P14-T7 대비 확인</p>', isVisible: true,
+        startDate: toLocalIsoString(new Date(now - 60 * 60 * 1000)), endDate: toLocalIsoString(new Date(now + 60 * 60 * 1000)),
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    tracker.track('popup', (await res.json()).data.id);
+
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto('/');
+      const modal = page.locator('.popup-modal').filter({ has: page.locator(`text=${title}`) });
+      await expect(modal).toBeVisible();
+      const close = modal.locator('.popup-modal__close');
+
+      const colors = await close.evaluate((el) => ({
+        fg: getComputedStyle(el).color,
+        bg: getComputedStyle(el.closest('.popup-modal__header')).backgroundColor,
+      }));
+      expect(p14t7Contrast(colors.fg, colors.bg), `${width}px 닫기 × 대비 (${colors.fg} on ${colors.bg})`).toBeGreaterThanOrEqual(4.5);
+
+      const modalBox = await modal.boundingBox();
+      expect(modalBox.x).toBeGreaterThanOrEqual(0);
+      expect(modalBox.x + modalBox.width).toBeLessThanOrEqual(width);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px 문서 가로 overflow`).toBeLessThanOrEqual(0);
+
+      await close.focus();
+      await expect(close).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(modal).toBeHidden();
+    }
+  });
+});
+
+test.describe('P14-T7: 목록 검색 버튼 public primary', () => {
+  for (const width of [1440, 375]) {
+    test(`${width}px: /programs, /boards 검색 버튼이 Bootstrap 기본 파랑이 아니라 public primary token을 쓴다`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of ['/programs', '/boards']) {
+        await page.goto(path);
+        const button = page.locator('form button[type="submit"].btn-primary').first();
+        await expect(button).toHaveText('검색');
+        const expected = await page.evaluate(() => {
+          const probe = document.createElement('span');
+          probe.style.backgroundColor = 'var(--color-primary)';
+          document.body.appendChild(probe);
+          const color = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return color;
+        });
+        await expect(button, `${path} 검색 버튼 배경`).toHaveCSS('background-color', expected);
+        expect(expected).not.toBe('rgb(13, 110, 253)');
+        const colors = await button.evaluate((el) => ({ fg: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor }));
+        expect(p14t7Contrast(colors.fg, colors.bg)).toBeGreaterThanOrEqual(4.5);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+      }
+    });
+  }
+});
+
+// P15-T4: CKEditor 툴바(mediaEmbed 제거) ↔ HtmlSanitizer 보존 ↔ 공개/관리자/팝업 렌더링 계약을 대표 1건으로
+// 검증한다. Program/Page/Popup 폼은 같은 ckeditor-config.js와 HtmlSanitizer를 공유하므로 편집 round-trip은
+// Board에서만 확인하고(P13-T23/T29와 같은 관례), 팝업은 blockquote CSS 적용만 API 저장으로 확인한다.
+test.describe('P15-T4: CKEditor 목록/인용/기울임/표 머리글/셀 병합 저장 보존', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await loginAsAdmin(context, baseURL);
+  });
+
+  function toLocalIsoString(date) {
+    return date.getFullYear() + '-' + popupPad2(date.getMonth() + 1) + '-' + popupPad2(date.getDate())
+      + 'T' + popupPad2(date.getHours()) + ':' + popupPad2(date.getMinutes()) + ':' + popupPad2(date.getSeconds());
+  }
+
+  async function expectNoDocumentOverflow(page, label) {
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `${label} 문서 가로 overflow`).toBeLessThanOrEqual(0);
+  }
+
+  test('Board 편집기에 mediaEmbed가 없고, Autoformat/표 머리글/셀 병합 결과가 저장·재조회·공개/관리자 상세까지 보존된다', async ({ page, context, baseURL, tracker }) => {
+    const pageErrors = [];
+    const ckeditorWarnings = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    page.on('console', (message) => {
+      // CKEditor 경고/오류는 "Read more: https://ckeditor.com/docs/..." 링크를 포함한다(toolbarview-item-unavailable 등).
+      if ((message.type() === 'warning' || message.type() === 'error') && /ckeditor/i.test(message.text())) {
+        ckeditorWarnings.push(message.text());
+      }
+    });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/admin/boards/new');
+    await page.locator('#boardType').selectOption('NOTICE');
+    const title = 'P15-T4 서식 보존 확인 ' + Date.now();
+    await page.locator('#title').fill(title);
+    await page.waitForSelector('.ck-editor__editable', { timeout: 10000 });
+
+    // 툴바: 미디어 삽입 버튼 없음, 지원 버튼 존재. 순서/구분선 정확성은 ckeditor-config.test.js가 고정한다.
+    const toolbar = page.locator('.ck-editor__top');
+    await expect(toolbar.locator('[data-cke-tooltip-text="Insert media"]')).toHaveCount(0);
+    for (const label of ['Heading', 'Bold (Ctrl+B)', 'Italic (Ctrl+I)', 'Link (Ctrl+K)', 'Upload image from computer',
+      'Insert table', 'Block quote', 'Bulleted List', 'Numbered List', 'Decrease indent', 'Increase indent']) {
+      await expect(toolbar.locator(`[data-cke-tooltip-text="${label}"]`), label).toHaveCount(1);
+    }
+    const editorState = await page.evaluate(() => ({
+      mediaEmbedPlugin: contentEditor.plugins.has('MediaEmbed'),
+      mediaEmbedCommand: !!contentEditor.commands.get('mediaEmbed'),
+      mergeTableCellsCommand: !!contentEditor.commands.get('mergeTableCells'),
+      tableContentToolbar: contentEditor.config.get('table.contentToolbar'),
+    }));
+    expect(editorState).toEqual({
+      mediaEmbedPlugin: false,
+      mediaEmbedCommand: false,
+      mergeTableCellsCommand: true,
+      tableContentToolbar: ['tableColumn', 'tableRow', 'mergeTableCells'],
+    });
+
+    // 실제 키보드 입력으로 Autoformat을 사용한다(빈 항목에서 Enter는 목록/인용을 빠져나온다).
+    await page.locator('.ck-editor__editable').click();
+    await page.keyboard.type('* bullet item');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('nested item');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('1. numbered item');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('> quoted text');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('_italic_ tail');
+    await page.keyboard.press('Enter');
+
+    // 기존 업로드 어댑터(POST /api/admin/files)와 P13-T40 resize 버튼이 새 config에서도 그대로 동작하는지 회귀 확인.
+    const uploadedFileId = observeCreate(page, tracker, 'file', { timeout: 15000 });
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await toolbar.locator('[data-cke-tooltip-text="Upload image from computer"]').click();
+    await (await fileChooserPromise).setFiles({ name: 'p15-t4.png', mimeType: 'image/png', buffer: PNG_1PX_BUFFER });
+    await uploadedFileId;
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.ck-editor__editable figure.image img');
+      return !!(img && (img.getAttribute('src') || '').indexOf('/api/files/') === 0);
+    }, { timeout: 15000 });
+    await page.locator('.ck-editor__editable figure.image img').click();
+    await page.locator('#content-resize-controls [data-resize-value="50"]').click();
+    await page.waitForSelector('.ck-editor__editable figure.image.image_resized', { timeout: 10000 });
+
+    // 표 삽입 → 머리글 행 → 두 번째 행 앞 두 칸 병합(mergeTableCells, 표 content toolbar의 "Merge cells"와 같은 command).
+    await page.evaluate(() => {
+      const editor = contentEditor;
+      const root = editor.model.document.getRoot();
+      // root 'end'로 selection을 두면 CKEditor가 마지막 object(방금 resize한 이미지 widget)를 선택 상태로 보정하고,
+      // insertTable이 그 선택된 widget을 표로 교체한다. 빈 문단을 끝에 추가해 그 안에 표를 넣는다.
+      editor.model.change((writer) => {
+        const paragraph = writer.createElement('paragraph');
+        writer.insert(paragraph, root, 'end');
+        writer.setSelection(paragraph, 'in');
+      });
+      editor.execute('insertTable', { rows: 3, columns: 3 });
+      editor.execute('setTableRowHeader');
+      const table = Array.from(root.getChildren()).find((node) => node.is('element', 'table'));
+      const cell = (row, column) => table.getChild(row).getChild(column);
+      editor.model.change(() => editor.plugins.get('TableSelection').setCellSelection(cell(1, 0), cell(1, 1)));
+      editor.execute('mergeTableCells');
+    });
+
+    const editorData = await page.evaluate(() => contentEditor.getData());
+    expect(editorData).toContain('<ul><li>bullet item<ul><li>nested item</li></ul></li></ul>');
+    expect(editorData).toContain('<ol><li>numbered item</li></ol>');
+    expect(editorData).toContain('<blockquote><p>quoted text</p></blockquote>');
+    expect(editorData).toContain('<i>italic</i>');
+    expect(editorData).toContain('<thead>');
+    expect(editorData).toContain('colspan="2"');
+    // 편집기 원본 출력의 <img>에는 aspect-ratio style/width/height가 붙는다(저장 시 sanitizer가 제거 - 아래 saved 검증).
+    expect(editorData).toMatch(/<figure class="image image_resized" style="width:50%;"><img [^>]*src="\/api\/files\/\d+"/);
+
+    await page.locator('#isPublic').check();
+    const createdBoard = await observeNavigatingCreate(page, tracker, 'board', { timeout: 10000 });
+    await Promise.all([
+      page.waitForURL(/\/admin\/boards$/, { timeout: 10000 }),
+      page.locator('button[type="submit"]').click(),
+    ]);
+    const boardId = await createdBoard.id;
+
+    // API 재조회: sanitizer를 거쳐 DB에 저장된 content.
+    const apiRes = await context.request.get(`${baseURL}/api/admin/boards/${boardId}`);
+    expect(apiRes.ok()).toBeTruthy();
+    const saved = (await apiRes.json()).data.content;
+    expect(saved).toContain('<ul><li>bullet item<ul><li>nested item</li></ul></li></ul>');
+    expect(saved).toContain('<ol><li>numbered item</li></ol>');
+    expect(saved).toContain('<blockquote><p>quoted text</p></blockquote>');
+    expect(saved).toContain('<i>italic</i>');
+    expect(saved).toMatch(/<thead><tr><th>/);
+    expect(saved).toContain('<td colspan="2">');
+    expect(saved).toMatch(/<figure class="image image_resized" style="width:50%;"><img src="\/api\/files\/\d+"/);
+
+    // 수정 화면 재진입 시 CKEditor 안에서 병합/머리글/목록/인용이 그대로 복원된다.
+    await page.goto(`/admin/boards/${boardId}/edit`);
+    await page.waitForSelector('.ck-editor__editable td[colspan="2"]', { timeout: 10000 });
+    await expect(page.locator('.ck-editor__editable thead th')).toHaveCount(3);
+    await expect(page.locator('.ck-editor__editable blockquote')).toHaveCount(1);
+
+    // 공개 상세.
+    await page.goto(`/boards/${boardId}`);
+    const publicContent = page.locator('#board-detail-content .ckeditor-content');
+    await expect(publicContent.locator('ul > li > ul > li')).toHaveText('nested item');
+    await expect(publicContent.locator(':scope > ul > li')).toContainText('bullet item');
+    await expect(publicContent.locator(':scope > ol > li')).toHaveText('numbered item');
+    await expect(publicContent.locator('i')).toHaveText('italic');
+    await expect(publicContent.locator('thead th')).toHaveCount(3);
+    await expect(publicContent.locator('td[colspan="2"]')).toHaveCount(1);
+    const publicQuote = publicContent.locator('blockquote');
+    await expect(publicQuote).toHaveCSS('border-left-style', 'solid');
+    await expect(publicQuote).toHaveCSS('border-left-width', '3px');
+    await expect(publicContent.locator(':scope > ul')).toHaveCSS('list-style-type', 'disc');
+    await expect(publicContent.locator('li > ul')).toHaveCSS('list-style-type', 'circle');
+    for (const width of [375, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectNoDocumentOverflow(page, `공개 상세 ${width}px`);
+    }
+
+    // 관리자 읽기 전용 상세.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/admin/boards/${boardId}`);
+    const adminQuote = page.locator('.admin-content-detail .ckeditor-content blockquote');
+    await expect(adminQuote).toHaveText('quoted text');
+    await expect(adminQuote).toHaveCSS('border-left-width', '3px');
+
+    expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    expect(ckeditorWarnings, `CKEditor console warning/error: ${ckeditorWarnings.join(' | ')}`).toEqual([]);
+  });
+
+  // 실행 중인 app(재빌드된 image)의 HtmlSanitizer가 적용되는지 저장 API로 직접 확인한다: 범위 밖 span은
+  // attribute만 제거되고 셀/내용은 유지, script/oembed/iframe/이벤트 핸들러는 공개 화면에서도 되살아나지 않는다.
+  test('저장 API가 invalid span은 attribute만 제거하고 script/oembed/iframe은 공개 화면에서도 되살아나지 않는다', async ({ page, context, baseURL, tracker }) => {
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const xsrfToken = await getXsrfToken(context);
+    const res = await context.request.post(`${baseURL}/api/admin/boards`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        boardType: 'NOTICE',
+        title: 'P15-T4 sanitizer 확인 ' + Date.now(),
+        isPublic: true,
+        content: '<table><tbody><tr><td colspan="51">wide</td><td rowspan="0">zero</td><th colspan=" 2">space</th></tr>'
+          + '<tr><td colspan="50" rowspan="2">max</td></tr></tbody></table>'
+          + '<ul><li onclick="alert(1)"><script>window.__p15t4 = 1</script>safe</li></ul>'
+          + '<figure class="media"><oembed url="https://www.youtube.com/watch?v=abc"></oembed></figure>'
+          + '<blockquote cite="javascript:alert(1)"><iframe src="https://www.google.com/maps/embed?pb=x"></iframe><p>q</p></blockquote>',
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    const boardId = tracker.track('board', (await res.json()).data.id);
+
+    const saved = (await (await context.request.get(`${baseURL}/api/admin/boards/${boardId}`)).json()).data.content;
+    expect(saved).toBe('<table><tbody><tr><td>wide</td><td>zero</td><th>space</th></tr>'
+      + '<tr><td colspan="50" rowspan="2">max</td></tr></tbody></table>'
+      + '<ul><li>safe</li></ul><figure></figure><blockquote><p>q</p></blockquote>');
+
+    await page.goto(`/boards/${boardId}`);
+    const content = page.locator('#board-detail-content .ckeditor-content');
+    await expect(content.locator('td', { hasText: 'wide' })).not.toHaveAttribute('colspan');
+    await expect(content.locator('td[colspan="50"][rowspan="2"]')).toHaveText('max');
+    await expect(content.locator('script, oembed, iframe, [onclick]')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__p15t4)).toBeUndefined();
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('공개 팝업 본문의 인용/목록이 최소 스타일로 표시되고 375px에서 overflow가 없다', async ({ page, context, baseURL, tracker }) => {
+    const xsrfToken = await getXsrfToken(context);
+    const title = `P15-T4 Popup 인용 ${Date.now()}`;
+    const now = Date.now();
+    const res = await context.request.post(`${baseURL}/api/admin/popups`, {
+      headers: { 'X-XSRF-TOKEN': xsrfToken },
+      data: {
+        title,
+        content: '<blockquote><p>팝업 인용 문장</p></blockquote><ul><li>항목<ol><li>하위 항목</li></ol></li></ul>',
+        isVisible: true,
+        startDate: toLocalIsoString(new Date(now - 60 * 60 * 1000)),
+        endDate: toLocalIsoString(new Date(now + 60 * 60 * 1000)),
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    tracker.track('popup', (await res.json()).data.id);
+
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto('/');
+      const modal = page.locator('.popup-modal').filter({ has: page.locator(`text=${title}`) });
+      await expect(modal).toBeVisible();
+      const quote = modal.locator('.popup-modal__body blockquote');
+      await expect(quote).toHaveText('팝업 인용 문장');
+      await expect(quote).toHaveCSS('border-left-width', '3px');
+      await expect(modal.locator('.popup-modal__body li ol > li')).toHaveText('하위 항목');
+      await expectNoDocumentOverflow(page, `팝업 ${width}px`);
+    }
+  });
+});

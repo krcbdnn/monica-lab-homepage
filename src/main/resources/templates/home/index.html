@@ -1,64 +1,257 @@
 <!DOCTYPE html>
-<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<html th:replace="~{home/layout/default :: layout(~{::#index-content}, null)}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>모니카 연구소</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/home.css}" rel="stylesheet">
+    <title>모니카영어교육연구소</title>
 </head>
 <body>
-<div class="container" style="margin-top: 40px;">
+<!-- P14-T3A: 5개 콘텐츠 section(주요 소식/최신 프로그램/강의 후기/공지사항/갤러리)의 배경이 viewport
+     좌우 끝까지 이어지는 full-width surface를 갖도록, #index-content 자체는 더 이상 .container가
+     아니라 순수 wrapper로 두고 각 section 내부에 새 <div class="container">를 배치한다(전역 .container
+     규칙 값은 무변경, 재사용만 함). #index-content id는 th:replace의 fragment selector(~{::#index-content})
+     라 class 변경과 무관하게 그대로 안전하다. Hero(#banners)/Popup(#popups)은 이번 full-width surface
+     대상에서 제외한다 - Hero는 기존 캐러셀/컨트롤 위치 계약을 그대로 지키기 위해 내부에만 동일한
+     .container를 둬 시각적으로 완전히 동일하게 유지하고(배경 없음), Popup은 position:fixed 오버레이라
+     container 폭과 애초에 무관하다. -->
+<div id="index-content">
 
-    <nav id="quick-menu" class="mb-4">
-        <a href="/pages/GREETING">기관소개</a>
-        <a href="/programs">프로그램</a>
-        <a href="/boards">게시판</a>
-    </nav>
+    <!-- P14-T3A: 활성 배너가 0건이면 #banners section 자체를 DOM에 렌더링하지 않는다(빈 Hero 공간을
+         차지하지 않도록). 기존 .hero__empty(빈 배너 안내) fallback은 제거한다(도달 불가능한 죽은
+         마크업을 남기지 않기 위함). hero-carousel.js는 #hero-viewport/#hero-controls 부재 시 이미
+         안전하게 early return하므로(bootstrap() 참고) JS 변경은 없다. 배너가 1건 이상일 때의 내부
+         구조/기능/크기/비율은 전혀 변경하지 않았다 - .hero 내부에 .container를 하나 추가해 기존과
+         똑같은 폭을 유지할 뿐이다(.hero의 position:relative를 .hero .container로 옮겨 캐러셀 버튼의
+         절대 위치 기준점을 동일하게 유지한다). -->
+    <section id="banners" class="hero" th:if="${!#lists.isEmpty(banners)}">
+        <div class="container">
+            <div class="hero__viewport" id="hero-viewport">
+                <div class="hero__slide" th:each="banner, iter : ${banners}"
+                     th:attr="hidden=${iter.first} ? null : 'hidden'">
+                    <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}" class="hero__link">
+                        <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
+                             th:attr="fetchpriority=${iter.first} ? 'high' : null">
+                    </a>
+                    <div th:unless="${banner.linkUrl() != null}" class="hero__link">
+                        <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="eager" class="hero__image"
+                             th:attr="fetchpriority=${iter.first} ? 'high' : null">
+                    </div>
+                </div>
+            </div>
 
-    <section id="banners" class="mb-4">
-        <div th:each="banner : ${banners}" class="banner-item">
-            <a th:if="${banner.linkUrl() != null}" th:href="${banner.linkUrl()}">
-                <img th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy">
-            </a>
-            <img th:unless="${banner.linkUrl() != null}" th:src="${banner.image()}" th:alt="${banner.title()}" loading="lazy">
+            <div th:if="${#lists.size(banners) gt 1}" class="hero__controls" id="hero-controls">
+                <button type="button" class="hero__nav hero__nav--prev" id="hero-prev" aria-label="이전 배너">‹</button>
+                <button type="button" class="hero__nav hero__nav--next" id="hero-next" aria-label="다음 배너">›</button>
+                <div class="hero__bottom-bar">
+                    <button type="button" class="hero__play-pause" id="hero-play-pause"
+                            aria-label="배너 자동 전환 일시정지">일시정지</button>
+                    <div class="hero__indicators" id="hero-indicators" role="group" aria-label="배너 선택">
+                        <button type="button" class="hero__indicator" th:each="banner, iter : ${banners}"
+                                th:classappend="${iter.first} ? ' is-active'"
+                                th:attr="aria-label=${banner.title() + ' 배너로 이동'}, aria-current=${iter.first} ? 'true' : null"
+                                th:text="${iter.count}"></button>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
-    <section id="popups" class="mb-4">
-        <div th:each="popup : ${popups}" class="popup-item">
-            <span th:text="${popup.title()}"></span>
+    <section id="popups">
+        <div id="popup-overlay" class="popup-overlay" th:if="${!#lists.isEmpty(popups)}" hidden>
+            <div class="popup-modal" th:each="popup : ${popups}" role="dialog"
+                 th:attr="id='popup-modal-' + ${popup.id()}, aria-labelledby='popup-modal-title-' + ${popup.id()}, data-popup-id=${popup.id()}, hidden='hidden'">
+                <div class="popup-modal__header">
+                    <h2 class="popup-modal__title" th:text="${popup.title()}"
+                        th:attr="id='popup-modal-title-' + ${popup.id()}"></h2>
+                    <button type="button" class="popup-modal__close" aria-label="팝업 닫기">×</button>
+                </div>
+                <div class="popup-modal__body" th:if="${popup.content() != null}"
+                     th:utext="${popupRenderedContents.get(popup.id())}"></div>
+                <button type="button" class="popup-modal__hide-today">오늘 하루 보지 않기</button>
+            </div>
         </div>
     </section>
 
-    <section id="greeting" class="mb-4">
-        <h3 th:text="${greeting.title()}"></h3>
-        <div th:if="${greeting.content() != null}" th:utext="${greeting.content()}"></div>
-        <p th:unless="${greeting.content() != null}" class="text-muted">등록된 인사말이 없습니다.</p>
+    <!-- P14-T3D: FEATURED eyebrow만 추가한다. 카드/grid 구조(.gallery-grid/.gallery-card*)는 P14-T3C
+         그대로 재사용 - Pinned는 이 Home에서 유일하게 "framed card" 성격을 계속 유지하는 section이다
+         (unlimited count 2-column/1-column 반응형 계약도 무변경). eyebrow는 순수 decorative/supporting
+         label이라 heading이 아닌 <p>로 두고 aria-hidden은 주지 않는다(시각적 신뢰감을 주는 실제 텍스트라
+         스크린리더로도 "FEATURED"가 자연스럽게 읽혀야 함 - Program/Gallery의 순번처럼 순수 장식용 숫자와는
+         다르다). -->
+    <!-- P14-T8D: siteTheme.showPinned를 기존 0건 조건에 AND로 추가한다(showPinned=true여도
+         0건이면 기존과 동일하게 미렌더 - P13-T38 계약 무변경). -->
+    <section id="home-pinned" class="section"
+             th:if="${siteTheme.showPinned and pinnedContents != null and !pinnedContents.isEmpty()}">
+        <div class="container">
+            <p class="section-eyebrow">FEATURED</p>
+            <h2 class="section-title">주요 소식</h2>
+
+            <ul class="gallery-grid">
+                <li th:each="pinned : ${pinnedContents}" class="gallery-card">
+                    <a th:href="${pinned.href()}" class="gallery-card__link">
+                        <div class="gallery-card__thumb">
+                            <img th:if="${pinned.thumbnail() != null}" th:src="${pinned.thumbnail()}"
+                                 th:alt="${pinned.title()}" loading="lazy">
+                            <div th:unless="${pinned.thumbnail() != null}" class="gallery-card__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                        </div>
+                        <p class="gallery-card__title" th:text="${pinned.title()}"></p>
+                    </a>
+                </li>
+            </ul>
+        </div>
     </section>
 
-    <section id="latest-notices" class="mb-4">
-        <h4>최신 공지</h4>
-        <ul>
-            <li th:each="notice : ${latestNotices}">
-                <a th:href="@{/boards/{id}(id=${notice.id()})}" th:text="${notice.title()}"></a>
-            </li>
-        </ul>
+    <!-- P14-T3D: uniform card grid(.program-cards/.program-card*, P14-T3C)를 제거하고 editorial
+         alternating row로 전면 교체한다. DOM은 매 item마다 동일한 source order(번호-썸네일-본문)를
+         유지하고, desktop 좌우 교대는 CSS grid-template-areas만으로 구현한다(짝수 번째 row에서
+         thumb/body area를 서로 바꿔치기 - DOM 재정렬 없음, HomeController/DTO 무변경). 순번은
+         실제 반복 순서(programStat.count)를 그대로 쓴 실데이터이며 excerpt는 이번 Task 범위에서
+         명시적으로 제외한다(ProgramResponse.content는 CKEditor HTML이라 plain-text 발췌 유틸이
+         없으면 사용할 수 없고, 가짜 설명 문장도 넣지 않는다 - number+type+title+status만으로
+         편집형 위계를 완성한다). status 배지는 T4A(Program List)가 이미 검증한 "surface+border+
+         muted, OPEN일 때만 primary 강조" 절제된 언어를 그대로 재사용해 새 배지 스타일을 만들지
+         않는다. -->
+    <!-- P14-T8D: siteTheme.showPrograms가 false면 section 전체(heading/eyebrow/목록/empty-state)가
+         SSR 단계에서 렌더링되지 않는다. 이 wrapper 안쪽의 0건 처리(program-rows/empty-state 분기)는
+         기존 정책 그대로 무변경 - showPrograms=true면 이전과 완전히 동일하게 동작한다. -->
+    <section id="latest-programs" class="section section--relaxed" th:if="${siteTheme.showPrograms}">
+        <div class="container">
+            <p class="section-eyebrow">LATEST PROGRAM</p>
+            <h2 class="section-title"><a th:href="@{/programs}" class="section-title__link">최신 프로그램</a></h2>
+
+            <div th:if="${!latestPrograms.isEmpty()}" class="program-rows">
+                <article th:each="program, programStat : ${latestPrograms}" class="program-row">
+                    <a th:href="@{/programs/{id}(id=${program.id()})}" class="program-row__link">
+                        <span class="program-row__number" aria-hidden="true"
+                              th:text="${#numbers.formatInteger(programStat.count, 2)}"></span>
+                        <div class="program-row__thumb">
+                            <img th:if="${program.thumbnail() != null}" th:src="${program.thumbnail()}"
+                                 th:alt="${program.title()}" loading="lazy">
+                            <div th:unless="${program.thumbnail() != null}" class="program-row__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                        </div>
+                        <!-- P14-T3B: raw enum(COURSE/SPECIAL)을 우연히 그대로 노출하지 않고, 이번 Task에서
+                             확정하는 영문 UI display label로 명시적으로 매핑한다(COURSE -> "COURSE",
+                             SPECIAL -> "SPECIAL CLASS"). domain enum/DB/API/DTO는 무변경 - T4A와 동일한
+                             presentation-layer 삼항 원칙(view/template layer에서만 처리, Java helper 없음). -->
+                        <div class="program-row__body">
+                            <span class="program-row__type"
+                                  th:text="${program.programType().name() == 'COURSE'} ? 'COURSE' : 'SPECIAL CLASS'"></span>
+                            <h3 class="program-row__title" th:text="${program.title()}"></h3>
+                            <span class="program-row__status"
+                                  th:classappend="${program.recruitStatus().name() == 'OPEN'} ? ' is-open'"
+                                  th:text="${program.recruitStatus().name() == 'OPEN'} ? '모집중' : '모집마감'"></span>
+                        </div>
+                    </a>
+                </article>
+            </div>
+
+            <p th:if="${latestPrograms.isEmpty()}" class="empty-state">등록된 프로그램이 없습니다.</p>
+        </div>
     </section>
 
-    <section id="latest-gallery" class="mb-4">
-        <h4>최신 갤러리</h4>
-        <ul>
-            <li th:each="gallery : ${latestGallery}">
-                <a th:href="@{/boards/{id}(id=${gallery.id()})}" th:text="${gallery.title()}"></a>
-            </li>
-        </ul>
+    <!-- P14-T3D: Home Review 전용 component(.review-strip*)로 분리한다 - 공유 `.gallery-grid`/
+         `.gallery-card*`(Home Pinned + 공개 Board `#board-grid` GALLERY/REVIEW 목록과 공유)는 단 한
+         줄도 건드리지 않는다(#board-grid 회귀 원천 차단). 이 section 배경을 deep navy(--color-primary,
+         기존 헤더/링크가 이미 쓰는 토큰 재사용, 새 색상 추가 없음)로 반전하고, 사진이 주인공인
+         borderless photo strip으로 바꾼다. programType 라벨은 이번 Task에서 억지로 추가하지 않는다
+         (요청서: "표시가 필요하지 않으면 추가하지 않아도 된다" - 현재 뷰에 라벨 자체가 없던 상태를
+         유지). 가짜 caption 없음 - 실제 title만 사진 아래에 놓는다. -->
+    <!-- P14-T8D: siteTheme.showReviews가 false면 section 전체가 SSR 단계에서 렌더링되지 않는다.
+         내부 0건 처리(review-strip/empty-state 분기)는 기존 정책 그대로 무변경. -->
+    <section id="latest-reviews" class="section section--dark" th:if="${siteTheme.showReviews}">
+        <div class="container">
+            <p class="section-eyebrow">STORIES</p>
+            <h2 class="section-title"><a th:href="@{/boards(boardType='REVIEW')}" class="section-title__link">강의 후기</a></h2>
+
+            <ul th:if="${!latestReviews.isEmpty()}" class="review-strip">
+                <li th:each="review : ${latestReviews}" class="review-strip__item">
+                    <a th:href="@{/boards/{id}(id=${review.id()})}" class="review-strip__link">
+                        <div class="review-strip__thumb">
+                            <img th:if="${review.thumbnail() != null}" th:src="${review.thumbnail()}"
+                                 th:alt="${review.title()}" loading="lazy">
+                            <div th:unless="${review.thumbnail() != null}" class="review-strip__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                        </div>
+                        <p class="review-strip__caption" th:text="${review.title()}"></p>
+                    </a>
+                </li>
+            </ul>
+
+            <p th:if="${latestReviews.isEmpty()}" class="empty-state">등록된 강의 후기가 없습니다.</p>
+        </div>
     </section>
 
-    <section id="program-shortcut" class="mb-4">
-        <a href="/programs" class="btn btn-primary">프로그램 살펴보기</a>
+    <!-- P14-T3D(correction): card화하지 않는다 - 기존 .notice-list DOM/class는 완전히 그대로 둔다.
+         최초 구현은 eyebrow/h2/list를 .container의 직계 자식 3개로 두고 grid-template-areas
+         2행("eyebrow list"/"title list")으로 배정했으나, list가 두 행에 걸쳐 span하는 item이라
+         CSS Grid의 암시적 auto 행 크기 분배가 "list가 필요로 하는 초과 높이"를 eyebrow 행에도
+         나눠 줘 eyebrow 행이 부풀고 그 아래 title이 아래로 밀려 "NEWS"와 "공지사항" 사이가
+         부자연스럽게 떨어지는 실제 렌더링 결함으로 이어졌다(Docker 실측으로 재현·확인). 근본 원인은
+         "list와 함께 여러 행을 공유하는 구조" 자체이므로, eyebrow+h2를 `.notice-section__heading`
+         하나의 wrapper로 묶어 "list와 스팬을 공유하지 않는 단일 grid item"으로 만든다 - 이제 heading
+         블록은 list의 높이와 무관하게 자기 콘텐츠 높이(eyebrow+작은 gap+h2)로만 결정되고, 1행
+         2열 grid("heading list")에서 align-items:start로 둘 다 첫 줄 상단에 나란히 시작한다. -->
+    <!-- P14-T8D: siteTheme.showNotices가 false면 section 전체가 SSR 단계에서 렌더링되지 않는다.
+         내부 0건 처리(notice-list/empty-state 분기)는 기존 정책 그대로 무변경. -->
+    <section id="latest-notices" class="section section--compact" th:if="${siteTheme.showNotices}">
+        <div class="container">
+            <div class="notice-section__heading">
+                <p class="section-eyebrow">NEWS</p>
+                <h2 class="section-title"><a th:href="@{/boards(boardType='NOTICE')}" class="section-title__link">공지사항</a></h2>
+            </div>
+
+            <ul th:if="${!latestNotices.isEmpty()}" class="notice-list">
+                <li th:each="notice : ${latestNotices}" class="notice-list__item">
+                    <a th:href="@{/boards/{id}(id=${notice.id()})}" class="notice-list__link">
+                        <span class="notice-list__title" th:text="${notice.title()}"></span>
+                        <time class="notice-list__date" th:datetime="${notice.createdAt()}"
+                              th:text="${#temporals.format(notice.createdAt(), 'yyyy.MM.dd')}"></time>
+                    </a>
+                </li>
+            </ul>
+
+            <p th:if="${latestNotices.isEmpty()}" class="empty-state">등록된 공지사항이 없습니다.</p>
+        </div>
     </section>
 
+    <!-- P14-T3D: Home Gallery 전용 component(.gallery-mosaic*)로 분리한다 - 공유 `.gallery-grid`/
+         `.gallery-card*`(공개 Board `#board-grid` GALLERY 목록과 공유)는 건드리지 않는다. DOM은
+         th:each 순서 그대로(첫 item = 최신 item)이고, "1 large + N small" 비대칭은 CSS
+         `:first-child`의 grid-column/row span + grid-auto-flow:dense의 auto-placement만으로
+         만든다(:has() 미사용, item 개수를 감지해 layout mode 자체를 바꾸는 JS/조건부 마크업 없음 -
+         0/1/2/3/4/5건 전부 동일한 규칙으로 자연스럽게 채워지거나 비워짐, backend limit(5) 무변경). -->
+    <!-- P14-T8D: siteTheme.showGallery가 false면 section 전체가 SSR 단계에서 렌더링되지 않는다.
+         내부 0건 처리(gallery-mosaic/empty-state 분기)는 기존 정책 그대로 무변경. -->
+    <section id="latest-gallery" class="section section--relaxed" th:if="${siteTheme.showGallery}">
+        <div class="container">
+            <p class="section-eyebrow">GALLERY</p>
+            <h2 class="section-title"><a th:href="@{/boards(boardType='GALLERY')}" class="section-title__link">갤러리</a></h2>
+
+            <ul th:if="${!latestGallery.isEmpty()}" class="gallery-mosaic">
+                <li th:each="gallery : ${latestGallery}" class="gallery-mosaic__item">
+                    <a th:href="@{/boards/{id}(id=${gallery.id()})}" class="gallery-mosaic__link">
+                        <div class="gallery-mosaic__thumb">
+                            <img th:if="${gallery.thumbnail() != null}" th:src="${gallery.thumbnail()}"
+                                 th:alt="${gallery.title()}" loading="lazy">
+                            <div th:unless="${gallery.thumbnail() != null}" class="gallery-mosaic__thumb-placeholder"
+                                 aria-hidden="true"></div>
+                        </div>
+                        <p class="gallery-mosaic__title" th:text="${gallery.title()}"></p>
+                    </a>
+                </li>
+            </ul>
+
+            <p th:if="${latestGallery.isEmpty()}" class="empty-state">등록된 갤러리가 없습니다.</p>
+        </div>
+    </section>
+
+    <script th:src="@{/js/home/hero-carousel.js}"></script>
+    <script th:src="@{/js/home/popup-modal.js}"></script>
+    <script>
+        HeroCarousel.bootstrap(document, window);
+        PopupModal.bootstrap(document, window);
+    </script>
 </div>
 </body>
 </html>

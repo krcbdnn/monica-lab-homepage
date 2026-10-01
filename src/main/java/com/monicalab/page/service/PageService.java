@@ -21,7 +21,7 @@ public class PageService {
 
     private static final Map<PageType, String> DEFAULT_TITLES = Map.of(
             PageType.GREETING, "인사말",
-            PageType.INTRODUCTION, "기관소개",
+            PageType.INTRODUCTION, "연구소 소개",
             PageType.HISTORY, "연혁",
             PageType.LOCATION, "오시는 길");
 

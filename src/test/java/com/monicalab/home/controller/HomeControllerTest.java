@@ -1,5 +1,6 @@
 package com.monicalab.home.controller;
 
+import static com.monicalab.support.PublicHeadAssertions.assertPublicHead;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -9,12 +10,22 @@ import com.monicalab.banner.repository.BannerRepository;
 import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
 import com.monicalab.board.repository.BoardRepository;
-import com.monicalab.page.dto.PageRequest;
-import com.monicalab.page.entity.PageType;
-import com.monicalab.page.service.PageService;
+import com.monicalab.menu.entity.Menu;
+import com.monicalab.menu.entity.MenuTargetType;
+import com.monicalab.menu.repository.MenuRepository;
+import com.monicalab.pinned.entity.HomePinnedContent;
+import com.monicalab.pinned.entity.HomeTargetType;
+import com.monicalab.pinned.repository.HomePinnedContentRepository;
 import com.monicalab.popup.entity.Popup;
 import com.monicalab.popup.repository.PopupRepository;
+import com.monicalab.program.entity.Program;
+import com.monicalab.program.entity.ProgramType;
+import com.monicalab.program.entity.RecruitStatus;
+import com.monicalab.program.repository.ProgramRepository;
 import com.monicalab.support.AbstractIntegrationTest;
+import com.monicalab.theme.entity.AccentPreset;
+import com.monicalab.theme.entity.SiteThemeSetting;
+import com.monicalab.theme.repository.SiteThemeSettingRepository;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import org.jsoup.Jsoup;
@@ -42,42 +53,152 @@ class HomeControllerTest extends AbstractIntegrationTest {
     private BoardRepository boardRepository;
 
     @Autowired
-    private PageService pageService;
+    private ProgramRepository programRepository;
 
+    @Autowired
+    private MenuRepository menuRepository;
+
+    @Autowired
+    private HomePinnedContentRepository homePinnedContentRepository;
+
+    // P14-T8D: visibility 테스트만을 위한 최소 의존성 추가. 기존 30여 개 테스트의 전제(공통 @BeforeEach)는
+    // 건드리지 않는다 - site_theme_setting row 유무/값은 saveTheme() 헬퍼를 호출하는 visibility 테스트만
+    // 명시적으로 준비하고, 그 외 기존 테스트는 지금처럼 공유 컨테이너의 기존 상태(V13 시드 또는 그 값이
+    // 지워졌다면 fallback)에 의존한다 - 어느 쪽이든 5개 visibility는 true라 기존 동작과 무관하다.
+    @Autowired
+    private SiteThemeSettingRepository siteThemeSettingRepository;
+
+    // P13-T30C: #quick-menu가 최종 IA(HOME 정적 링크 + GROUP 3개 + 전체메뉴 mega menu)로
+    // 렌더링되므로, 다른 테스트 클래스(예: AdminMenuControllerTest)가 같은 Testcontainers
+    // 인스턴스에서 Menu 테이블을 자유롭게 변경해도 이 클래스의 검증이 실행 순서에 영향받지 않도록
+    // 매 테스트마다 V5 migration과 동일한 13행(GROUP 3 + child 10) 구조를 직접 재구성한다.
+    private Long aboutGroupId;
+    private Long programGroupId;
+    private Long boardGroupId;
+
+    // P13-T38B: AbstractIntegrationTest가 @Transactional 롤백을 쓰지 않아, 다른 테스트 클래스
+    // (HomePinnedContentRepositoryTest 등)가 남긴 pin 데이터가 이 클래스의 "0건이면 섹션 없음" 검증을
+    // 오염시킬 수 있다 - 매 테스트마다 명시적으로 비운다.
     @BeforeEach
     void setUp() {
         bannerRepository.deleteAll();
         popupRepository.deleteAll();
         boardRepository.deleteAll();
+        programRepository.deleteAll();
+        menuRepository.deleteAll();
+        homePinnedContentRepository.deleteAll();
+        // P14-T8D: 신규 visibility 테스트(saveTheme() 호출)가 site_theme_setting row를 남겨두면,
+        // 이 클래스의 다른 테스트가 실행 순서상 그 뒤에 실행될 때 의도치 않게 특정 section이 숨겨진
+        // 채로 검증되는 실제 격리 문제가 발생함을 확인했다(예: homePinnedSectionExcludesHiddenPinButShowsVisibleOnes가
+        // 이전 테스트가 남긴 showPinned=false를 물려받아 실패). row가 없으면 SiteThemeSettingService의
+        // 기존 fallback(TERRACOTTA+5×true)이 적용되므로, 매 테스트를 이 상태로 리셋해도 기존 테스트가
+        // 가정하는 "5개 section 전부 표시 가능" 전제와 완전히 동일하다 - 기존 테스트 30여 개는 이
+        // 변경으로 전혀 영향받지 않는다.
+        siteThemeSettingRepository.deleteAll();
+        seedFinalMenuIa();
     }
 
+    private void seedFinalMenuIa() {
+        aboutGroupId = menuRepository.saveAndFlush(group("연구소 소개", 0)).getId();
+        menuRepository.saveAndFlush(child(aboutGroupId, "인사말", MenuTargetType.PAGE, "GREETING", 0));
+        menuRepository.saveAndFlush(child(aboutGroupId, "연구소 소개", MenuTargetType.PAGE, "INTRODUCTION", 1));
+        menuRepository.saveAndFlush(child(aboutGroupId, "연혁", MenuTargetType.PAGE, "HISTORY", 2));
+        menuRepository.saveAndFlush(child(aboutGroupId, "오시는 길", MenuTargetType.PAGE, "LOCATION", 3));
+
+        programGroupId = menuRepository.saveAndFlush(group("프로그램", 1)).getId();
+        menuRepository.saveAndFlush(child(programGroupId, "수강 프로그램", MenuTargetType.PROGRAM_LIST, "COURSE", 0));
+        menuRepository.saveAndFlush(child(programGroupId, "특강", MenuTargetType.PROGRAM_LIST, "SPECIAL", 1));
+
+        boardGroupId = menuRepository.saveAndFlush(group("게시판", 2)).getId();
+        menuRepository.saveAndFlush(child(boardGroupId, "공지사항", MenuTargetType.BOARD_LIST, "NOTICE", 0));
+        menuRepository.saveAndFlush(child(boardGroupId, "갤러리", MenuTargetType.BOARD_LIST, "GALLERY", 1));
+        menuRepository.saveAndFlush(child(boardGroupId, "자료실", MenuTargetType.BOARD_LIST, "ARCHIVE", 2));
+        menuRepository.saveAndFlush(child(boardGroupId, "강의 후기", MenuTargetType.BOARD_LIST, "REVIEW", 3));
+    }
+
+    private Menu group(String label, int sortOrder) {
+        return Menu.builder().label(label).targetType(MenuTargetType.GROUP).sortOrder(sortOrder)
+                .isVisible(true).build();
+    }
+
+    private Menu child(Long parentId, String label, MenuTargetType targetType, String targetValue, int sortOrder) {
+        return Menu.builder().label(label).parentId(parentId).targetType(targetType).targetValue(targetValue)
+                .sortOrder(sortOrder).isVisible(true).build();
+    }
+
+    // P13-T30C: "연구소 소개"는 GROUP 이름이자 그 자식 하나의 이름으로 동시에 쓰이므로(사용자
+    // 확정 IA 그대로) 텍스트 기반 selector는 모호해질 수 있다. data-menu-id(실제 Menu.id)로 각
+    // GROUP의 dropdown 영역만 정확히 스코프해서 검증한다.
     @Test
-    void homeReturns200WithAllRequiredAreasAndFixedQuickMenuLinks() throws Exception {
+    void homeRendersFinalMenuIaWithHomeGroupDropdownsAndMegaMenu() throws Exception {
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#banners")).isNotEmpty();
+        // P14-T3A: 이 테스트는 배너를 등록하지 않으므로(0건) #banners는 렌더링되지 않는다
+        // (heroIsNotRenderedWhenNoBannersExist가 이 계약을 직접 검증한다).
+        assertThat(document.select("#banners")).isEmpty();
         assertThat(document.select("#popups")).isNotEmpty();
-        assertThat(document.select("#greeting")).isNotEmpty();
+        assertThat(document.select("#latest-reviews")).isNotEmpty();
         assertThat(document.select("#latest-notices")).isNotEmpty();
         assertThat(document.select("#latest-gallery")).isNotEmpty();
-        assertThat(document.select("#program-shortcut")).isNotEmpty();
-        assertThat(document.select("#quick-menu")).isNotEmpty();
 
-        Elements quickMenuLinks = document.select("#quick-menu a");
-        assertThat(quickMenuLinks).hasSize(3);
-        assertThat(quickMenuLinks.eachAttr("href"))
-                .containsExactly("/pages/GREETING", "/programs", "/boards");
+        // 최상위 5개: HOME + 3 GROUP + 전체메뉴(mega menu trigger)
+        Elements topLevelItems = document.select("#quick-menu > li");
+        assertThat(topLevelItems).hasSize(5);
+
+        // HOME: 정적 링크, Menu DB row가 아님
+        Elements homeLink = document.select("#quick-menu > li:eq(0) > a");
+        assertThat(homeLink.attr("href")).isEqualTo("/");
+        assertThat(homeLink.text()).isEqualTo("HOME");
+
+        // 3개 GROUP trigger 라벨/순서(전체메뉴 트리거 제외)
+        Elements groupTriggers = document.select(
+                "#quick-menu > li.has-submenu:not([data-menu-id=\"all\"]) > .site-nav__trigger");
+        assertThat(groupTriggers.eachText()).containsExactly("연구소 소개", "프로그램", "게시판");
+
+        // 각 GROUP dropdown의 자식 href(data-menu-id로 스코프 - 라벨 중복과 무관하게 정확히 검증)
+        assertGroupDropdownHrefs(document, aboutGroupId,
+                "/pages/GREETING", "/pages/INTRODUCTION", "/pages/HISTORY", "/pages/LOCATION");
+        assertGroupDropdownHrefs(document, programGroupId,
+                "/programs?programType=COURSE", "/programs?programType=SPECIAL");
+        assertGroupDropdownHrefs(document, boardGroupId,
+                "/boards?boardType=NOTICE", "/boards?boardType=GALLERY",
+                "/boards?boardType=ARCHIVE", "/boards?boardType=REVIEW");
+
+        // 전체메뉴(mega menu): 개별 dropdown과 동일한 headerMenuItems를 재사용하므로 같은 10개 링크가
+        // 그대로 다시 노출된다(신규 Java 조회 없음 - MenuService/HeaderMenuControllerAdvice 무수정).
+        Elements megaMenuLinks = document.select("#megamenu a");
+        assertThat(megaMenuLinks.eachAttr("href")).containsExactly(
+                "/pages/GREETING", "/pages/INTRODUCTION", "/pages/HISTORY", "/pages/LOCATION",
+                "/programs?programType=COURSE", "/programs?programType=SPECIAL",
+                "/boards?boardType=NOTICE", "/boards?boardType=GALLERY",
+                "/boards?boardType=ARCHIVE", "/boards?boardType=REVIEW");
+    }
+
+    private void assertGroupDropdownHrefs(Document document, Long groupId, String... expectedHrefs) {
+        Elements links = document.select("[data-menu-id=\"" + groupId + "\"] > .site-nav__submenu a");
+        assertThat(links.eachAttr("href")).containsExactly(expectedHrefs);
+    }
+
+    // P13-T17: 홈 상단 #greeting(인사말 요약), 하단 #program-shortcut(CTA)를 제거했다.
+    // /pages/GREETING 상세 페이지 자체는 유지되며 PageController/PageViewController가 별도로 검증한다.
+    @Test
+    void homeNoLongerRendersGreetingSummaryOrProgramShortcutSections() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#greeting")).isEmpty();
+        assertThat(document.select("#program-shortcut")).isEmpty();
     }
 
     @Test
-    void homeRendersGreetingContentAsUnescapedHtmlAndListsDomainData() throws Exception {
-        pageService.update(PageType.GREETING,
-                new PageRequest("인사말", "<p>안녕하세요</p><script>alert(1)</script>"));
-
+    void homeListsBannerPopupNoticeAndGalleryDomainData() throws Exception {
         bannerRepository.saveAndFlush(Banner.builder()
                 .title("메인 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
         popupRepository.saveAndFlush(Popup.builder()
@@ -88,10 +209,10 @@ class HomeControllerTest extends AbstractIntegrationTest {
                 .build());
         Board notice = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.NOTICE).title("최신 공지 제목")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
         Board gallery = boardRepository.saveAndFlush(Board.builder()
                 .boardType(BoardType.GALLERY).title("최신 갤러리 제목")
-                .viewCount(0).isPublic(true).build());
+                .isPublic(true).build());
 
         String body = mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -99,14 +220,866 @@ class HomeControllerTest extends AbstractIntegrationTest {
 
         Document document = Jsoup.parse(body);
 
-        assertThat(document.select("#greeting p").text()).isEqualTo("안녕하세요");
-        assertThat(body).doesNotContain("<script>alert(1)</script>");
         assertThat(document.select("#banners img").attr("src")).isEqualTo("/api/files/1");
-        assertThat(document.select("#banners img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#banners img").attr("loading")).isEqualTo("eager");
         assertThat(document.select("#popups").text()).contains("공지 팝업");
-        assertThat(document.select("#latest-notices a").text()).contains("최신 공지 제목");
-        assertThat(document.select("#latest-notices a").attr("href")).isEqualTo("/boards/" + notice.getId());
-        assertThat(document.select("#latest-gallery a").text()).contains("최신 갤러리 제목");
-        assertThat(document.select("#latest-gallery a").attr("href")).isEqualTo("/boards/" + gallery.getId());
+        assertThat(document.select("#latest-notices .notice-list__link").text()).contains("최신 공지 제목");
+        assertThat(document.select("#latest-notices .notice-list__link").attr("href"))
+                .isEqualTo("/boards/" + notice.getId());
+        assertThat(document.select("#latest-gallery .gallery-mosaic__link").text()).contains("최신 갤러리 제목");
+        assertThat(document.select("#latest-gallery .gallery-mosaic__link").attr("href"))
+                .isEqualTo("/boards/" + gallery.getId());
+    }
+
+    @Test
+    void latestProgramsShowsAtMostThreeMostRecentPublicPrograms() throws Exception {
+        programRepository.saveAndFlush(publicProgram("가장 오래된 프로그램"));
+        Thread.sleep(1100);
+        programRepository.saveAndFlush(publicProgram("프로그램 A"));
+        programRepository.saveAndFlush(publicProgram("프로그램 B"));
+        programRepository.saveAndFlush(publicProgram("프로그램 C"));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements cards = document.select("#latest-programs .program-row");
+
+        assertThat(cards).hasSize(3);
+        String cardsText = cards.text();
+        assertThat(cardsText).contains("프로그램 A", "프로그램 B", "프로그램 C");
+        assertThat(cardsText).doesNotContain("가장 오래된 프로그램");
+    }
+
+    @Test
+    void latestProgramsCardLinksToProgramDetailPage() throws Exception {
+        Long id = programRepository.saveAndFlush(publicProgram("링크 확인용 프로그램")).getId();
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#latest-programs .program-row__link").attr("href"))
+                .isEqualTo("/programs/" + id);
+    }
+
+    @Test
+    void latestProgramsShowsKoreanRecruitStatusLabelsInsteadOfRawEnumName() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("모집중 프로그램").content("내용")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("마감 프로그램").content("내용")
+                .recruitStatus(RecruitStatus.CLOSED).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements statusBadges = document.select("#latest-programs .program-row__status");
+
+        assertThat(statusBadges.text()).contains("모집중", "모집마감");
+        assertThat(statusBadges.text()).doesNotContain("OPEN", "CLOSED");
+    }
+
+    // P14-T3B: raw enum(COURSE/SPECIAL)을 우연히 그대로 노출하지 않고, 이번 Task에서 확정한 영문 UI
+    // display label로 명시적으로 매핑한다(COURSE -> "COURSE", SPECIAL -> "SPECIAL CLASS"). domain
+    // enum/DB/API/DTO는 무변경(view-layer 삼항, T4A와 동일 원칙). "SPECIAL CLASS"가 "SPECIAL"을 부분
+    // 문자열로 포함하므로 doesNotContain으로는 raw 노출 여부를 증명할 수 없어, 각 배지의 전체 텍스트를
+    // isEqualTo 수준(containsExactlyInAnyOrder)으로 확인해 raw "SPECIAL" 단독 노출이 없음을 증명한다.
+    @Test
+    void latestProgramsShowsProgramTypeAsExplicitEnglishDisplayLabelInsteadOfRawEnumName() throws Exception {
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("정규 강좌").content("내용")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+        programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.SPECIAL).title("특강").content("내용")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements typeBadges = document.select("#latest-programs .program-row__type");
+
+        assertThat(typeBadges).hasSize(2);
+        assertThat(typeBadges.eachText()).containsExactlyInAnyOrder("COURSE", "SPECIAL CLASS");
+    }
+
+    @Test
+    void latestProgramsShowsEmptyStateWhenNoProgramsExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-programs .program-row")).isEmpty();
+        assertThat(document.select("#latest-programs .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestProgramsSectionTitleLinksToProgramsListPage() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-programs .section-title__link").attr("href")).isEqualTo("/programs");
+    }
+
+    @Test
+    void heroRendersAllVisibleBannersInSortOrderWhenMultipleExist() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("첫 번째 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("두 번째 배너").image("/api/files/2").sortOrder(1).isVisible(true).build());
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("세 번째 배너").image("/api/files/3").sortOrder(2).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements slides = document.select("#banners .hero__slide");
+        Elements images = document.select("#banners .hero__slide img");
+        Elements indicators = document.select("#banners .hero__indicator");
+
+        assertThat(slides).hasSize(3);
+        assertThat(images.eachAttr("src")).containsExactly("/api/files/1", "/api/files/2", "/api/files/3");
+        assertThat(indicators).hasSize(3);
+        assertThat(slides.get(0).hasAttr("hidden")).isFalse();
+        assertThat(slides.get(1).hasAttr("hidden")).isTrue();
+        assertThat(slides.get(2).hasAttr("hidden")).isTrue();
+    }
+
+    // P13-T32: 공개 Hero에서 관리자가 입력한 배너 title이 시각적 caption(<p class="hero__caption">)으로는
+    // 더 이상 노출되지 않아야 하지만, img alt/indicator aria-label을 통한 접근성 정보는 title 값 그대로
+    // 유지돼야 한다. linkUrl이 있는 배너(<a> 안에 img 하나뿐)의 accessible name도 img alt로 결정되므로
+    // 별도 검증 없이 img alt 확인만으로 충분하다.
+    @Test
+    void heroDoesNotRenderVisualCaptionButKeepsAltAndIndicatorAriaLabelFromBannerTitle() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("가을 메인 배너").image("/api/files/1").linkUrl("/programs").sortOrder(0)
+                .isVisible(true).build());
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("수강 모집 배너").image("/api/files/2").sortOrder(1).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#banners .hero__caption")).isEmpty();
+
+        Elements images = document.select("#banners .hero__slide img");
+        assertThat(images.eachAttr("alt")).containsExactly("가을 메인 배너", "수강 모집 배너");
+
+        Elements indicators = document.select("#banners .hero__indicator");
+        assertThat(indicators.eachAttr("aria-label")).containsExactly(
+                "가을 메인 배너 배너로 이동", "수강 모집 배너 배너로 이동");
+    }
+
+    // hidden 상태인 두 번째 이후 슬라이드는 loading="lazy"의 뷰포트 교차 트리거가 발동하지 않아
+    // 최초 전환 순간까지 이미지 요청 자체가 시작되지 않는 문제가 있었다(Docker 8088 Playwright 네트워크
+    // 추적으로 확인). 모든 슬라이드를 eager로 페이지 로드 시점에 미리 받아오되, fetchpriority="high"는
+    // LCP 후보인 첫 슬라이드에만 부여해 대역폭 경쟁을 최소화한다.
+    @Test
+    void heroAppliesEagerLoadingToAllSlidesAndFetchPriorityHighOnlyToFirst() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("첫 번째 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("두 번째 배너").image("/api/files/2").sortOrder(1).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements images = document.select("#banners .hero__slide img");
+
+        assertThat(images).hasSize(2);
+        assertThat(images.eachAttr("loading")).containsExactly("eager", "eager");
+        assertThat(images.get(0).attr("fetchpriority")).isEqualTo("high");
+        assertThat(images.get(1).hasAttr("fetchpriority")).isFalse();
+    }
+
+    @Test
+    void heroHidesControlsWhenOnlyOneBannerExists() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("단일 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#banners .hero__slide")).hasSize(1);
+        assertThat(document.select("#banners .hero__slide img").attr("src")).isEqualTo("/api/files/1");
+        assertThat(document.select("#banners .hero__slide").first().hasAttr("hidden")).isFalse();
+        assertThat(document.select("#banners .hero__controls")).isEmpty();
+        assertThat(document.select("#banners #hero-prev")).isEmpty();
+        assertThat(document.select("#banners #hero-next")).isEmpty();
+        assertThat(document.select("#banners #hero-play-pause")).isEmpty();
+        assertThat(document.select("#banners .hero__indicator")).isEmpty();
+    }
+
+    // P14-T3A: 활성 배너가 0건이면 빈 Hero 공간을 차지하지 않도록 #banners section 자체를 렌더링하지
+    // 않는다(과거 .hero__empty "등록된 배너가 없습니다." fallback 계약을 대체 - 텍스트 자체가 더 이상
+    // 존재하지 않아야 한다). hero-carousel.js는 #hero-viewport/#hero-controls 부재 시 이미 안전하게
+    // early return하므로 이 변경에 JS 대응은 필요 없다(별도 console error 회귀는 Playwright QA로 확인).
+    @Test
+    void heroIsNotRenderedWhenNoBannersExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#banners")).isEmpty();
+        assertThat(document.select(".hero__empty")).isEmpty();
+        assertThat(document.text()).doesNotContain("등록된 배너가 없습니다");
+    }
+
+    // P14-T3A: 배너가 1건 이상 존재하면 #banners가 여전히 #index-content의 최상단 section으로
+    // 렌더링됨을 확인한다(homePinnedSectionIsRenderedImmediatelyAfterPopupsAndBeforeLatestPrograms는
+    // 반대로 배너 0건 상태의 순서만 검증하므로, "배너가 있을 때" 케이스를 별도로 보강한다).
+    @Test
+    void heroSectionIsFirstInTopLevelOrderWhenAtLeastOneBannerExists() throws Exception {
+        bannerRepository.saveAndFlush(Banner.builder()
+                .title("순서 확인용 배너").image("/api/files/1").sortOrder(0).isVisible(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements topLevelSections = document.select("#index-content > section");
+
+        assertThat(topLevelSections.eachAttr("id")).containsExactly(
+                "banners", "popups", "latest-programs", "latest-reviews", "latest-notices", "latest-gallery");
+    }
+
+    // #popup-overlay/.popup-modal은 SSR 시점부터 항상 hidden이어야 한다(P13-T10 계약: 서버는 1건으로
+    // 자르거나 어느 것을 "활성"으로 표시할지 결정하지 않고, static/js/home/popup-modal.js가 전담한다).
+    //
+    // 이 테스트는 뷰가 content를 th:utext로 그대로(비이스케이프) 렌더링하는지만 검증한다. sanitize
+    // 자체(스크립트 태그 제거 등)는 PopupService.create()/update() 쓰기 경로의 책임이고 별도로 검증되므로
+    // (P2-T5/P7-T2), 다른 도메인 테스트들과 동일하게 repository로 직접 저장해 그 경로를 우회하는 이 테스트에서
+    // 는 다루지 않는다.
+    @Test
+    void popupRendersTitleAndContentWithImageInsideDialogMarkup() throws Exception {
+        Popup popup = popupRepository.saveAndFlush(Popup.builder()
+                .title("이미지 포함 팝업")
+                .content("<p>안내 내용</p><img src=\"/api/files/1\">")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements modal = document.select("#popup-overlay .popup-modal");
+
+        assertThat(modal).hasSize(1);
+        assertThat(modal.attr("id")).isEqualTo("popup-modal-" + popup.getId());
+        assertThat(modal.attr("role")).isEqualTo("dialog");
+        // 비차단형 floating 카드로 변경(P13-T10 재정정): 배경을 막지 않으므로 aria-modal은 쓰지 않는다.
+        assertThat(modal.hasAttr("aria-modal")).isFalse();
+        assertThat(modal.attr("aria-labelledby")).isEqualTo("popup-modal-title-" + popup.getId());
+        assertThat(document.select("#popup-modal-title-" + popup.getId()).text()).isEqualTo("이미지 포함 팝업");
+        assertThat(document.select(".popup-modal__body p").text()).isEqualTo("안내 내용");
+        assertThat(document.select(".popup-modal__body img").attr("src")).isEqualTo("/api/files/1");
+    }
+
+    @Test
+    void popupRendersExternalContentLinkWithTargetBlankAndRelNoopener() throws Exception {
+        Popup popup = popupRepository.saveAndFlush(Popup.builder()
+                .title("외부 링크 포함 팝업")
+                .content("<p>안내 <a href=\"https://example.com\">외부 링크</a></p>")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements link = document.select("#popup-modal-" + popup.getId() + " a[href=https://example.com]");
+        assertThat(link).hasSize(1);
+        assertThat(link.attr("target")).isEqualTo("_blank");
+        assertThat(link.attr("rel")).isEqualTo("noopener noreferrer");
+    }
+
+    @Test
+    void popupOverlayAndAllModalsAreHiddenInServerRenderedMarkupRegardlessOfCount() throws Exception {
+        popupRepository.saveAndFlush(Popup.builder()
+                .title("첫 번째 팝업")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+        popupRepository.saveAndFlush(Popup.builder()
+                .title("두 번째 팝업")
+                .startDate(LocalDateTime.now().minusHours(1))
+                .endDate(LocalDateTime.now().plusHours(1))
+                .isVisible(true)
+                .build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements overlay = document.select("#popup-overlay");
+        Elements modals = document.select(".popup-modal");
+
+        assertThat(overlay).hasSize(1);
+        assertThat(overlay.first().hasAttr("hidden")).isTrue();
+        assertThat(modals).hasSize(2);
+        assertThat(modals.get(0).hasAttr("hidden")).isTrue();
+        assertThat(modals.get(1).hasAttr("hidden")).isTrue();
+    }
+
+    @Test
+    void latestNoticesRendersTitleAndDateAndLinksToBoardDetail() throws Exception {
+        Board notice = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지 목록 확인용 제목")
+                .isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-notices .notice-list__item")).hasSize(1);
+        assertThat(document.select("#latest-notices .notice-list__title").text()).isEqualTo("공지 목록 확인용 제목");
+        assertThat(document.select("#latest-notices .notice-list__date").text()).isNotBlank();
+        assertThat(document.select("#latest-notices .notice-list__link").attr("href"))
+                .isEqualTo("/boards/" + notice.getId());
+    }
+
+    @Test
+    void latestNoticesShowsEmptyStateWhenNoNoticesExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-notices .notice-list")).isEmpty();
+        assertThat(document.select("#latest-notices .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestNoticesSectionTitleLinksToNoticeListPageAndHasNoLegacyMoreLink() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-notices .section-title__link").attr("href"))
+                .isEqualTo("/boards?boardType=NOTICE");
+        assertThat(document.select("#latest-notices .section__more")).isEmpty();
+    }
+
+    @Test
+    void latestGalleryRendersThumbnailAndLinksToBoardDetail() throws Exception {
+        Board gallery = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("갤러리 목록 확인용 제목")
+                .thumbnail("/api/files/2")
+                .isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb img").attr("src"))
+                .isEqualTo("/api/files/2");
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#latest-gallery .gallery-mosaic__title").text()).isEqualTo("갤러리 목록 확인용 제목");
+        assertThat(document.select("#latest-gallery .gallery-mosaic__link").attr("href"))
+                .isEqualTo("/boards/" + gallery.getId());
+    }
+
+    @Test
+    void latestGalleryShowsPlaceholderWhenThumbnailMissing() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("썸네일 없는 갤러리")
+                .isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#latest-gallery .gallery-mosaic__thumb img")).isEmpty();
+    }
+
+    @Test
+    void latestGalleryShowsEmptyStateWhenNoGalleryExists() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .gallery-mosaic")).isEmpty();
+        assertThat(document.select("#latest-gallery .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestGallerySectionTitleLinksToGalleryListPageAndHasNoLegacyMoreLink() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-gallery .section-title__link").attr("href"))
+                .isEqualTo("/boards?boardType=GALLERY");
+        assertThat(document.select("#latest-gallery .section__more")).isEmpty();
+    }
+
+    @Test
+    void latestReviewsShowsAtMostThreeMostRecentPublicReviews() throws Exception {
+        boardRepository.saveAndFlush(publicReview("가장 오래된 후기"));
+        Thread.sleep(1100);
+        boardRepository.saveAndFlush(publicReview("후기 A"));
+        boardRepository.saveAndFlush(publicReview("후기 B"));
+        boardRepository.saveAndFlush(publicReview("후기 C"));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements cards = document.select("#latest-reviews .review-strip__item");
+
+        assertThat(cards).hasSize(3);
+        String cardsText = cards.text();
+        assertThat(cardsText).contains("후기 A", "후기 B", "후기 C");
+        assertThat(cardsText).doesNotContain("가장 오래된 후기");
+    }
+
+    @Test
+    void latestReviewsRendersThumbnailAndLinksToBoardDetail() throws Exception {
+        Board review = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("강의 후기 목록 확인용 제목")
+                .thumbnail("/api/files/3")
+                .isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .review-strip__thumb img").attr("src"))
+                .isEqualTo("/api/files/3");
+        assertThat(document.select("#latest-reviews .review-strip__thumb img").attr("loading")).isEqualTo("lazy");
+        assertThat(document.select("#latest-reviews .review-strip__caption").text()).isEqualTo("강의 후기 목록 확인용 제목");
+        assertThat(document.select("#latest-reviews .review-strip__link").attr("href"))
+                .isEqualTo("/boards/" + review.getId());
+    }
+
+    @Test
+    void latestReviewsShowsPlaceholderWhenThumbnailMissing() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("썸네일 없는 후기")
+                .isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .review-strip__thumb-placeholder")).isNotEmpty();
+        assertThat(document.select("#latest-reviews .review-strip__thumb img")).isEmpty();
+    }
+
+    @Test
+    void latestReviewsShowsEmptyStateWhenNoReviewsExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .review-strip")).isEmpty();
+        assertThat(document.select("#latest-reviews .empty-state")).isNotEmpty();
+    }
+
+    @Test
+    void latestReviewsSectionTitleLinksToReviewListPage() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+
+        assertThat(document.select("#latest-reviews .section-title__link").attr("href"))
+                .isEqualTo("/boards?boardType=REVIEW");
+    }
+
+    // P13-T38B: 공개 "주요 소식" 섹션(#home-pinned). HomePinnedContentService.getPublicList()가
+    // isVisible=true인 pin만 후보로 삼고, 그중 원본이 실제로 존재하며 isPublic=true인 것만 최종
+    // 노출하는 계약을 이 컨트롤러 레벨 통합 테스트로 검증한다(별도 HomePinnedContentServiceTest는
+    // 만들지 않음 - Board/Program/Banner 등 다른 도메인의 공개 조회 로직도 전부 이 클래스에서
+    // 검증되는 기존 관례를 따름).
+    @Test
+    void homePinnedSectionShowsVisiblePublicBoardAndProgramInSortOrderThenId() throws Exception {
+        Program program = programRepository.saveAndFlush(publicProgram("고정 프로그램"));
+        Board board1 = boardRepository.saveAndFlush(publicReview("고정 게시글 A"));
+        Board board2 = boardRepository.saveAndFlush(publicReview("고정 게시글 B"));
+
+        // program, board2는 sortOrder가 0으로 동률이다 - id ASC로 program이 먼저(더 낮은 id) 와야 한다.
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.PROGRAM, program.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board2.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board1.getId(), 5));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements links = document.select("#home-pinned .gallery-card__link");
+
+        assertThat(links.eachAttr("href")).containsExactly(
+                "/programs/" + program.getId(), "/boards/" + board2.getId(), "/boards/" + board1.getId());
+        assertThat(document.select("#home-pinned .gallery-card__title").eachText())
+                .containsExactly("고정 프로그램", "고정 게시글 B", "고정 게시글 A");
+    }
+
+    @Test
+    void homePinnedSectionExcludesHiddenPinButShowsVisibleOnes() throws Exception {
+        Board visibleBoard = boardRepository.saveAndFlush(publicReview("노출 고정 게시글"));
+        Board hiddenBoard = boardRepository.saveAndFlush(publicReview("숨김 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, visibleBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(HomePinnedContent.builder()
+                .targetType(HomeTargetType.BOARD).targetId(hiddenBoard.getId()).sortOrder(1)
+                .isVisible(false).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        String sectionText = document.select("#home-pinned").text();
+
+        assertThat(sectionText).contains("노출 고정 게시글");
+        assertThat(sectionText).doesNotContain("숨김 고정 게시글");
+    }
+
+    // private/deleted 원본이 각각 skip되는지, "isPublic=true" batch predicate가 실제로 걸러내는지를
+    // deleted 케이스와 분리해 명시적으로 검증한다(하나가 통과한다고 다른 하나도 통과한다고 가정하지 않음).
+    @Test
+    void homePinnedSectionExcludesPrivateBoardAndProgramSourcesButShowsValidOnes() throws Exception {
+        Board privateBoard = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("비공개 고정 게시글").isPublic(false).build());
+        Program privateProgram = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE).title("비공개 고정 프로그램").content("내용")
+                .recruitStatus(RecruitStatus.OPEN).isPublic(false).build());
+        Board validBoard = boardRepository.saveAndFlush(publicReview("공개 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, privateBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.PROGRAM, privateProgram.getId(), 1));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, validBoard.getId(), 2));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements links = document.select("#home-pinned .gallery-card__link");
+
+        assertThat(links).hasSize(1);
+        assertThat(links.attr("href")).isEqualTo("/boards/" + validBoard.getId());
+    }
+
+    @Test
+    void homePinnedSectionExcludesDeletedBoardAndProgramSourcesButShowsValidOnes() throws Exception {
+        Board deletedBoard = boardRepository.saveAndFlush(publicReview("삭제될 고정 게시글"));
+        Program deletedProgram = programRepository.saveAndFlush(publicProgram("삭제될 고정 프로그램"));
+        Board validBoard = boardRepository.saveAndFlush(publicReview("공개 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, deletedBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.PROGRAM, deletedProgram.getId(), 1));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, validBoard.getId(), 2));
+
+        boardRepository.delete(deletedBoard);
+        boardRepository.flush();
+        programRepository.delete(deletedProgram);
+        programRepository.flush();
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements links = document.select("#home-pinned .gallery-card__link");
+
+        assertThat(links).hasSize(1);
+        assertThat(links.attr("href")).isEqualTo("/boards/" + validBoard.getId());
+    }
+
+    @Test
+    void homePinnedSectionNotRenderedWhenNoPinsExist() throws Exception {
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#home-pinned")).isEmpty();
+    }
+
+    @Test
+    void homePinnedSectionNotRenderedWhenAllPinsAreInvalid() throws Exception {
+        Board privateBoard = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("비공개 게시글").isPublic(false).build());
+        Board deletedBoard = boardRepository.saveAndFlush(publicReview("삭제될 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, privateBoard.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, deletedBoard.getId(), 1));
+        boardRepository.delete(deletedBoard);
+        boardRepository.flush();
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#home-pinned")).isEmpty();
+    }
+
+    @Test
+    void homePinnedSectionShowsThumbnailWhenPresentAndPlaceholderWhenMissing() throws Exception {
+        Board withThumb = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.REVIEW).title("썸네일 있는 고정 게시글")
+                .thumbnail("/api/files/9").isPublic(true).build());
+        Board withoutThumb = boardRepository.saveAndFlush(publicReview("썸네일 없는 고정 게시글"));
+
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, withThumb.getId(), 0));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, withoutThumb.getId(), 1));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements cards = document.select("#home-pinned .gallery-card");
+
+        assertThat(cards.get(0).select(".gallery-card__thumb img").attr("src")).isEqualTo("/api/files/9");
+        assertThat(cards.get(1).select(".gallery-card__thumb-placeholder")).isNotEmpty();
+        assertThat(cards.get(1).select(".gallery-card__thumb img")).isEmpty();
+    }
+
+    // #home-pinned가 #popups 바로 다음 형제이자 #latest-programs보다 앞에 오는지를 DOM 순서로 확인한다
+    // (Playwright visual-regression.spec.js에서 실제 y좌표 기준 시각적 위치도 별도로 검증한다).
+    @Test
+    void homePinnedSectionIsRenderedImmediatelyAfterPopupsAndBeforeLatestPrograms() throws Exception {
+        Board board = boardRepository.saveAndFlush(publicReview("위치 확인용 고정 게시글"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board.getId(), 0));
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        Elements topLevelSections = document.select("#index-content > section");
+
+        // P14-T3A: 이 테스트는 배너를 등록하지 않으므로(0건) #banners는 더 이상 렌더링되지 않는다
+        // (heroIsNotRenderedWhenNoBannersExist가 그 계약을 직접 검증하고,
+        // heroSectionIsFirstInTopLevelOrderWhenAtLeastOneBannerExists가 배너 존재 시 순서를 검증한다).
+        assertThat(topLevelSections.eachAttr("id")).containsExactly(
+                "popups", "home-pinned", "latest-programs", "latest-reviews",
+                "latest-notices", "latest-gallery");
+    }
+
+    // P14-T8D: SITE_THEME row를 명시적으로 준비하는 visibility 전용 helper. 기존 30여 개 테스트는
+    // 이 helper를 호출하지 않으므로 전혀 영향받지 않는다 - 아래 visibility 테스트만 자신이 검증할
+    // show* 조합을 스스로 준비한다.
+    private void saveTheme(boolean showPinned, boolean showPrograms, boolean showReviews,
+            boolean showNotices, boolean showGallery) {
+        siteThemeSettingRepository.deleteAll();
+        siteThemeSettingRepository.saveAndFlush(SiteThemeSetting.builder()
+                .settingKey(SiteThemeSetting.SITE_THEME_KEY)
+                .accentPreset(AccentPreset.TERRACOTTA)
+                .showPinned(showPinned)
+                .showPrograms(showPrograms)
+                .showReviews(showReviews)
+                .showNotices(showNotices)
+                .showGallery(showGallery)
+                .build());
+    }
+
+    // P14-T8D: showPinned=false면 실제 표시 가능한 pin이 있어도 #home-pinned 자체가 렌더링되지
+    // 않는다(false positive 방지 - 데이터가 없어서가 아니라 설정 때문에 안 보이는 것임을 증명).
+    @Test
+    void homePinnedSectionNotRenderedWhenShowPinnedIsFalse() throws Exception {
+        Board board = boardRepository.saveAndFlush(publicReview("고정 후보 게시글"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, board.getId(), 0));
+        saveTheme(false, true, true, true, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#home-pinned")).isEmpty();
+    }
+
+    @Test
+    void latestProgramsSectionNotRenderedWhenShowProgramsIsFalse() throws Exception {
+        programRepository.saveAndFlush(publicProgram("표시 가능한 프로그램"));
+        saveTheme(true, false, true, true, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-programs")).isEmpty();
+    }
+
+    @Test
+    void latestReviewsSectionNotRenderedWhenShowReviewsIsFalse() throws Exception {
+        boardRepository.saveAndFlush(publicReview("표시 가능한 후기"));
+        saveTheme(true, true, false, true, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-reviews")).isEmpty();
+    }
+
+    @Test
+    void latestNoticesSectionNotRenderedWhenShowNoticesIsFalse() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("표시 가능한 공지").isPublic(true).build());
+        saveTheme(true, true, true, false, true);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-notices")).isEmpty();
+    }
+
+    @Test
+    void latestGallerySectionNotRenderedWhenShowGalleryIsFalse() throws Exception {
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("표시 가능한 갤러리").isPublic(true).build());
+        saveTheme(true, true, true, true, false);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(Jsoup.parse(body).select("#latest-gallery")).isEmpty();
+    }
+
+    // 5개 전부 false도 유효한 설정이다(신규 validation 도입 안 함) - Hero/Popup은 이 설정과 무관하게
+    // 계속 자신의 기존 0건 조건만 따른다(둘 다 데이터를 등록하지 않아 이 테스트에서도 렌더링되지 않음 -
+    // heroIsNotRenderedWhenNoBannersExist/popupOverlayAndAllModalsAreHiddenInServerRenderedMarkupRegardlessOfCount와
+    // 동일한 기존 계약).
+    @Test
+    void allFiveHomeSectionsNotRenderedWhenAllVisibilityFlagsAreFalse() throws Exception {
+        Board pinnedBoard = boardRepository.saveAndFlush(publicReview("고정 후보"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, pinnedBoard.getId(), 0));
+        programRepository.saveAndFlush(publicProgram("프로그램"));
+        boardRepository.saveAndFlush(publicReview("후기"));
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("갤러리").isPublic(true).build());
+        saveTheme(false, false, false, false, false);
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#home-pinned")).isEmpty();
+        assertThat(document.select("#latest-programs")).isEmpty();
+        assertThat(document.select("#latest-reviews")).isEmpty();
+        assertThat(document.select("#latest-notices")).isEmpty();
+        assertThat(document.select("#latest-gallery")).isEmpty();
+    }
+
+    // T8C가 "row 없음 → fallback → DB write 0"을 Service 레벨에서 이미 검증했으므로, 여기서는 그
+    // fallback이 실제 Home 렌더링까지 연결되는 한 단계 더 나아간 계약만 고정한다.
+    @Test
+    void allFiveHomeSectionsRenderWhenSiteThemeRowIsMissingUsingFallbackDefaults() throws Exception {
+        siteThemeSettingRepository.deleteAll();
+        Board pinnedBoard = boardRepository.saveAndFlush(publicReview("고정 후보"));
+        homePinnedContentRepository.saveAndFlush(pin(HomeTargetType.BOARD, pinnedBoard.getId(), 0));
+        programRepository.saveAndFlush(publicProgram("프로그램"));
+        boardRepository.saveAndFlush(publicReview("후기"));
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("공지").isPublic(true).build());
+        boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.GALLERY).title("갤러리").isPublic(true).build());
+
+        String body = mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        Document document = Jsoup.parse(body);
+        assertThat(document.select("#home-pinned")).isNotEmpty();
+        assertThat(document.select("#latest-programs")).isNotEmpty();
+        assertThat(document.select("#latest-reviews")).isNotEmpty();
+        assertThat(document.select("#latest-notices")).isNotEmpty();
+        assertThat(document.select("#latest-gallery")).isNotEmpty();
+        assertThat(siteThemeSettingRepository.count()).isZero();
+    }
+
+    private HomePinnedContent pin(HomeTargetType targetType, Long targetId, int sortOrder) {
+        return HomePinnedContent.builder()
+                .targetType(targetType).targetId(targetId).sortOrder(sortOrder).isVisible(true).build();
+    }
+
+    private Board publicReview(String title) {
+        return Board.builder()
+                .boardType(BoardType.REVIEW).title(title)
+                .isPublic(true).build();
+    }
+
+    private Program publicProgram(String title) {
+        return Program.builder()
+                .programType(ProgramType.COURSE)
+                .title(title)
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build();
+    }
+
+    // P15-T7A: 홈은 사이트명만 title로 쓴다(이전 "모니카영어교육연구소 - 모니카영어교육연구소" 중복 제거).
+    @Test
+    void homeHeadHasSiteNameTitleWithoutDuplicationAndCommonSeoMeta() throws Exception {
+        Document document = Jsoup.parse(mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertPublicHead(document, "모니카영어교육연구소");
     }
 }

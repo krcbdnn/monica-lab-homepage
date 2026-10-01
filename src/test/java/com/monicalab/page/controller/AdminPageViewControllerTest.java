@@ -31,7 +31,7 @@ class AdminPageViewControllerTest extends AbstractIntegrationTest {
     void listWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
         mockMvc.perform(get("/admin/pages"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -55,7 +55,7 @@ class AdminPageViewControllerTest extends AbstractIntegrationTest {
     void editFormWithoutAuthenticationRedirectsToAdminLogin() throws Exception {
         mockMvc.perform(get("/admin/pages/{pageType}/edit", PageType.GREETING))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test

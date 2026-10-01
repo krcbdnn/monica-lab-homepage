@@ -11,27 +11,51 @@
         <a href="/admin/banners/new" class="btn btn-primary">새 배너 등록</a>
     </div>
 
-    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+    <!-- P14-T9C-1: 삭제/전환/순서 변경 결과 inline status(AdminDisplay.showStatus/clearStatus). 기존 목록 전용
+         #errorMessage를 대체한다. -->
+    <div id="admin-list-status" hidden></div>
 
+    <!-- P14-T9C-1: 좁은 화면에서 페이지 전체가 아니라 이 wrapper 안에서만 가로 스크롤된다. -->
+    <div class="table-responsive">
     <table class="table">
         <thead>
         <tr>
-            <th>이미지</th>
-            <th>제목</th>
-            <th>정렬 순서</th>
-            <th>노출 여부</th>
-            <th>관리</th>
+            <th scope="col">이미지</th>
+            <th scope="col">제목</th>
+            <th scope="col">정렬 순서</th>
+            <th scope="col">노출 여부</th>
+            <th scope="col">관리</th>
         </tr>
         </thead>
         <tbody id="banner-list-body"></tbody>
     </table>
+    </div>
 
     <script>
-        var errorMessage = document.querySelector('#errorMessage');
+        var listStatus = document.getElementById('admin-list-status');
+        var COLUMN_COUNT = 5;
+        var ORDER_CHANGE_ERROR = '순서 변경 중 오류가 발생했습니다.';
+        var STATUS_CHANGE_ERROR = '상태 변경 중 오류가 발생했습니다.';
+        var DELETE_ERROR = '삭제 중 오류가 발생했습니다.';
 
-        function showError(message) {
-            errorMessage.textContent = message;
-            errorMessage.style.display = 'block';
+        // P14-T9C-1: 실패 응답의 body가 JSON이 아니어도(세션 만료 HTML 등) fallback 문구로 표시한다.
+        function showResponseError(response, fallback) {
+            return response.json()
+                .catch(function () {
+                    return null;
+                })
+                .then(function (body) {
+                    AdminDisplay.showStatus(listStatus, AdminDisplay.apiErrorMessage(body, fallback), 'error');
+                });
+        }
+
+        // 전환/순서 변경 성공은 다시 그려진 목록 자체가 결과이므로 별도 성공 메시지 없이 목록만 다시 불러온다.
+        function reloadOrShowError(response, fallback) {
+            if (response.ok) {
+                loadBanners();
+                return undefined;
+            }
+            return showResponseError(response, fallback);
         }
 
         function renderRow(banner) {
@@ -64,34 +88,24 @@
             orderButton.className = 'btn btn-sm btn-outline-secondary';
             orderButton.textContent = '순서 변경';
             orderButton.addEventListener('click', function () {
-                errorMessage.style.display = 'none';
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/banners/' + banner.id + '/order', {
                     method: 'PATCH',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({sortOrder: Number(sortOrderInput.value)})
                 })
                     .then(function (response) {
-                        return response.json().then(function (body) {
-                            return {ok: response.ok, body: body};
-                        });
-                    })
-                    .then(function (result) {
-                        if (result.ok && result.body.success) {
-                            loadBanners();
-                        } else {
-                            showError((result.body.error && result.body.error.message)
-                                || '순서 변경 중 오류가 발생했습니다.');
-                        }
+                        return reloadOrShowError(response, ORDER_CHANGE_ERROR);
                     })
                     .catch(function () {
-                        showError('순서 변경 중 오류가 발생했습니다.');
+                        AdminDisplay.showStatus(listStatus, ORDER_CHANGE_ERROR, 'error');
                     });
             });
             sortOrderTd.appendChild(orderButton);
             tr.appendChild(sortOrderTd);
 
             var visibleTd = document.createElement('td');
-            visibleTd.textContent = banner.isVisible ? '노출' : '비노출';
+            visibleTd.appendChild(AdminDisplay.createStateBadge(document, banner.isVisible, '노출', '비노출'));
             tr.appendChild(visibleTd);
 
             var actionTd = document.createElement('td');
@@ -107,12 +121,18 @@
             visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
             visibilityButton.textContent = banner.isVisible ? '비노출로 전환' : '노출로 전환';
             visibilityButton.addEventListener('click', function () {
-                errorMessage.style.display = 'none';
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/banners/' + banner.id + '/visibility', {
                     method: 'PATCH',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({isVisible: !banner.isVisible})
-                }).then(loadBanners);
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, STATUS_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, STATUS_CHANGE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(visibilityButton);
 
@@ -124,8 +144,20 @@
                 if (!window.confirm('삭제하시겠습니까?')) {
                     return;
                 }
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/banners/' + banner.id, {method: 'DELETE'})
-                    .then(loadBanners);
+                    .then(function (response) {
+                        if (response.ok) {
+                            // loadBanners()는 status를 건드리지 않으므로 성공 메시지는 재조회(실패 포함) 후에도 남는다.
+                            loadBanners();
+                            AdminDisplay.showStatus(listStatus, '삭제되었습니다.', 'success');
+                            return undefined;
+                        }
+                        return showResponseError(response, DELETE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, DELETE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(deleteButton);
 
@@ -133,18 +165,29 @@
             return tr;
         }
 
+        // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody만 담당). 응답 실패/JSON 파싱 실패/렌더링 예외
+        // 모두 이전 행을 지우고 오류 행 하나만 남긴다.
         function loadBanners() {
+            var tbody = document.getElementById('banner-list-body');
             AdminFetch.adminFetch('/api/admin/banners')
                 .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
                     return response.json();
                 })
                 .then(function (body) {
                     var banners = body.data;
-                    var tbody = document.getElementById('banner-list-body');
                     tbody.innerHTML = '';
                     banners.forEach(function (banner) {
                         tbody.appendChild(renderRow(banner));
                     });
+                    if (banners.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, COLUMN_COUNT, '등록된 배너가 없습니다.');
+                    }
+                })
+                .catch(function () {
+                    AdminDisplay.renderErrorRow(document, tbody, COLUMN_COUNT, '배너 목록을 불러오지 못했습니다.');
                 });
         }
 

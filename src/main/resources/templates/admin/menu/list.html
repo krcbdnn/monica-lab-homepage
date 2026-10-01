@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#menu-list-content})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>메뉴 관리</title>
+</head>
+<body>
+<div id="menu-list-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>메뉴 관리</h2>
+        <a href="/admin/menus/new" class="btn btn-primary">새 메뉴 등록</a>
+    </div>
+
+    <!-- P14-T9C-1: 삭제/전환/순서 변경 결과 inline status(AdminDisplay.showStatus/clearStatus). 기존 목록 전용
+         #errorMessage를 대체한다. -->
+    <div id="admin-list-status" hidden></div>
+
+    <!-- P14-T9A: table 자체(columns/데이터/hierarchy 표현/action)는 무변경 - 좁은 화면에서 페이지
+         전체가 아니라 이 wrapper 안에서만 가로 스크롤되도록 Bootstrap 기본 유틸리티만 추가한다. -->
+    <div class="table-responsive">
+    <table class="table">
+        <thead>
+        <tr>
+            <th scope="col">메뉴명</th>
+            <th scope="col">상위 메뉴</th>
+            <th scope="col">유형</th>
+            <th scope="col">대상</th>
+            <th scope="col">정렬 순서</th>
+            <th scope="col">공개 여부</th>
+            <th scope="col">관리</th>
+        </tr>
+        </thead>
+        <tbody id="menu-list-body"></tbody>
+    </table>
+    </div>
+
+    <script>
+        var listStatus = document.getElementById('admin-list-status');
+        var COLUMN_COUNT = 7;
+        var ORDER_CHANGE_ERROR = '순서 변경 중 오류가 발생했습니다.';
+        var STATUS_CHANGE_ERROR = '상태 변경 중 오류가 발생했습니다.';
+        var DELETE_ERROR = '삭제 중 오류가 발생했습니다.';
+
+        // P14-T9C-1: 실패 응답의 body가 JSON이 아니어도(세션 만료 HTML 등) fallback 문구로 표시한다. 하위 메뉴가
+        // 있는 메뉴 삭제(409 MENU_HAS_CHILDREN)처럼 서버의 사용자용 message가 있으면 그대로 보여준다.
+        function showResponseError(response, fallback) {
+            return response.json()
+                .catch(function () {
+                    return null;
+                })
+                .then(function (body) {
+                    AdminDisplay.showStatus(listStatus, AdminDisplay.apiErrorMessage(body, fallback), 'error');
+                });
+        }
+
+        // 전환/순서 변경 성공은 다시 그려진 목록 자체가 결과이므로 별도 성공 메시지 없이 목록만 다시 불러온다.
+        function reloadOrShowError(response, fallback) {
+            if (response.ok) {
+                loadMenus();
+                return undefined;
+            }
+            return showResponseError(response, fallback);
+        }
+
+        // P13-T30E(Task B): 목록/폼 표시 전용 매핑. 서버로 보내는 payload나 비교 조건(targetType 등)은
+        // 이 파일 어디에서도 원본 enum 문자열 그대로만 쓰고, 아래 맵들은 오직 사람이 읽는 badge/라벨
+        // 표시에만 쓰인다. 여기 없는 값(향후 추가된 PageType/BoardType/ProgramType 등)을 만나도 화면이
+        // 값을 숨기지 않도록 항상 raw 값으로 fallback한다. admin/page 목록이 이미 쓰고 있는 한글 표현
+        // (인사말/연구소 소개/연혁/오시는 길)을 그대로 재사용한다. P14-T9C-1: BoardType/ProgramType 표시명은
+        // 관리자 공통 AdminDisplay 매핑을 그대로 참조하고, 유형 badge는 색 구분 없이 전부 neutral이다.
+        var TARGET_TYPE_LABELS = {
+            GROUP: '그룹',
+            HOME: '홈',
+            PAGE: '고정 페이지',
+            PROGRAM_LIST: '프로그램',
+            BOARD_LIST: '게시판',
+            INTERNAL_URL: '내부 경로',
+            EXTERNAL_URL: '외부 링크'
+        };
+
+        var TARGET_VALUE_LABELS = {
+            PAGE: {GREETING: '인사말', INTRODUCTION: '연구소 소개', HISTORY: '연혁', LOCATION: '오시는 길'},
+            PROGRAM_LIST: AdminDisplay.PROGRAM_TYPE_LABELS,
+            BOARD_LIST: AdminDisplay.BOARD_TYPE_LABELS
+        };
+        var TARGET_EMPTY_VALUE_LABELS = {PROGRAM_LIST: '전체 프로그램', BOARD_LIST: '전체 게시판'};
+
+        // GROUP은 target_value를 갖지 않는 구조적 요소라 '-', HOME은 target_value가 항상 비어 있어도
+        // targetType 자체가 목적지(메인 화면)를 의미하므로 '홈'으로 명시한다(GROUP과 동일하게
+        // '-' 처리하지 않음).
+        function targetDisplayLabel(menu) {
+            if (menu.targetType === 'GROUP') {
+                return '-';
+            }
+            if (menu.targetType === 'HOME') {
+                return '홈';
+            }
+            if (menu.targetType === 'INTERNAL_URL' || menu.targetType === 'EXTERNAL_URL') {
+                return menu.targetValue;
+            }
+            if (!menu.targetValue) {
+                return TARGET_EMPTY_VALUE_LABELS[menu.targetType] || '전체';
+            }
+            // P14-T9C-1: BOARD_LIST+REVIEW+targetSubvalue는 관리자 공통 표시(강의 후기(정규 강좌)/강의 후기(특강)).
+            if (menu.targetType === 'BOARD_LIST' && menu.targetValue === 'REVIEW' && menu.targetSubvalue) {
+                return AdminDisplay.boardTypeLabel(menu.targetValue, menu.targetSubvalue);
+            }
+            var valueLabels = TARGET_VALUE_LABELS[menu.targetType] || {};
+            return valueLabels[menu.targetValue] || menu.targetValue;
+        }
+
+        function typeBadge(targetType) {
+            return AdminDisplay.createBadge(document, TARGET_TYPE_LABELS[targetType] || targetType, 'neutral');
+        }
+
+        // GROUP도 실제 is_visible 값을 갖고 공개 헤더 렌더링(getPublicMenuTree)에 영향을 주므로,
+        // GROUP 행이라고 해서 이 badge를 생략하지 않는다 - 모든 행이 동일하게 공개/숨김을 보여준다.
+        function visibilityBadge(visible) {
+            return AdminDisplay.createStateBadge(document, visible, '공개', '숨김');
+        }
+
+        // P13-T30A: /api/admin/menus는 이미 "부모 바로 뒤에 그 자식들"이 오는 순서로 응답하므로,
+        // 화면에서 별도로 트리를 다시 조립하지 않고 응답 순서 그대로 렌더링한다. 자식 행(parentId가
+        // 있는 행)만 tr에 admin-menu-row--child 클래스를 부여해 CSS(admin.css)가 들여쓰기+"└" 접두사를
+        // 붙인다 - 2-depth만 존재함이 MenuService에서 이미 보장되므로 depth 계산은 하지 않는다.
+        // "상위 메뉴" 열은 같은 응답 안에서 id -> label을 미리 만들어 둔 맵으로 조회한다(별도 API 호출 없음).
+        function renderRow(menu, labelById) {
+            var tr = document.createElement('tr');
+            if (menu.parentId) {
+                tr.classList.add('admin-menu-row--child');
+            }
+
+            var labelTd = document.createElement('td');
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'admin-menu-row__label';
+            labelSpan.textContent = menu.label;
+            labelTd.appendChild(labelSpan);
+            tr.appendChild(labelTd);
+
+            var parentTd = document.createElement('td');
+            parentTd.textContent = menu.parentId ? (labelById[menu.parentId] || menu.parentId) : '-';
+            tr.appendChild(parentTd);
+
+            var targetTypeTd = document.createElement('td');
+            targetTypeTd.appendChild(typeBadge(menu.targetType));
+            tr.appendChild(targetTypeTd);
+
+            var targetValueTd = document.createElement('td');
+            targetValueTd.textContent = targetDisplayLabel(menu);
+            tr.appendChild(targetValueTd);
+
+            var sortOrderTd = document.createElement('td');
+            var sortOrderInput = document.createElement('input');
+            sortOrderInput.type = 'number';
+            sortOrderInput.min = '0';
+            sortOrderInput.value = menu.sortOrder;
+            sortOrderInput.className = 'form-control form-control-sm d-inline-block me-1';
+            sortOrderInput.style.width = '80px';
+            sortOrderTd.appendChild(sortOrderInput);
+
+            var orderButton = document.createElement('button');
+            orderButton.type = 'button';
+            orderButton.className = 'btn btn-sm btn-outline-secondary';
+            orderButton.textContent = '순서 변경';
+            orderButton.addEventListener('click', function () {
+                AdminDisplay.clearStatus(listStatus);
+                AdminFetch.adminFetch('/api/admin/menus/' + menu.id + '/order', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({sortOrder: Number(sortOrderInput.value)})
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, ORDER_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, ORDER_CHANGE_ERROR, 'error');
+                    });
+            });
+            sortOrderTd.appendChild(orderButton);
+            tr.appendChild(sortOrderTd);
+
+            var visibleTd = document.createElement('td');
+            visibleTd.appendChild(visibilityBadge(menu.visible));
+            tr.appendChild(visibleTd);
+
+            var actionTd = document.createElement('td');
+
+            var editLink = document.createElement('a');
+            editLink.href = '/admin/menus/' + menu.id + '/edit';
+            editLink.className = 'btn btn-sm btn-outline-secondary me-1';
+            editLink.textContent = '수정';
+            actionTd.appendChild(editLink);
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = menu.visible ? '비노출로 전환' : '노출로 전환';
+            visibilityButton.addEventListener('click', function () {
+                AdminDisplay.clearStatus(listStatus);
+                AdminFetch.adminFetch('/api/admin/menus/' + menu.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({visible: !menu.visible})
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, STATUS_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, STATUS_CHANGE_ERROR, 'error');
+                    });
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '삭제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('삭제하시겠습니까?')) {
+                    return;
+                }
+                AdminDisplay.clearStatus(listStatus);
+                AdminFetch.adminFetch('/api/admin/menus/' + menu.id, {method: 'DELETE'})
+                    .then(function (response) {
+                        if (response.ok) {
+                            // loadMenus()는 status를 건드리지 않으므로 성공 메시지는 재조회(실패 포함) 후에도 남는다.
+                            loadMenus();
+                            AdminDisplay.showStatus(listStatus, '삭제되었습니다.', 'success');
+                            return undefined;
+                        }
+                        // 하위 메뉴가 있으면 서버가 409를 반환한다(MENU_HAS_CHILDREN) - 삭제 실패를
+                        // 조용히 넘기지 않고 이유를 보여준다.
+                        return showResponseError(response, DELETE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, DELETE_ERROR, 'error');
+                    });
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody만 담당). 응답 실패/JSON 파싱 실패/렌더링 예외
+        // 모두 이전 행을 지우고 오류 행 하나만 남긴다.
+        function loadMenus() {
+            var tbody = document.getElementById('menu-list-body');
+            AdminFetch.adminFetch('/api/admin/menus')
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function (body) {
+                    var menus = body.data;
+                    var labelById = {};
+                    menus.forEach(function (menu) {
+                        labelById[menu.id] = menu.label;
+                    });
+
+                    tbody.innerHTML = '';
+                    menus.forEach(function (menu) {
+                        tbody.appendChild(renderRow(menu, labelById));
+                    });
+                    if (menus.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, COLUMN_COUNT, '등록된 메뉴가 없습니다.');
+                    }
+                })
+                .catch(function () {
+                    AdminDisplay.renderErrorRow(document, tbody, COLUMN_COUNT, '메뉴 목록을 불러오지 못했습니다.');
+                });
+        }
+
+        loadMenus();
+    </script>
+</div>
+</body>
+</html>

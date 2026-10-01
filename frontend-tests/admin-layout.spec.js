@@ -1,0 +1,400 @@
+// @ts-check
+const { test, expect } = require('@playwright/test');
+const { postAdminLogin, loginViaAdminLoginPage } = require('./support/admin-login');
+
+// P14-T9A: Admin Critical UX Fix(logout UI / active navigation / mobile off-canvas sidebar /
+// responsive table)의 interaction contract를 모은다. 앱은 테스트 실행 전에 별도로 기동되어
+// 있어야 한다(server 자동 기동 없음, 다른 spec과 동일 원칙). CI(.github/workflows/ci.yml)에는
+// 포함되지 않으며 admin-console-errors.spec.js와 동일하게 수동 실행 대상이다.
+
+const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+async function loginAsAdminApi(context, baseURL) {
+  const response = await postAdminLogin(context.request, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD }, {
+    url: `${baseURL}/api/admin/login`,
+  });
+  expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
+}
+
+async function loginAsAdminUi(page) {
+  await loginViaAdminLoginPage(page, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD });
+}
+
+test.describe('P14-T9A: Admin Critical UX Fix', () => {
+  test.skip(!ADMIN_LOGIN_ID || !ADMIN_PASSWORD, 'ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 설정되지 않아 건너뜀');
+
+  test.describe('Active Navigation', () => {
+    test.beforeEach(async ({ context, baseURL }) => {
+      await loginAsAdminApi(context, baseURL);
+    });
+
+    const cases = [
+      { path: '/admin/dashboard', href: '/admin/dashboard' },
+      { path: '/admin/boards', href: '/admin/boards' },
+      { path: '/admin/boards/new', href: '/admin/boards' },
+      { path: '/admin/programs', href: '/admin/programs' },
+      { path: '/admin/menus', href: '/admin/menus' },
+      { path: '/admin/theme', href: '/admin/theme' },
+    ];
+
+    for (const { path, href } of cases) {
+      test(`${path} 진입 시 sidebar에서 "${href}" 항목만 active(.is-active)이다`, async ({ page }) => {
+        await page.goto(path);
+        const activeLinks = page.locator('#admin-sidebar a.is-active');
+        await expect(activeLinks).toHaveCount(1);
+        await expect(activeLinks).toHaveAttribute('href', href);
+      });
+    }
+  });
+
+  test.describe('Desktop(1440px)', () => {
+    test.beforeEach(async ({ context, baseURL, page }) => {
+      await loginAsAdminApi(context, baseURL);
+      await page.setViewportSize({ width: 1440, height: 900 });
+    });
+
+    test('sidebar가 항상 보이고 mobile toggle은 숨겨지며 logout 버튼이 보인다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      await expect(page.locator('#admin-sidebar')).toBeVisible();
+      await expect(page.locator('#admin-sidebar-toggle')).toBeHidden();
+      await expect(page.locator('#admin-logout-button')).toBeVisible();
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+    });
+  });
+
+  // P14-T9F: is-open class는 transition 시작과 동시에 붙으므로, "완전히 열린" 실제 사용자 상태는 drawer의
+  // transition이 끝나(getAnimations() 비어 있음) 화면 왼쪽 끝(left 0)에 자리 잡은 것으로 판정한다(임의 대기 없음).
+  async function expectSidebarFullyOpen(page) {
+    const sidebar = page.locator('#admin-sidebar');
+    await expect(sidebar).toHaveClass(/is-open/);
+    await expect.poll(() => sidebar.evaluate((el) => ({
+      running: el.getAnimations().length,
+      left: Math.round(el.getBoundingClientRect().left),
+    }))).toEqual({ running: 0, left: 0 });
+  }
+
+  // 완전히 열린 drawer 위에서도 hamburger 중심점의 실제 최상위 요소가 toggle 자신이어야 한다.
+  async function expectToggleIsHitTarget(page) {
+    const hit = await page.locator('#admin-sidebar-toggle').evaluate((toggle) => {
+      const rect = toggle.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return top === toggle || toggle.contains(top);
+    });
+    expect(hit, 'hamburger 위치의 hit target이 toggle이 아니다(열린 drawer가 덮음)').toBe(true);
+  }
+
+  test.describe('Mobile Sidebar(375px)', () => {
+    test.beforeEach(async ({ context, baseURL, page }) => {
+      await loginAsAdminApi(context, baseURL);
+      await page.setViewportSize({ width: 375, height: 812 });
+    });
+
+    // P14-T9F: 완전히 열린 drawer에서 hamburger 재클릭(force 없음)으로 닫히고, 메뉴는 header 아래에서 시작한다.
+    test('완전히 열린 sidebar도 hamburger 재클릭으로 닫히고 첫 메뉴는 header 아래에서 시작한다', async ({ page }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await page.goto('/admin/dashboard');
+      await page.waitForLoadState('networkidle');
+
+      const toggle = page.locator('#admin-sidebar-toggle');
+      const sidebar = page.locator('#admin-sidebar');
+
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(sidebar).toBeHidden();
+
+      await toggle.click();
+      await expectSidebarFullyOpen(page);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(sidebar).toBeVisible();
+      await expect(page.locator('#admin-logout-button')).toBeVisible();
+
+      const headerBottom = await page.locator('#admin-header').evaluate((el) => el.getBoundingClientRect().bottom);
+      const firstLinkTop = await sidebar.locator('a').first().evaluate((el) => el.getBoundingClientRect().top);
+      expect(firstLinkTop).toBeGreaterThanOrEqual(headerBottom);
+
+      await expectToggleIsHitTarget(page);
+      await toggle.click();
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(sidebar).toBeHidden();
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+
+    // P14-T9F: drawer 안에 focus가 있을 때 Escape로 닫으면 focus가 toggle로 돌아오고, drawer 밖 focus는 건드리지 않는다.
+    test('drawer 안 focus에서 Escape로 닫으면 focus가 toggle로 돌아온다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      await page.waitForLoadState('networkidle');
+
+      const toggle = page.locator('#admin-sidebar-toggle');
+      const sidebar = page.locator('#admin-sidebar');
+
+      await toggle.click();
+      await expectSidebarFullyOpen(page);
+      await sidebar.locator('a[href="/admin/boards"]').focus();
+      await expect(sidebar.locator('a[href="/admin/boards"]')).toBeFocused();
+
+      await page.keyboard.press('Escape');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(toggle).toBeFocused();
+
+      await toggle.click();
+      await expectSidebarFullyOpen(page);
+      const logout = page.locator('#admin-logout-button');
+      await logout.focus();
+      await page.keyboard.press('Escape');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(logout).toBeFocused();
+    });
+
+    // P14-T9F: 닫힌 drawer의 링크는 화면 밖에 있으므로 Tab 순서에서 빠져야 한다(toggle 다음 Tab이 drawer로 가지 않음).
+    test('닫힌 sidebar의 링크는 키보드 Tab 대상이 아니다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.locator('#admin-sidebar')).toBeHidden();
+      await page.locator('#admin-sidebar-toggle').focus();
+      await page.keyboard.press('Tab');
+      const focusInSidebar = await page.evaluate(() => document.getElementById('admin-sidebar').contains(document.activeElement));
+      expect(focusInSidebar).toBe(false);
+    });
+
+    test('초기 상태는 닫혀 있고, toggle로 열고 닫을 수 있으며 Escape로도 닫힌다', async ({ page }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await page.goto('/admin/dashboard');
+      await page.waitForLoadState('networkidle');
+
+      const toggle = page.locator('#admin-sidebar-toggle');
+      const sidebar = page.locator('#admin-sidebar');
+
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+
+      await toggle.click();
+      await expect(sidebar).toHaveClass(/is-open/);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+      await page.keyboard.press('Escape');
+      await expect(sidebar).not.toHaveClass(/is-open/);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+      // 다시 열고 toggle 재클릭으로도 닫히는지 확인한다.
+      // P14-T9F: transition 초반의 재클릭은 drawer가 아직 toggle을 덮기 전이라 실제 버그를 놓쳤다 - 완전히 열린 뒤 누른다.
+      await toggle.click();
+      await expectSidebarFullyOpen(page);
+      await expectToggleIsHitTarget(page);
+      await toggle.click();
+      await expect(sidebar).not.toHaveClass(/is-open/);
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+
+    test('toggle은 키보드(Tab+Enter)로도 작동한다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      const toggle = page.locator('#admin-sidebar-toggle');
+      await toggle.focus();
+      await expect(toggle).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#admin-sidebar')).toHaveClass(/is-open/);
+    });
+  });
+
+  // P14-T9F: mobile 구간의 다른 폭(흔한 폰 폭 390px, breakpoint 직전 767px)에서도 완전히 열린 drawer를 hamburger로 닫는다.
+  for (const width of [390, 767]) {
+    test.describe(`Mobile Sidebar(${width}px)`, () => {
+      test.beforeEach(async ({ context, baseURL, page }) => {
+        await loginAsAdminApi(context, baseURL);
+        await page.setViewportSize({ width, height: 812 });
+      });
+
+      test('완전히 열린 sidebar를 hamburger 재클릭으로 닫는다', async ({ page }) => {
+        await page.goto('/admin/dashboard');
+        await page.waitForLoadState('networkidle');
+
+        const toggle = page.locator('#admin-sidebar-toggle');
+        const sidebar = page.locator('#admin-sidebar');
+
+        await toggle.click();
+        await expectSidebarFullyOpen(page);
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        await expectToggleIsHitTarget(page);
+        await toggle.click();
+        await expect(sidebar).not.toHaveClass(/is-open/);
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await expect(sidebar).toBeHidden();
+
+        const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflowX).toBeLessThanOrEqual(0);
+      });
+    });
+  }
+
+  // P14-T9F: 768px부터는 desktop 구조 - mobile 전용 header layering/drawer visibility 규칙이 적용되지 않는다.
+  test.describe('Desktop boundary(768px)', () => {
+    test.beforeEach(async ({ context, baseURL, page }) => {
+      await loginAsAdminApi(context, baseURL);
+      await page.setViewportSize({ width: 768, height: 900 });
+    });
+
+    test('toggle은 숨겨지고 sidebar는 static으로 보이며 header는 기본 position이다', async ({ page }) => {
+      await page.goto('/admin/dashboard');
+      await expect(page.locator('#admin-sidebar-toggle')).toBeHidden();
+      const sidebar = page.locator('#admin-sidebar');
+      await expect(sidebar).toBeVisible();
+      await expect(sidebar).toHaveCSS('position', 'static');
+      await expect(sidebar).toHaveCSS('visibility', 'visible');
+      await expect(page.locator('#admin-header')).toHaveCSS('position', 'static');
+      await expect(page.locator('#admin-header')).toHaveCSS('z-index', 'auto');
+
+      const headerBottom = await page.locator('#admin-header').evaluate((el) => el.getBoundingClientRect().bottom);
+      const sidebarBox = await sidebar.boundingBox();
+      expect(sidebarBox.x).toBe(0);
+      expect(sidebarBox.y).toBeGreaterThanOrEqual(headerBottom);
+    });
+  });
+
+  test.describe('Responsive Table(375px)', () => {
+    test.beforeEach(async ({ context, baseURL, page }) => {
+      await loginAsAdminApi(context, baseURL);
+      await page.setViewportSize({ width: 375, height: 812 });
+    });
+
+    // P14-T9C-1: File/Banner/Popup 목록도 .table-responsive wrapper를 갖는다.
+    for (const path of ['/admin/boards', '/admin/programs', '/admin/menus', '/admin/files', '/admin/banners', '/admin/popups']) {
+      test(`${path}: 페이지 전체는 가로 overflow가 없고 table-responsive wrapper가 존재한다`, async ({ page }) => {
+        const pageErrors = [];
+        page.on('pageerror', (error) => pageErrors.push(error.message));
+
+        await page.goto(path);
+        await page.waitForLoadState('networkidle');
+
+        await expect(page.locator('.table-responsive table')).toHaveCount(1);
+
+        const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflowX).toBeLessThanOrEqual(0);
+        expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+      });
+    }
+  });
+
+  // P14-T9C-1: T9B에서 넘어온 HomePinned responsive. 고정 목록/검색 결과(추가 패널) 두 표 모두 wrapper 안에서만
+  // 가로 스크롤되고, 좁은 폭에서도 action 버튼 텍스트가 한 글자씩 세로로 끊기지 않는다(white-space: nowrap).
+  test.describe('P14-T9C-1: Responsive Table(375px) - HomePinned / action buttons', () => {
+    test.beforeEach(async ({ context, baseURL, page }) => {
+      await loginAsAdminApi(context, baseURL);
+      await page.setViewportSize({ width: 375, height: 812 });
+    });
+
+    test('/admin/home-pinned-contents: 두 table 모두 table-responsive 안에 있고 페이지 전체 가로 overflow가 없다', async ({ page }) => {
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      await page.goto('/admin/home-pinned-contents');
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('table.table')).toHaveCount(2);
+      await expect(page.locator('.table-responsive > table.table')).toHaveCount(2);
+
+      // 검색 결과 표가 있는 추가 패널을 연 상태에서도 overflow가 없어야 한다.
+      await page.locator('#toggleAddPanel').click();
+      await page.waitForLoadState('networkidle');
+
+      const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflowX).toBeLessThanOrEqual(0);
+
+      // 열이 많은 고정 목록에서도 제목 등 한글 셀이 한 글자 폭으로 쪼개지지 않도록 공백에서만 줄바꿈한다
+      // (부족한 폭은 wrapper 가로 스크롤).
+      const wordBreaks = await page.locator('.table-responsive > table.table > tbody > tr > td')
+        .evaluateAll((cells) => [...new Set(cells.map((cell) => getComputedStyle(cell).wordBreak))]);
+      expect(wordBreaks).toEqual(['keep-all']);
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+    });
+
+    for (const path of ['/admin/boards', '/admin/programs', '/admin/home-pinned-contents']) {
+      test(`${path}: 표 안의 action 버튼은 줄바꿈 없이 한 줄로 표시된다`, async ({ page }) => {
+        await page.goto(path);
+        await page.waitForLoadState('networkidle');
+        const buttons = page.locator('.table td .btn');
+        const count = await buttons.count();
+        test.skip(count === 0, `${path}에 표시된 행이 없어 action 버튼을 확인할 수 없음`);
+        const metrics = await buttons.evaluateAll((elements) => elements.map((element) => {
+          const style = getComputedStyle(element);
+          return {
+            whiteSpace: style.whiteSpace,
+            height: element.getBoundingClientRect().height,
+            lineHeight: parseFloat(style.lineHeight),
+          };
+        }));
+        for (const metric of metrics) {
+          expect(metric.whiteSpace).toBe('nowrap');
+          // 한 줄 높이(line-height + padding/border)를 넘으면 텍스트가 여러 줄로 끊긴 것이다.
+          expect(metric.height).toBeLessThan(metric.lineHeight * 2);
+        }
+      });
+    }
+  });
+
+  test.describe('Logout', () => {
+    test('로그인 → 로그아웃 → /admin/login 이동 → 이후 protected URL 재접근 시 차단', async ({ page }) => {
+      await loginAsAdminUi(page);
+      await page.goto('/admin/dashboard');
+
+      const logoutButton = page.locator('#admin-logout-button');
+      await expect(logoutButton).toBeVisible();
+      await logoutButton.click();
+
+      await page.waitForURL('**/admin/login');
+      expect(page.url()).toContain('/admin/login');
+
+      // 세션이 실제로 무효화됐는지 - 다시 보호된 화면에 직접 접근하면 기존 인증 정책(로그인 화면으로
+      // redirect)이 그대로 적용되어야 한다.
+      await page.goto('/admin/dashboard');
+      await page.waitForURL('**/admin/login');
+      expect(page.url()).toContain('/admin/login');
+    });
+
+    test('로그아웃 API가 실패하면 로그인 화면으로 이동하지 않고 버튼이 다시 활성화되며 실패를 알린다', async ({ page }) => {
+      await loginAsAdminUi(page);
+      await page.goto('/admin/dashboard');
+
+      await page.route('**/api/admin/logout', (route) => route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, data: null, error: { code: 'INTERNAL_SERVER_ERROR', message: '서버 오류가 발생했습니다.' } }),
+      }));
+
+      const pageErrors = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+
+      let dialogMessage = null;
+      page.once('dialog', async (dialog) => {
+        dialogMessage = dialog.message();
+        await dialog.accept();
+      });
+
+      const logoutButton = page.locator('#admin-logout-button');
+      await logoutButton.click();
+      await page.waitForTimeout(500);
+
+      expect(page.url()).not.toContain('/admin/login');
+      await expect(logoutButton).toBeEnabled();
+      expect(dialogMessage).toBeTruthy();
+      expect(pageErrors, `pageerror: ${pageErrors.join(', ')}`).toEqual([]);
+
+      // 이 테스트가 세션을 실제로 종료시키지 않았으므로(logout API를 가로챘을 뿐) 다음 테스트를 위한
+      // 별도 정리는 불필요하다 - 각 테스트가 독립적으로 로그인한다.
+    });
+  });
+});

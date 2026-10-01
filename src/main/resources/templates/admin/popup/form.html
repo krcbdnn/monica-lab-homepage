@@ -5,51 +5,73 @@
     <title>팝업 등록/수정</title>
 </head>
 <body>
-<div id="popup-form-content" style="max-width: 800px;">
-    <h3 class="mb-4">팝업 등록/수정</h3>
-    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+<!-- P14-T9D: 공통 form composition(.admin-form 800px, 등록/수정 heading, 필수 표시, role=alert 오류, [취소][저장]). -->
+<div id="popup-form-content" class="admin-form">
+    <h3 id="admin-form-heading" class="mb-2">팝업 등록</h3>
+    <p class="admin-form-required-note">* 표시는 필수 입력입니다.</p>
+    <div id="errorMessage" class="alert alert-danger" role="alert" tabindex="-1" style="display: none;"></div>
     <form id="popupForm">
         <input type="hidden" id="popupId" name="popupId">
         <div class="mb-3">
-            <label for="title" class="form-label">제목</label>
+            <label for="title" class="form-label">제목<span class="admin-required" aria-hidden="true">*</span></label>
             <input type="text" class="form-control" id="title" name="title" required maxlength="100">
         </div>
         <div class="mb-3">
             <label for="content" class="form-label">내용</label>
             <textarea class="form-control" id="content" name="content" rows="8"></textarea>
+            <!-- P13-T40: CKEditor 네이티브 balloon toolbar가 아니라 admin 폼 자체의 일반 버튼으로
+                 이미지 크기를 조절한다(41.4.2 predefined build 유지, 공식 ImageResize 미사용). -->
+            <div id="content-resize-controls" class="mt-2" hidden>
+                <span class="form-text me-2">이미지 크기</span>
+                <div class="btn-group btn-group-sm" role="group" aria-label="이미지 크기 조절">
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="25">25%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="50">50%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="75">75%</button>
+                    <button type="button" class="btn btn-outline-secondary" data-resize-value="">원본</button>
+                </div>
+            </div>
         </div>
         <div class="mb-3">
-            <label for="startDate" class="form-label">시작일</label>
+            <label for="startDate" class="form-label">시작일<span class="admin-required" aria-hidden="true">*</span></label>
             <input type="datetime-local" class="form-control" id="startDate" name="startDate" required>
         </div>
         <div class="mb-3">
-            <label for="endDate" class="form-label">종료일</label>
+            <label for="endDate" class="form-label">종료일<span class="admin-required" aria-hidden="true">*</span></label>
             <input type="datetime-local" class="form-control" id="endDate" name="endDate" required>
+            <div class="form-text">시작일은 종료일보다 늦을 수 없습니다.</div>
         </div>
         <div class="form-check mb-3">
             <input type="checkbox" class="form-check-input" id="isVisible" name="isVisible">
             <label for="isVisible" class="form-check-label">노출</label>
         </div>
-        <button type="submit" class="btn btn-primary">저장</button>
+        <div class="admin-form-actions">
+            <a id="admin-form-cancel-link" href="/admin/popups" class="btn btn-outline-secondary">취소</a>
+            <button type="submit" id="saveButton" class="btn btn-primary">저장</button>
+        </div>
     </form>
-</div>
 
 <script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
 <script src="/js/admin/common-fetch.js"></script>
+<script src="/js/admin/ckeditor-resize-plugin.js"></script>
+<script src="/js/admin/ckeditor-config.js"></script>
 <script src="/js/admin/ckeditor-upload-adapter.js"></script>
 <script>
     var contentEditor = null;
     var errorMessage = document.querySelector('#errorMessage');
+    var saveButton = document.querySelector('#saveButton');
 
+    // P14-T9D: 오류는 role=alert 영역에 표시하고 focus해 긴 form 아래쪽에서 저장해도 바로 보이게 한다.
     function showError(message) {
         errorMessage.textContent = message;
         errorMessage.style.display = 'block';
+        errorMessage.focus();
     }
 
-    var editorReady = ClassicEditor.create(document.querySelector('#content'))
+    var editorReady = ClassicEditor.create(document.querySelector('#content'), AdminCkeditorConfig.EDITOR_CONFIG)
         .then(function (editor) {
             contentEditor = editor;
             AdminCkeditorUploadAdapter.installUploadAdapterPlugin(editor, AdminFetch.adminFetch);
+            AdminCkeditorResizePlugin.bindResizeControls(editor, document.querySelector('#content-resize-controls'));
             return editor;
         })
         .catch(function (error) {
@@ -62,6 +84,12 @@
     }
 
     var editingPopupId = extractPopupIdFromPath();
+
+    // P14-T9D: 등록/수정이 같은 template이므로 수정 모드에서만 heading을 바꾸고 문서 title도 같은 의미로 맞춘다.
+    if (editingPopupId) {
+        document.querySelector('#admin-form-heading').textContent = '팝업 수정';
+    }
+    document.title = document.querySelector('#admin-form-heading').textContent;
 
     if (editingPopupId) {
         document.querySelector('#popupId').value = editingPopupId;
@@ -104,6 +132,8 @@
         var url = popupId ? '/api/admin/popups/' + popupId : '/api/admin/popups';
         var method = popupId ? 'PUT' : 'POST';
 
+        // P14-T9D: 요청 중 중복 submit 방지 - 실패하면 다시 활성화하고, 성공하면 이동하므로 비활성 상태로 둔다.
+        saveButton.disabled = true;
         AdminFetch.adminFetch(url, {
             method: method,
             headers: {'Content-Type': 'application/json'},
@@ -118,14 +148,17 @@
                 if (result.ok && result.body.success) {
                     window.location.href = '/admin/popups';
                 } else {
+                    saveButton.disabled = false;
                     showError((result.body.error && result.body.error.message)
                         || '저장 중 오류가 발생했습니다.');
                 }
             })
             .catch(function () {
+                saveButton.disabled = false;
                 showError('저장 중 오류가 발생했습니다.');
             });
     });
 </script>
+</div>
 </body>
 </html>

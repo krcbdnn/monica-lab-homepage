@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * ERD.md/API.md 계약(boardType, title, content, thumbnail, attachment,
- * viewCount, isPublic 필드)이 Entity/DTO 매핑에 그대로 반영되는지
+ * isPublic 필드)이 Entity/DTO 매핑에 그대로 반영되는지
  * 확인하는 정적/단위 테스트(TASK.md P6-T1 DoD 기준).
  */
 class BoardResponseMappingTest {
@@ -21,7 +21,6 @@ class BoardResponseMappingTest {
                 .content("<p>내용</p>")
                 .thumbnail("/api/files/1")
                 .attachment("/api/files/2")
-                .viewCount(3)
                 .isPublic(true)
                 .build();
 
@@ -36,7 +35,6 @@ class BoardResponseMappingTest {
         assertThat(response.content()).isEqualTo("<p>내용</p>");
         assertThat(response.thumbnail()).isEqualTo("/api/files/1");
         assertThat(response.attachment()).isEqualTo("/api/files/2");
-        assertThat(response.viewCount()).isEqualTo(3);
         assertThat(response.isPublic()).isTrue();
     }
 }

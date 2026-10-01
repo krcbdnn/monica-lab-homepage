@@ -2,6 +2,7 @@ package com.monicalab.board.dto;
 
 import com.monicalab.board.entity.Board;
 import com.monicalab.board.entity.BoardType;
+import com.monicalab.program.entity.ProgramType;
 import java.time.LocalDateTime;
 
 public record BoardResponse(
@@ -11,8 +12,8 @@ public record BoardResponse(
         String content,
         String thumbnail,
         String attachment,
-        int viewCount,
         boolean isPublic,
+        ProgramType programType,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
@@ -24,8 +25,8 @@ public record BoardResponse(
                 board.getContent(),
                 board.getThumbnail(),
                 board.getAttachment(),
-                board.getViewCount(),
                 board.isPublic(),
+                board.getProgramType(),
                 board.getCreatedAt(),
                 board.getUpdatedAt());
     }

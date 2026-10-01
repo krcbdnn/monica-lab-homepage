@@ -8,7 +8,8 @@
 <div id="board-list-content">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2>게시판 관리</h2>
-        <a href="/admin/boards/new" class="btn btn-primary">새 게시글 등록</a>
+        <!-- P14-T9D: JS가 현재 목록 state의 filter + keyword만 실어 재작성한다(page 제외, JS 없으면 이 fallback). -->
+        <a id="admin-list-new-link" href="/admin/boards/new" class="btn btn-primary">새 게시글 등록</a>
     </div>
 
     <form id="searchForm" class="row g-2 mb-4">
@@ -18,6 +19,7 @@
                 <option value="NOTICE">공지사항</option>
                 <option value="GALLERY">갤러리</option>
                 <option value="ARCHIVE">자료실</option>
+                <option value="REVIEW">강의 후기</option>
             </select>
         </div>
         <div class="col-auto">
@@ -28,26 +30,48 @@
         </div>
     </form>
 
+    <!-- P14-T9C-1: 삭제/전환 결과 inline status(AdminDisplay.showStatus/clearStatus). -->
+    <div id="admin-list-status" hidden></div>
+
+    <!-- P14-T9A: table 자체(columns/데이터/action)는 무변경 - 375px 등 좁은 화면에서 페이지 전체가
+         가로로 밀리지 않고 이 wrapper 안에서만 가로 스크롤되도록 Bootstrap 기본 유틸리티만 추가한다. -->
+    <div class="table-responsive">
     <table class="table">
         <thead>
         <tr>
-            <th>제목</th>
-            <th>구분</th>
-            <th>조회수</th>
-            <th>공개 여부</th>
-            <th>관리</th>
+            <th scope="col">제목</th>
+            <th scope="col">구분</th>
+            <th scope="col">공개 여부</th>
+            <th scope="col">관리</th>
         </tr>
         </thead>
         <tbody id="board-list-body"></tbody>
     </table>
+    </div>
 
-    <nav id="pagination" class="d-flex gap-2">
+    <nav id="pagination" class="d-flex gap-2" aria-label="페이지 이동">
         <button id="prev-page" type="button" class="btn btn-outline-secondary" disabled>이전</button>
         <button id="next-page" type="button" class="btn btn-outline-secondary" disabled>다음</button>
     </nav>
 
+    <script src="/js/admin/admin-list-state.js"></script>
     <script>
         var state = {page: 0, size: 20, boardType: '', keyword: ''};
+        var listStatus = document.getElementById('admin-list-status');
+        var COLUMN_COUNT = 4;
+        // P14-T9C-2: 가장 최근 loadBoards() 요청 번호. 늦게 도착한 이전 응답이 최신 state/URL/DOM을 덮지 못하게 한다.
+        var loadSeq = 0;
+
+        // P14-T9C-2: URL query(boardType/keyword/page, 0-based)가 목록 state의 canonical 표현이다. 진입 시 한 번
+        // allowlist 검증을 거쳐 state와 검색 UI를 복원하고, 이후 URL 반영(replaceState)은 loadBoards()가 맡는다.
+        var initialState = AdminListState.readState(AdminListState.BOARD_LIST, window.location.search);
+        state.boardType = initialState.boardType;
+        state.keyword = initialState.keyword;
+        state.page = initialState.page;
+        document.getElementById('searchBoardType').value = state.boardType;
+        document.getElementById('searchKeyword').value = state.keyword;
+        var STATUS_CHANGE_ERROR = '상태 변경 중 오류가 발생했습니다.';
+        var DELETE_ERROR = '삭제 중 오류가 발생했습니다.';
 
         function buildQuery() {
             var params = new URLSearchParams();
@@ -62,29 +86,58 @@
             return params.toString();
         }
 
+        // P14-T9C-1: 실패 응답의 body가 JSON이 아니어도(세션 만료 HTML 등) fallback 문구로 표시한다.
+        function showResponseError(response, fallback) {
+            return response.json()
+                .catch(function () {
+                    return null;
+                })
+                .then(function (body) {
+                    AdminDisplay.showStatus(listStatus, AdminDisplay.apiErrorMessage(body, fallback), 'error');
+                });
+        }
+
+        // 전환 성공은 다시 그려진 badge 자체가 결과이므로 별도 성공 메시지 없이 목록만 다시 불러온다.
+        function reloadOrShowError(response, fallback) {
+            if (response.ok) {
+                loadBoards();
+                return undefined;
+            }
+            return showResponseError(response, fallback);
+        }
+
+        function emptyMessage() {
+            return state.boardType || state.keyword ? '조건에 맞는 게시글이 없습니다.' : '등록된 게시글이 없습니다.';
+        }
+
         function renderRow(board) {
             var tr = document.createElement('tr');
 
+            // P14-T10: 제목을 읽기 전용 관리자 상세로 연결한다(링크 텍스트는 계속 textContent로 escape 유지).
+            // P14-T9C-2: 상세 URL에 현재 목록 state(allowlist된 canonical query)를 실어 "목록으로"가 이 상태로 돌아오게 한다.
             var titleTd = document.createElement('td');
-            titleTd.textContent = board.title;
+            var titleLink = document.createElement('a');
+            titleLink.href = AdminListState.detailHref(AdminListState.BOARD_LIST, board.id, state);
+            titleLink.textContent = board.title;
+            titleTd.appendChild(titleLink);
             tr.appendChild(titleTd);
 
+            // P14-T9C-1: 구분은 관리자 공통 표시명의 neutral badge다. REVIEW만 subtype을 괄호로 덧붙인다
+            // (강의 후기 / 강의 후기(정규 강좌) / 강의 후기(특강)).
             var typeTd = document.createElement('td');
-            typeTd.textContent = board.boardType;
+            typeTd.appendChild(AdminDisplay.createBadge(document,
+                AdminDisplay.boardTypeLabel(board.boardType, board.programType), 'neutral'));
             tr.appendChild(typeTd);
 
-            var viewCountTd = document.createElement('td');
-            viewCountTd.textContent = board.viewCount;
-            tr.appendChild(viewCountTd);
-
             var publicTd = document.createElement('td');
-            publicTd.textContent = board.isPublic ? '공개' : '비공개';
+            publicTd.appendChild(AdminDisplay.createStateBadge(document, board.isPublic, '공개', '비공개'));
             tr.appendChild(publicTd);
 
             var actionTd = document.createElement('td');
 
             var editLink = document.createElement('a');
-            editLink.href = '/admin/boards/' + board.id + '/edit';
+            // P14-T9D: 수정 → 저장/취소 후 같은 목록 상태로 돌아오도록 filter + keyword + page를 싣는다.
+            editLink.href = AdminListState.editHref(AdminListState.BOARD_LIST, board.id, state);
             editLink.className = 'btn btn-sm btn-outline-secondary me-1';
             editLink.textContent = '수정';
             actionTd.appendChild(editLink);
@@ -94,11 +147,18 @@
             visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
             visibilityButton.textContent = board.isPublic ? '비공개로 전환' : '공개로 전환';
             visibilityButton.addEventListener('click', function () {
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/boards/' + board.id + '/visibility', {
                     method: 'PATCH',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({isPublic: !board.isPublic})
-                }).then(loadBoards);
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, STATUS_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, STATUS_CHANGE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(visibilityButton);
 
@@ -110,8 +170,20 @@
                 if (!window.confirm('삭제하시겠습니까?')) {
                     return;
                 }
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/boards/' + board.id, {method: 'DELETE'})
-                    .then(loadBoards);
+                    .then(function (response) {
+                        if (response.ok) {
+                            // loadBoards()는 status를 건드리지 않으므로 성공 메시지는 재조회(실패 포함) 후에도 남는다.
+                            loadBoards();
+                            AdminDisplay.showStatus(listStatus, '삭제되었습니다.', 'success');
+                            return undefined;
+                        }
+                        return showResponseError(response, DELETE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, DELETE_ERROR, 'error');
+                    });
             });
             actionTd.appendChild(deleteButton);
 
@@ -119,21 +191,55 @@
             return tr;
         }
 
-        function loadBoards() {
+        // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody/pagination만 담당). 응답 실패/JSON 파싱 실패/
+        // 렌더링 예외 모두 이전 행을 지우고 오류 행 하나만 남긴다.
+        // P14-T9C-2: 요청 직전에 URL을 요청 state로 맞추고(replaceState, 재조회 없음), 정상 응답이면
+        // AdminListState.resolvePage로 범위 밖 page(데이터 있음 → 마지막 유효 page로 1회 재조회)와 전체 0건(page 0으로
+        // 정규화, 재조회 없음)을 처리한다. 조회 실패는 page를 바꾸지 않고 T9C-1 오류 행만 표시한다. fallbackDone은
+        // 이미 1회 fallback한 재조회임을 뜻한다(무한 재조회 방지).
+        function loadBoards(fallbackDone) {
+            var tbody = document.getElementById('board-list-body');
+            var seq = ++loadSeq;
+            var requestedPage = state.page;
+            AdminListState.replaceUrl(window, AdminListState.BOARD_LIST, state);
+            document.getElementById('admin-list-new-link').href = AdminListState.newHref(AdminListState.BOARD_LIST, state);
             AdminFetch.adminFetch('/api/admin/boards?' + buildQuery())
                 .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
                     return response.json();
                 })
                 .then(function (body) {
+                    if (seq !== loadSeq) {
+                        return;
+                    }
                     var data = body.data;
-                    var tbody = document.getElementById('board-list-body');
+                    var resolved = AdminListState.resolvePage(requestedPage, data, !fallbackDone);
+                    state.page = resolved.page;
+                    if (resolved.reload) {
+                        loadBoards(true);
+                        return;
+                    }
+                    AdminListState.replaceUrl(window, AdminListState.BOARD_LIST, state);
+
                     tbody.innerHTML = '';
                     data.content.forEach(function (board) {
                         tbody.appendChild(renderRow(board));
                     });
+                    if (data.content.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, COLUMN_COUNT, emptyMessage());
+                    }
 
-                    document.getElementById('prev-page').disabled = data.page <= 0;
+                    document.getElementById('prev-page').disabled = state.page <= 0;
                     document.getElementById('next-page').disabled = data.last;
+                })
+                .catch(function () {
+                    if (seq !== loadSeq) {
+                        return;
+                    }
+                    AdminDisplay.renderErrorRow(document, tbody, COLUMN_COUNT, '게시글 목록을 불러오지 못했습니다.');
+                    document.getElementById('next-page').disabled = true;
                 });
         }
 
@@ -142,6 +248,17 @@
             state.page = 0;
             state.boardType = document.getElementById('searchBoardType').value;
             state.keyword = document.getElementById('searchKeyword').value;
+            loadBoards();
+        });
+
+        // P13-T31: boardType select는 검색 버튼을 누르지 않아도 변경 즉시 재조회한다. keyword는
+        // 여기서 다시 읽지 않는다 - 검색어 자체의 실행(state.keyword 갱신)은 여전히 검색 버튼(위
+        // submit 핸들러)을 통해서만 커밋된다. 그래서 검색창에 아직 확정하지 않은 글자가 남아 있어도
+        // select만 바꾸면 마지막으로 "검색"을 눌렀을 때의 keyword를 그대로 유지한 채 boardType만
+        // 갈아끼워 재조회한다(의도된 동작).
+        document.getElementById('searchBoardType').addEventListener('change', function () {
+            state.page = 0;
+            state.boardType = document.getElementById('searchBoardType').value;
             loadBoards();
         });
 

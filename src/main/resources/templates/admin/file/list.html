@@ -10,34 +10,53 @@
         <h2>파일 관리</h2>
     </div>
 
-    <div id="errorMessage" class="alert alert-danger" style="display: none;"></div>
+    <!-- P14-T9C-1: 삭제 결과 inline status(AdminDisplay.showStatus/clearStatus). 기존 목록 전용 #errorMessage를 대체한다. -->
+    <div id="admin-list-status" hidden></div>
 
+    <!-- P14-T9C-1: 좁은 화면에서 페이지 전체가 아니라 이 wrapper 안에서만 가로 스크롤된다. -->
+    <div class="table-responsive">
     <table class="table">
         <thead>
         <tr>
-            <th>파일명</th>
-            <th>유형</th>
-            <th>콘텐츠 타입</th>
-            <th>크기</th>
-            <th>업로드일</th>
-            <th>관리</th>
+            <th scope="col">파일명</th>
+            <th scope="col">유형</th>
+            <th scope="col">콘텐츠 타입</th>
+            <th scope="col">크기</th>
+            <th scope="col">업로드일</th>
+            <th scope="col">관리</th>
         </tr>
         </thead>
         <tbody id="file-list-body"></tbody>
     </table>
+    </div>
 
-    <nav id="pagination" class="d-flex gap-2">
+    <nav id="pagination" class="d-flex gap-2" aria-label="페이지 이동">
         <button id="prev-page" type="button" class="btn btn-outline-secondary" disabled>이전</button>
         <button id="next-page" type="button" class="btn btn-outline-secondary" disabled>다음</button>
     </nav>
 
+    <script src="/js/admin/admin-list-state.js"></script>
     <script>
-        var errorMessage = document.querySelector('#errorMessage');
+        var listStatus = document.getElementById('admin-list-status');
         var state = {page: 0, size: 20};
+        var COLUMN_COUNT = 6;
+        // P14-T9C-2: 가장 최근 loadFiles() 요청 번호. 늦게 도착한 이전 응답이 최신 state/URL/DOM을 덮지 못하게 한다.
+        var loadSeq = 0;
 
-        function showError(message) {
-            errorMessage.textContent = message;
-            errorMessage.style.display = 'block';
+        // P14-T9C-2: URL의 page(0-based)가 목록 state의 canonical 표현이다(필터 없음). 진입 시 한 번 검증해 복원하고,
+        // 이후 URL 반영(replaceState)은 loadFiles()가 맡는다.
+        state.page = AdminListState.readState(AdminListState.FILE_LIST, window.location.search).page;
+        var DELETE_ERROR = '삭제 중 오류가 발생했습니다.';
+
+        // P14-T9C-1: 실패 응답의 body가 JSON이 아니어도(세션 만료 HTML 등) fallback 문구로 표시한다.
+        function showResponseError(response, fallback) {
+            return response.json()
+                .catch(function () {
+                    return null;
+                })
+                .then(function (body) {
+                    AdminDisplay.showStatus(listStatus, AdminDisplay.apiErrorMessage(body, fallback), 'error');
+                });
         }
 
         function formatFileSize(bytes) {
@@ -64,12 +83,15 @@
             var nameLink = document.createElement('a');
             nameLink.href = file.url;
             nameLink.target = '_blank';
+            nameLink.rel = 'noopener noreferrer';
             nameLink.textContent = file.originalName;
             nameTd.appendChild(nameLink);
             tr.appendChild(nameTd);
 
+            // P14-T9C-1: 유형은 관리자 공통 표시명(이미지/첨부파일)의 neutral badge. MIME/날짜는 원래 값 그대로다.
             var typeTd = document.createElement('td');
-            typeTd.textContent = file.fileType;
+            typeTd.appendChild(AdminDisplay.createBadge(document,
+                AdminDisplay.label(AdminDisplay.FILE_TYPE_LABELS, file.fileType), 'neutral'));
             tr.appendChild(typeTd);
 
             var contentTypeTd = document.createElement('td');
@@ -94,20 +116,19 @@
                 if (!window.confirm('삭제하시겠습니까?')) {
                     return;
                 }
-                errorMessage.style.display = 'none';
+                AdminDisplay.clearStatus(listStatus);
                 AdminFetch.adminFetch('/api/admin/files/' + file.id, {method: 'DELETE'})
                     .then(function (response) {
                         if (response.ok) {
                             loadFiles();
-                            return;
+                            // loadFiles()는 status를 건드리지 않으므로 성공 메시지는 재조회(실패 포함) 후에도 남는다.
+                            AdminDisplay.showStatus(listStatus, '삭제되었습니다.', 'success');
+                            return undefined;
                         }
-                        return response.json().then(function (body) {
-                            showError((body.error && body.error.message)
-                                || '삭제 중 오류가 발생했습니다.');
-                        });
+                        return showResponseError(response, DELETE_ERROR);
                     })
                     .catch(function () {
-                        showError('삭제 중 오류가 발생했습니다.');
+                        AdminDisplay.showStatus(listStatus, DELETE_ERROR, 'error');
                     });
             });
             actionTd.appendChild(deleteButton);
@@ -116,21 +137,54 @@
             return tr;
         }
 
-        function loadFiles() {
+        // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody/pagination만 담당). 응답 실패/JSON 파싱 실패/
+        // 렌더링 예외 모두 이전 행을 지우고 오류 행 하나만 남긴다.
+        // P14-T9C-2: 요청 직전에 URL을 요청 state로 맞추고(replaceState, 재조회 없음), 정상 응답이면
+        // AdminListState.resolvePage로 범위 밖 page(데이터 있음 → 마지막 유효 page로 1회 재조회)와 전체 0건(page 0으로
+        // 정규화, 재조회 없음)을 처리한다. 조회 실패는 page를 바꾸지 않고 T9C-1 오류 행만 표시한다. fallbackDone은
+        // 이미 1회 fallback한 재조회임을 뜻한다(무한 재조회 방지).
+        function loadFiles(fallbackDone) {
+            var tbody = document.getElementById('file-list-body');
+            var seq = ++loadSeq;
+            var requestedPage = state.page;
+            AdminListState.replaceUrl(window, AdminListState.FILE_LIST, state);
             AdminFetch.adminFetch('/api/admin/files?' + buildQuery())
                 .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
                     return response.json();
                 })
                 .then(function (body) {
+                    if (seq !== loadSeq) {
+                        return;
+                    }
                     var data = body.data;
-                    var tbody = document.getElementById('file-list-body');
+                    var resolved = AdminListState.resolvePage(requestedPage, data, !fallbackDone);
+                    state.page = resolved.page;
+                    if (resolved.reload) {
+                        loadFiles(true);
+                        return;
+                    }
+                    AdminListState.replaceUrl(window, AdminListState.FILE_LIST, state);
+
                     tbody.innerHTML = '';
                     data.content.forEach(function (file) {
                         tbody.appendChild(renderRow(file));
                     });
+                    if (data.content.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, COLUMN_COUNT, '등록된 파일이 없습니다.');
+                    }
 
-                    document.getElementById('prev-page').disabled = data.page <= 0;
+                    document.getElementById('prev-page').disabled = state.page <= 0;
                     document.getElementById('next-page').disabled = data.last;
+                })
+                .catch(function () {
+                    if (seq !== loadSeq) {
+                        return;
+                    }
+                    AdminDisplay.renderErrorRow(document, tbody, COLUMN_COUNT, '파일 목록을 불러오지 못했습니다.');
+                    document.getElementById('next-page').disabled = true;
                 });
         }
 

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html th:replace="~{admin/layout/default :: layout(~{::#home-pinned-content-list})}" lang="ko"
+      xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>메인 고정 콘텐츠 관리</title>
+</head>
+<body>
+<div id="home-pinned-content-list">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>메인 고정 콘텐츠 관리</h2>
+        <button type="button" id="toggleAddPanel" class="btn btn-primary">새 고정 추가</button>
+    </div>
+
+    <!-- P14-T9C-1: 고정 해제/추가/전환/순서 변경 결과 inline status(AdminDisplay.showStatus/clearStatus). 기존
+         목록 전용 #errorMessage를 대체한다. -->
+    <div id="admin-list-status" hidden></div>
+
+    <!-- admin/layout/default.html에는 Bootstrap JS 번들이 로드되어 있지 않아 data-bs-toggle 기반
+         modal을 쓸 수 없다. 대신 순수 JS로 hidden 속성만 토글하는 inline 패널로 구현한다. -->
+    <div id="addPanel" class="card mb-4" hidden>
+        <div class="card-body">
+            <h5 class="card-title">새 고정 추가</h5>
+            <form id="searchForm" class="row g-2 mb-3">
+                <div class="col-auto">
+                    <select id="searchTargetType" class="form-select">
+                        <option value="BOARD">게시글(Board)</option>
+                        <option value="PROGRAM">프로그램(Program)</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <select id="searchSubtype" class="form-select"></select>
+                </div>
+                <div class="col-auto">
+                    <input type="text" id="searchKeyword" class="form-control" placeholder="검색어">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-outline-primary">검색</button>
+                </div>
+            </form>
+            <!-- P14-T9C-1: 검색 결과 표도 좁은 화면에서 이 wrapper 안에서만 가로 스크롤된다. -->
+            <div class="table-responsive">
+            <table class="table">
+                <thead>
+                <tr>
+                    <th scope="col">제목</th>
+                    <th scope="col">공개 여부</th>
+                    <th scope="col">정렬 순서</th>
+                    <th scope="col">관리</th>
+                </tr>
+                </thead>
+                <tbody id="search-result-body"></tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- P14-T9C-1: T9B에서 T9C로 넘긴 responsive wrapper. 좁은 화면에서 페이지 전체가 아니라 이 안에서만
+         가로 스크롤된다. -->
+    <div class="table-responsive">
+    <table class="table">
+        <thead>
+        <tr>
+            <th scope="col">타입</th>
+            <th scope="col">제목</th>
+            <th scope="col">정렬 순서</th>
+            <th scope="col">노출 여부</th>
+            <th scope="col">원본 상태</th>
+            <th scope="col">관리</th>
+        </tr>
+        </thead>
+        <tbody id="pinned-list-body"></tbody>
+    </table>
+    </div>
+
+    <script>
+        var listStatus = document.getElementById('admin-list-status');
+        var pinnedKeys = {};
+        var nextSortOrder = 0;
+        var PINNED_COLUMN_COUNT = 6;
+        var SEARCH_COLUMN_COUNT = 4;
+        var ORDER_CHANGE_ERROR = '순서 변경 중 오류가 발생했습니다.';
+        var STATUS_CHANGE_ERROR = '상태 변경 중 오류가 발생했습니다.';
+        var UNPIN_ERROR = '고정 해제 중 오류가 발생했습니다.';
+        var PIN_ERROR = '고정 추가 중 오류가 발생했습니다.';
+
+        // P14-T9C-1: 실패 응답의 body가 JSON이 아니어도(세션 만료 HTML 등) fallback 문구로 표시한다.
+        function showResponseError(response, fallback) {
+            return response.json()
+                .catch(function () {
+                    return null;
+                })
+                .then(function (body) {
+                    AdminDisplay.showStatus(listStatus, AdminDisplay.apiErrorMessage(body, fallback), 'error');
+                });
+        }
+
+        // 전환/순서 변경 성공은 다시 그려진 목록 자체가 결과이므로 별도 성공 메시지 없이 목록만 다시 불러온다.
+        function reloadOrShowError(response, fallback) {
+            if (response.ok) {
+                loadPinned();
+                return undefined;
+            }
+            return showResponseError(response, fallback);
+        }
+
+        function pinKey(targetType, targetId) {
+            return targetType + ':' + targetId;
+        }
+
+        // P14-T9C-1: 타입은 분류라 neutral, 노출 여부는 positive/muted, 원본 상태는 공개(positive) 외에는
+        // 메인에 노출되지 않아 관리자 확인이 필요한 상태(비공개/원본 없음)라 attention이다.
+        var TARGET_TYPE_LABELS = {BOARD: '게시글', PROGRAM: '프로그램'};
+
+        function targetTypeBadge(targetType) {
+            return AdminDisplay.createBadge(document, TARGET_TYPE_LABELS[targetType] || targetType, 'neutral');
+        }
+
+        function visibilityBadge(visible) {
+            return AdminDisplay.createStateBadge(document, visible, '노출', '숨김');
+        }
+
+        var SOURCE_STATUS_LABELS = {
+            PUBLIC: {text: '공개', tone: 'positive'},
+            PRIVATE: {text: '비공개', tone: 'attention'},
+            DELETED: {text: '원본 없음', tone: 'attention'}
+        };
+
+        function sourceStatusBadge(sourceStatus) {
+            var info = SOURCE_STATUS_LABELS[sourceStatus] || {text: sourceStatus, tone: 'neutral'};
+            return AdminDisplay.createBadge(document, info.text, info.tone);
+        }
+
+        function renderPinnedRow(pin) {
+            var tr = document.createElement('tr');
+
+            var typeTd = document.createElement('td');
+            typeTd.appendChild(targetTypeBadge(pin.targetType));
+            tr.appendChild(typeTd);
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = pin.sourceTitle || '(원본 없음)';
+            tr.appendChild(titleTd);
+
+            var sortOrderTd = document.createElement('td');
+            var sortOrderInput = document.createElement('input');
+            sortOrderInput.type = 'number';
+            sortOrderInput.min = '0';
+            sortOrderInput.value = pin.sortOrder;
+            sortOrderInput.className = 'form-control form-control-sm d-inline-block me-1';
+            sortOrderInput.style.width = '80px';
+            sortOrderTd.appendChild(sortOrderInput);
+
+            var orderButton = document.createElement('button');
+            orderButton.type = 'button';
+            orderButton.className = 'btn btn-sm btn-outline-secondary';
+            orderButton.textContent = '순서 변경';
+            orderButton.addEventListener('click', function () {
+                AdminDisplay.clearStatus(listStatus);
+                AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id + '/order', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({sortOrder: Number(sortOrderInput.value)})
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, ORDER_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, ORDER_CHANGE_ERROR, 'error');
+                    });
+            });
+            sortOrderTd.appendChild(orderButton);
+            tr.appendChild(sortOrderTd);
+
+            var visibleTd = document.createElement('td');
+            visibleTd.appendChild(visibilityBadge(pin.visible));
+            tr.appendChild(visibleTd);
+
+            var sourceStatusTd = document.createElement('td');
+            sourceStatusTd.appendChild(sourceStatusBadge(pin.sourceStatus));
+            tr.appendChild(sourceStatusTd);
+
+            var actionTd = document.createElement('td');
+
+            if (pin.sourceUrl) {
+                var sourceLink = document.createElement('a');
+                sourceLink.href = pin.sourceUrl;
+                sourceLink.className = 'btn btn-sm btn-outline-secondary me-1';
+                sourceLink.textContent = '원본으로 이동';
+                actionTd.appendChild(sourceLink);
+            }
+
+            var visibilityButton = document.createElement('button');
+            visibilityButton.type = 'button';
+            visibilityButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            visibilityButton.textContent = pin.visible ? '숨김으로 전환' : '노출로 전환';
+            visibilityButton.addEventListener('click', function () {
+                AdminDisplay.clearStatus(listStatus);
+                AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id + '/visibility', {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({visible: !pin.visible})
+                })
+                    .then(function (response) {
+                        return reloadOrShowError(response, STATUS_CHANGE_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, STATUS_CHANGE_ERROR, 'error');
+                    });
+            });
+            actionTd.appendChild(visibilityButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-outline-danger';
+            deleteButton.textContent = '고정 해제';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('고정을 해제하시겠습니까?')) {
+                    return;
+                }
+                AdminDisplay.clearStatus(listStatus);
+                AdminFetch.adminFetch('/api/admin/home-pinned-contents/' + pin.id, {method: 'DELETE'})
+                    .then(function (response) {
+                        if (response.ok) {
+                            // loadPinned()는 status를 건드리지 않으므로 성공 메시지는 재조회(실패 포함) 후에도 남는다.
+                            loadPinned();
+                            AdminDisplay.showStatus(listStatus, '고정이 해제되었습니다.', 'success');
+                            return undefined;
+                        }
+                        return showResponseError(response, UNPIN_ERROR);
+                    })
+                    .catch(function () {
+                        AdminDisplay.showStatus(listStatus, UNPIN_ERROR, 'error');
+                    });
+            });
+            actionTd.appendChild(deleteButton);
+
+            tr.appendChild(actionTd);
+            return tr;
+        }
+
+        // P14-T9C-1: 이 함수는 inline status를 바꾸지 않는다(tbody만 담당). 응답 실패/JSON 파싱 실패/렌더링 예외
+        // 모두 이전 행을 지우고 오류 행 하나만 남긴다.
+        function loadPinned() {
+            var tbody = document.getElementById('pinned-list-body');
+            AdminFetch.adminFetch('/api/admin/home-pinned-contents')
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function (body) {
+                    var pins = body.data;
+                    pinnedKeys = {};
+                    var maxSortOrder = -1;
+                    pins.forEach(function (pin) {
+                        pinnedKeys[pinKey(pin.targetType, pin.targetId)] = true;
+                        if (pin.sortOrder > maxSortOrder) {
+                            maxSortOrder = pin.sortOrder;
+                        }
+                    });
+                    nextSortOrder = maxSortOrder + 1;
+
+                    tbody.innerHTML = '';
+                    pins.forEach(function (pin) {
+                        tbody.appendChild(renderPinnedRow(pin));
+                    });
+                    if (pins.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, PINNED_COLUMN_COUNT, '고정된 콘텐츠가 없습니다.');
+                    }
+                })
+                .catch(function () {
+                    AdminDisplay.renderErrorRow(document, tbody, PINNED_COLUMN_COUNT, '고정 콘텐츠 목록을 불러오지 못했습니다.');
+                });
+        }
+
+        // 검색 결과의 "이미 고정됨" 판정은 클라이언트 측 방어일 뿐이다 - 서버는 create() 요청마다
+        // existsByTargetTypeAndTargetId + DB UNIQUE 제약으로 항상 별도로 다시 검증한다.
+        function renderSearchResultRow(item, targetType) {
+            var tr = document.createElement('tr');
+
+            var titleTd = document.createElement('td');
+            titleTd.textContent = item.title;
+            tr.appendChild(titleTd);
+
+            var publicTd = document.createElement('td');
+            publicTd.appendChild(AdminDisplay.createStateBadge(document, item.isPublic, '공개', '비공개'));
+            tr.appendChild(publicTd);
+
+            var sortOrderTd = document.createElement('td');
+            var sortOrderInput = document.createElement('input');
+            sortOrderInput.type = 'number';
+            sortOrderInput.min = '0';
+            sortOrderInput.value = nextSortOrder;
+            sortOrderInput.className = 'form-control form-control-sm';
+            sortOrderInput.style.width = '80px';
+            sortOrderTd.appendChild(sortOrderInput);
+            tr.appendChild(sortOrderTd);
+
+            var actionTd = document.createElement('td');
+            var alreadyPinned = !!pinnedKeys[pinKey(targetType, item.id)];
+
+            var addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'btn btn-sm btn-primary';
+            if (alreadyPinned) {
+                addButton.textContent = '이미 고정됨';
+                addButton.disabled = true;
+            } else if (!item.isPublic) {
+                addButton.textContent = '비공개(고정 불가)';
+                addButton.disabled = true;
+            } else {
+                addButton.textContent = '고정';
+                addButton.addEventListener('click', function () {
+                    AdminDisplay.clearStatus(listStatus);
+                    AdminFetch.adminFetch('/api/admin/home-pinned-contents', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            targetType: targetType,
+                            targetId: item.id,
+                            sortOrder: Number(sortOrderInput.value)
+                        })
+                    })
+                        .then(function (response) {
+                            if (response.ok) {
+                                loadPinned();
+                                runSearch();
+                                return undefined;
+                            }
+                            return showResponseError(response, PIN_ERROR);
+                        })
+                        .catch(function () {
+                            AdminDisplay.showStatus(listStatus, PIN_ERROR, 'error');
+                        });
+                });
+            }
+            actionTd.appendChild(addButton);
+            tr.appendChild(actionTd);
+
+            return tr;
+        }
+
+        // P13-T38C: 대상 유형(targetType)/소분류(subtype)는 검색 버튼 없이 select 변경 즉시
+        // 재조회한다(admin/board/list.html, admin/program/list.html의 P13-T31 패턴과 동일). keyword는
+        // 오직 searchForm의 submit(검색 버튼/Enter)을 통해서만 searchState.keyword로 커밋되며, change
+        // 리스너는 searchState.keyword를 절대 다시 읽지 않는다 - 입력 중이지만 아직 확정하지 않은
+        // keyword가 select 변경만으로 의도치 않게 검색 조건에 섞여 들어가는 것을 막기 위함이다.
+        var searchState = {targetType: 'BOARD', subtype: '', keyword: ''};
+
+        var SUBTYPE_OPTIONS = {
+            BOARD: [
+                {value: '', label: '전체'},
+                {value: 'NOTICE', label: '공지사항'},
+                {value: 'GALLERY', label: '갤러리'},
+                {value: 'ARCHIVE', label: '자료실'},
+                {value: 'REVIEW', label: '강의 후기'}
+            ],
+            PROGRAM: [
+                {value: '', label: '전체'},
+                {value: 'COURSE', label: '정규 강좌'},
+                {value: 'SPECIAL', label: '특강'}
+            ]
+        };
+
+        function populateSubtypeOptions() {
+            var select = document.getElementById('searchSubtype');
+            select.innerHTML = '';
+            SUBTYPE_OPTIONS[searchState.targetType].forEach(function (opt) {
+                var option = document.createElement('option');
+                option.value = opt.value;
+                option.textContent = opt.label;
+                select.appendChild(option);
+            });
+        }
+
+        // BOARD 요청에는 programType을, PROGRAM 요청에는 boardType을 절대 포함하지 않는다 - targetType에
+        // 따라 둘 중 정확히 하나의 파라미터 이름으로만 subtype 값을 실어 보낸다(서로 다른 도메인 enum을
+        // 하나의 신규 subtype 파라미터로 합치지 않고, 기존 boardType/programType 계약을 그대로 재사용).
+        function buildSearchParams() {
+            var params = new URLSearchParams();
+            params.set('size', 20);
+            if (searchState.keyword) {
+                params.set('keyword', searchState.keyword);
+            }
+            if (searchState.subtype) {
+                if (searchState.targetType === 'BOARD') {
+                    params.set('boardType', searchState.subtype);
+                } else {
+                    params.set('programType', searchState.subtype);
+                }
+            }
+            return params.toString();
+        }
+
+        function runSearch() {
+            var url = (searchState.targetType === 'BOARD' ? '/api/admin/boards?' : '/api/admin/programs?')
+                + buildSearchParams();
+
+            var tbody = document.getElementById('search-result-body');
+            AdminFetch.adminFetch(url)
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(function (body) {
+                    tbody.innerHTML = '';
+                    body.data.content.forEach(function (item) {
+                        tbody.appendChild(renderSearchResultRow(item, searchState.targetType));
+                    });
+                    if (body.data.content.length === 0) {
+                        AdminDisplay.renderEmptyRow(document, tbody, SEARCH_COLUMN_COUNT, '검색 결과가 없습니다.');
+                    }
+                })
+                .catch(function () {
+                    AdminDisplay.renderErrorRow(document, tbody, SEARCH_COLUMN_COUNT, '검색 결과를 불러오지 못했습니다.');
+                });
+        }
+
+        document.getElementById('toggleAddPanel').addEventListener('click', function () {
+            var panel = document.getElementById('addPanel');
+            panel.hidden = !panel.hidden;
+            if (!panel.hidden) {
+                runSearch();
+            }
+        });
+
+        document.getElementById('searchForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            searchState.targetType = document.getElementById('searchTargetType').value;
+            searchState.subtype = document.getElementById('searchSubtype').value;
+            searchState.keyword = document.getElementById('searchKeyword').value;
+            runSearch();
+        });
+
+        document.getElementById('searchTargetType').addEventListener('change', function () {
+            searchState.targetType = this.value;
+            searchState.subtype = '';
+            populateSubtypeOptions();
+            runSearch();
+        });
+
+        document.getElementById('searchSubtype').addEventListener('change', function () {
+            searchState.subtype = this.value;
+            runSearch();
+        });
+
+        populateSubtypeOptions();
+        loadPinned();
+    </script>
+</div>
+</body>
+</html>
