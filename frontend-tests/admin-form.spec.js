@@ -4,6 +4,7 @@
 // Banner 이미지 사전 확인, 등록/수정 heading, 375px overflow). 앱은 테스트 실행 전에 별도로 기동되어 있어야 한다(CI 밖 수동
 // 실행 대상, admin-layout.spec.js와 동일). 실제 데이터는 runId 제목으로 만들고 tracker로 정리한다.
 const { test, expect, observeNavigatingCreate } = require('./support/e2e-fixtures');
+const { postAdminLogin } = require('./support/admin-login');
 
 const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -12,8 +13,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const EXPECTED_MOCK_NETWORK_ERROR = /^Failed to load resource: the server responded with a status of 500 \(Internal Server Error\)$/;
 
 async function loginAsAdmin(context, baseURL) {
-  const response = await context.request.post(`${baseURL}/api/admin/login`, {
-    data: { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD },
+  const response = await postAdminLogin(context.request, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD }, {
+    url: `${baseURL}/api/admin/login`,
   });
   expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
 }

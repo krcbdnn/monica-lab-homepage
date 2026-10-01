@@ -1,5 +1,6 @@
 // @ts-check
 const { test, expect, createTracker, observeCreate, observeNavigatingCreate } = require('./support/e2e-fixtures');
+const { postAdminLogin, loginViaAdminLoginPage } = require('./support/admin-login');
 
 // 여러 describe 블록(Hero 배너 캐러셀, 긴 제목 오버플로우, 메인 카드 폭)이 공통으로 쓰는
 // 관리자 로그인/CSRF 헬퍼. 각 블록은 이 두 함수만 공유하고, 무엇을 생성/삭제할지는 각자 정의한다.
@@ -7,8 +8,8 @@ const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 async function loginAsAdmin(context, baseURL) {
-  const response = await context.request.post(`${baseURL}/api/admin/login`, {
-    data: { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD },
+  const response = await postAdminLogin(context.request, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD }, {
+    url: `${baseURL}/api/admin/login`,
   });
   expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
 }
@@ -788,7 +789,7 @@ test.describe('P14-T8D: Home Section Visibility', () => {
   let originalSetting;
 
   test.beforeAll(async ({ browser, baseURL }) => {
-    adminContext = await browser.newContext();
+    adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
     await loginAsAdmin(adminContext, baseURL);
     const res = await adminContext.request.get(`${baseURL}/api/admin/theme`);
     expect(res.ok()).toBeTruthy();
@@ -927,10 +928,7 @@ test.describe('P14-T8D: Home Section Visibility', () => {
   test('관리자 화면에서 체크박스를 끄고 저장하면 Public Home에 즉시 반영된다', async ({ page, baseURL }) => {
     await setTheme(baseURL, ALL_VISIBLE);
 
-    await page.goto('/admin/login');
-    await page.fill('input[name=loginId]', ADMIN_LOGIN_ID);
-    await page.fill('input[name=password]', ADMIN_PASSWORD);
-    await Promise.all([page.waitForNavigation(), page.click('button[type=submit]')]);
+    await loginViaAdminLoginPage(page, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD });
 
     await page.goto('/admin/theme');
     await page.waitForLoadState('networkidle');
@@ -4402,7 +4400,7 @@ test.describe('P13-T37: Header/Menu Active(Current Page)', () => {
   test.beforeAll(async ({ browser, baseURL }) => {
     // 생성 전에 만들어 두어, 중간에 실패해도 이미 만든 리소스가 tracker에 남아 afterAll이 정리한다.
     resourceCleanup = createTracker({ baseURL });
-    const context = await browser.newContext();
+    const context = await browser.newContext({ ignoreHTTPSErrors: true });
     await loginAsAdmin(context, baseURL);
     xsrfToken = await getXsrfToken(context);
     const runId = Date.now();

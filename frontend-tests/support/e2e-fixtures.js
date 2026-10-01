@@ -14,9 +14,11 @@
 const crypto = require('crypto');
 const base = require('@playwright/test');
 const { KINDS, createResourceTracker } = require('./resource-tracker');
+const { postAdminLogin } = require('./admin-login');
 
 const DELETE_TIMEOUT_MS = 10000;
-const FIXTURE_TIMEOUT_MS = 60000;
+// P15-T3: cleanup 로그인이 Nginx rate limit(429)으로 12초 단위 대기할 수 있어 fixture 자체 timeout에 여유를 둔다.
+const FIXTURE_TIMEOUT_MS = 180000;
 
 // 기존 spec의 loginAsAdmin/getXsrfToken과 같은 계약: POST /api/admin/login 후 XSRF-TOKEN 쿠키 값을
 // X-XSRF-TOKEN 헤더로 보낸다. 세션은 첫 DELETE 시점에 한 번만 만들고 dispose()에서 폐기한다.
@@ -27,9 +29,9 @@ function createCleanupSession({ baseURL, loginId = process.env.ADMIN_LOGIN_ID, p
     if (!loginId || !password) {
       throw new Error('cleanup 로그인 불가 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수가 필요합니다');
     }
-    const context = await base.request.newContext({ baseURL, timeout: DELETE_TIMEOUT_MS });
+    const context = await base.request.newContext({ baseURL, timeout: DELETE_TIMEOUT_MS, ignoreHTTPSErrors: true });
     try {
-      const login = await context.post('/api/admin/login', { data: { loginId, password } });
+      const login = await postAdminLogin(context, { loginId, password });
       if (!login.ok()) {
         throw new Error(`cleanup 로그인 실패: HTTP ${login.status()}`);
       }

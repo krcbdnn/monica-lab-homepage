@@ -4,13 +4,14 @@
 // admin-layout.spec.js와 동일하게 CI 밖 수동 실행 대상). 실제 pagination 통합은 Board 21건 dataset 1개(beforeAll 1회 생성,
 // tracker로 정리)로만 검증하고, File/race처럼 client state machine이 핵심인 경우는 page.route mock을 쓴다.
 const { test, expect, createTracker } = require('./support/e2e-fixtures');
+const { postAdminLogin } = require('./support/admin-login');
 
 const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 async function loginAsAdmin(context, baseURL) {
-  const response = await context.request.post(`${baseURL}/api/admin/login`, {
-    data: { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD },
+  const response = await postAdminLogin(context.request, { loginId: ADMIN_LOGIN_ID, password: ADMIN_PASSWORD }, {
+    url: `${baseURL}/api/admin/login`,
   });
   expect(response.ok(), '관리자 로그인 실패 - ADMIN_LOGIN_ID/ADMIN_PASSWORD 환경변수를 확인하세요').toBeTruthy();
 }
@@ -84,7 +85,7 @@ test.describe('P14-T9C-2: Admin List State & Navigation', () => {
     test.beforeAll(async ({ browser, baseURL }) => {
       test.setTimeout(120000);
       resourceCleanup = createTracker({ baseURL });
-      const context = await browser.newContext();
+      const context = await browser.newContext({ ignoreHTTPSErrors: true });
       try {
         await loginAsAdmin(context, baseURL);
         const xsrfToken = await getXsrfToken(context);

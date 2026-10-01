@@ -76,7 +76,7 @@ Response 200: `data`는 `id`, `loginId`, `name`, `role`을 가진 관리자 정�
 
 Errors: `INVALID_INPUT_VALUE`(400), `AUTHENTICATION_FAILED`(401). 로그인 실패 사유로 계정 존재 여부를 노출하지 않는다.
 
-로그인 시도 제한(**PLANNED** — Phase 15, P15-T3): 운영 Nginx가 이 경로(정확히 `/api/admin/login`)에만 클라이언트 IP 기준 요청 제한(`5r/m`, `burst=5`, `nodelay`)을 적용한다. 제한을 넘으면 애플리케이션까지 전달되지 않고 Nginx가 HTTP `429`로 응답하며, 이 응답 본문은 `ApiResponse` JSON이 아니다(ErrorCode 카탈로그에 추가하지 않는다). 관리자 로그인 화면은 `429` 상태를 별도로 판별해 "로그인 시도가 너무 많다"는 안내를 표시한다. 애플리케이션 레벨 rate limiter/CAPTCHA는 두지 않는다. 현재(CURRENT)는 제한이 없다.
+로그인 시도 제한(**CURRENT** — Phase 15, P15-T3): 운영 Nginx가 이 경로(정확히 `/api/admin/login`)에만 클라이언트 IP 기준 요청 제한(`5r/m`, `burst=5`, `nodelay`)을 적용한다. 제한을 넘으면 애플리케이션까지 전달되지 않고 Nginx가 HTTP `429`로 응답하며, 이 응답 본문은 `ApiResponse` JSON이 아니다(ErrorCode 카탈로그에 추가하지 않는다). 관리자 로그인 화면은 `429` 상태를 별도로 판별해 "로그인 시도가 너무 많다"는 안내를 표시한다. 애플리케이션 레벨 rate limiter/CAPTCHA는 두지 않는다. Nginx를 거치지 않는 실행(`./gradlew bootRun`, 테스트용 MockMvc 등)에는 제한이 없다.
 
 ## POST /api/admin/logout
 

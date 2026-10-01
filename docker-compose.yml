@@ -56,9 +56,13 @@ services:
     image: nginx:1.27-alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./src/main/resources/static:/usr/share/nginx/html:ro
+      # P15-T3: 인증서/개인키(fullchain.pem, privkey.pem)와 ACME webroot는 host ./data 아래(gitignore)에만 둔다.
+      - ./data/certs:/etc/nginx/certs:ro
+      - ./data/certbot:/var/www/certbot:ro
     depends_on:
       app:
         condition: service_healthy

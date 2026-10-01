@@ -56,12 +56,20 @@
             body: JSON.stringify({ loginId: loginId, password: password })
         })
             .then(function (response) {
+                // P15-T3: 로그인 시도 제한 초과는 Nginx가 직접 429로 응답한다(본문은 ApiResponse JSON이 아니다).
+                // JSON 파싱보다 먼저 status로 판별한다.
+                if (response.status === 429) {
+                    return { rateLimited: true };
+                }
                 return response.json().then(function (body) {
                     return { ok: response.ok, body: body };
                 });
             })
             .then(function (result) {
-                if (result.ok && result.body.success) {
+                if (result.rateLimited) {
+                    errorMessage.textContent = '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.';
+                    errorMessage.style.display = 'block';
+                } else if (result.ok && result.body.success) {
                     window.location.href = '/admin/dashboard';
                 } else {
                     errorMessage.textContent = '아이디 또는 비밀번호가 올바르지 않습니다.';
