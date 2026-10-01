@@ -1,5 +1,6 @@
 package com.monicalab.board.controller;
 
+import static com.monicalab.support.PublicHeadAssertions.assertPublicHead;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -866,5 +867,22 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         }
         boardRepository.saveAll(boards);
         boardRepository.flush();
+    }
+
+    // P15-T7A: 게시판 목록/상세는 기존 "제목 - 사이트명" title 형식을 유지하고 공통 SEO meta를 갖는다.
+    @Test
+    void listAndDetailHeadKeepTitleFormatAndHaveCommonSeoMeta() throws Exception {
+        Long id = boardRepository.saveAndFlush(Board.builder()
+                .boardType(BoardType.NOTICE).title("SEO 메타 확인 공지").content("내용").isPublic(true).build()).getId();
+
+        Document list = Jsoup.parse(mockMvc.perform(get("/boards"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertPublicHead(list, "게시판 - 모니카영어교육연구소");
+
+        Document detail = Jsoup.parse(mockMvc.perform(get("/boards/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertPublicHead(detail, "SEO 메타 확인 공지 - 모니카영어교육연구소");
     }
 }

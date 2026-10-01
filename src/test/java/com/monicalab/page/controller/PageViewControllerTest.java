@@ -1,5 +1,6 @@
 package com.monicalab.page.controller;
 
+import static com.monicalab.support.PublicHeadAssertions.assertPublicHead;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -69,5 +70,17 @@ class PageViewControllerTest extends AbstractIntegrationTest {
         assertThat(document.select("#page-detail-content > h1.detail-title").text()).isEqualTo("인사말 h1 제목");
         assertThat(document.select("#page-detail-content .ckeditor-content h2").text()).isEqualTo("본문 소제목");
         assertThat(document.select("#page-detail-content .ckeditor-content p").text()).isEqualTo("인사말 본문");
+    }
+
+    // P15-T7A: 기관소개 페이지는 기존 "페이지 제목 - 사이트명" title 형식을 유지하고 공통 SEO meta를 갖는다.
+    @Test
+    void detailHeadKeepsTitleFormatAndHasCommonSeoMeta() throws Exception {
+        String pageTitle = pageRepository.findByPageType(PageType.INTRODUCTION).orElseThrow().getTitle();
+
+        Document document = Jsoup.parse(mockMvc.perform(get("/pages/{type}", PageType.INTRODUCTION))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+
+        assertPublicHead(document, pageTitle + " - 모니카영어교육연구소");
     }
 }

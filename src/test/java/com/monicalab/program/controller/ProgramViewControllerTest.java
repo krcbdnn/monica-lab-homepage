@@ -1,5 +1,6 @@
 package com.monicalab.program.controller;
 
+import static com.monicalab.support.PublicHeadAssertions.assertPublicHead;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -600,5 +601,27 @@ class ProgramViewControllerTest extends AbstractIntegrationTest {
         }
         programRepository.saveAll(programs);
         programRepository.flush();
+    }
+
+    // P15-T7A: 프로그램 목록/상세는 기존 "제목 - 사이트명" title 형식을 유지하고 공통 SEO meta를 갖는다.
+    @Test
+    void listAndDetailHeadKeepTitleFormatAndHaveCommonSeoMeta() throws Exception {
+        Long id = programRepository.saveAndFlush(Program.builder()
+                .programType(ProgramType.COURSE)
+                .title("SEO 메타 확인 프로그램")
+                .content("내용")
+                .recruitStatus(RecruitStatus.OPEN)
+                .isPublic(true)
+                .build()).getId();
+
+        Document list = Jsoup.parse(mockMvc.perform(get("/programs"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertPublicHead(list, "프로그램 - 모니카영어교육연구소");
+
+        Document detail = Jsoup.parse(mockMvc.perform(get("/programs/{id}", id))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertPublicHead(detail, "SEO 메타 확인 프로그램 - 모니카영어교육연구소");
     }
 }
