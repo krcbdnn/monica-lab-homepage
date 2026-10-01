@@ -2026,21 +2026,40 @@ P15-T0 ─┬─ P15-T1 ─┬──────────── P15-T5
 
 Release QA는 GIT_WORKFLOW.md §6-1 1단계("Phase 15 완료 → 전체 QA(JUnit / Node / Playwright / 로컬 HTTPS smoke)")를 develop 최신 HEAD에서 수행한 결과를 이 절에 기록한다(별도 문서 없음). QA 계약 자체는 GIT_WORKFLOW §6-1, ARCHITECTURE "운영 배포 계약(Phase 15)"(로컬 HTTPS/Playwright 실행 방식), OPERATIONS §16-4(smoke 항목)를 따르며 이 절에서 새로 정의하지 않는다. P15-T7B와 운영 도메인/서버/인증서/외부 smoke는 Release QA 대상이 아니다(Launch).
 
-- 상태: **NOT RUN**(아래 결과는 실행 전 placeholder이며, 실행 후 실제 결과로 교체한다)
+- 최종 상태: **PASS**(2차). 1차는 host Wi-Fi 네트워크 상태 변경과 같은 시점에 browser navigation이 중단되어 전체 Playwright 1건이 실패했으므로 **BLOCKED**로 판정했다(PASS 조건 "Playwright 0 failed" 미충족). 1차 직후 자동 재실행이나 코드/테스트/설정 수정 없이 종료했고, 승인 후 같은 SHA에서 전체 suite를 재실행한 2차에서 353 passed / 0 failed를 별도로 확인했다. Gradle/Node/freshness/HTTPS smoke는 같은 SHA에서 1차에 성공한 결과를 공통 증거로 재사용했다.
 
-| 항목 | 결과 |
+#### 1차 실행(공통 검증 포함)
+
+| 항목 | 결과(1차) |
 |---|---|
-| 실행 날짜 | NOT RUN |
-| 대상 develop commit SHA | NOT RUN |
-| `./gradlew clean build` | NOT RUN |
-| Node test(`node --test src/test/js/**/*.test.js`) | NOT RUN |
-| Docker/app image freshness(실행 중 app image·nginx 정적 리소스가 대상 commit과 일치) | NOT RUN |
-| HTTPS smoke(로컬 `https://localhost:8443`) | NOT RUN |
-| 전체 Playwright(HTTPS, `--workers=1`) | NOT RUN |
-| DB baseline(실행 전/후 테이블별 row 수, `.env` 관리자 비밀번호 로그인) | NOT RUN |
-| Docker health(app/db healthy, nginx running) | NOT RUN |
-| 발견된 blocker | NOT RUN |
-| Release QA 최종 판정 | NOT RUN |
+| 실행 날짜 | 2026-10-01(Playwright 10:31:09Z~11:44:18Z) |
+| 대상 develop commit SHA | `1132369f42d6bd7da3f1dea39ce15d102a24570a` |
+| `./gradlew clean build` | BUILD SUCCESSFUL(2m 8s), JUnit 72개 class 792건 - failures/errors/skipped 0 |
+| Node test(`node --test src/test/js/**/*.test.js`) | 539 pass / 0 fail / 0 cancelled·skipped·todo(1.19s, Node v24.16.0) |
+| Docker/app image freshness(실행 중 app image·nginx 정적 리소스가 대상 commit과 일치) | 일치 - rebuild 없음. 실행 중 app의 `app.jar`를 복사해 비교: `BOOT-INF/classes` resource가 `src/main/resources`와 동일(줄바꿈 정규화), class 170개가 같은 HEAD의 `clean build` 결과와 byte 동일, `BOOT-INF/lib` 목록 동일. `13d0f2e..HEAD`에 image 입력(src/gradle/Dockerfile) 변경 0. nginx 정적은 working tree bind mount, 로드된 `nginx -T` 설정 = `nginx/nginx.conf` |
+| HTTPS smoke(로컬 `https://localhost:8443`) | 통과 - `:8088` 301 → https, ACME 404, 자체서명 cert(CN=localhost), `/` 200 + HSTS `max-age=31536000` + `Server: nginx`(버전 없음), robots 3줄, `/`·`/boards`·`/programs`·`/pages/INTRODUCTION`·`/css/home.css`(HSTS·`X-Static-Served-By`)·`/actuator/health`(`UP`) 200, `/no-such-path` 404 HTML, `/admin/dashboard` 302 `Location: /admin/login`, 로그인 1회 200(`JSESSIONID` Secure/HttpOnly/SameSite=Lax, `XSRF-TOKEN` Secure) → `/api/admin/me`·`/admin/password`(header 링크)·`/admin/dashboard` 200 → 로그아웃 200 → `/api/admin/me` 401 |
+| 전체 Playwright(HTTPS, `--workers=1`) | **352 passed / 1 failed / 0 skipped / 0 flaky(1.2h, 4,386s)**. 실패: `visual-regression.spec.js:5027` "P14-T9C-1 … 상세: Board REVIEW+SPECIAL … badge"가 346ms에 `page.goto: net::ERR_NETWORK_CHANGED`(`/admin/boards/6603`). 해당 GET은 nginx access log에 없음(서버 미도달), 같은 시각(11:38:55Z) Windows NetworkProfile 4004 "Network State Change Fired"(host Wi-Fi adapter) 기록 - 실패 지점은 navigation 단계(346ms)이며 화면 assertion까지 진행되지 않았다. fixture cleanup은 정상(board 6603/program 2816~2818 DELETE 204). 429 helper 대기 후 재시도 정상 동작 |
+| DB baseline(실행 전/후 테이블별 row 수, `.env` 관리자 비밀번호 로그인) | 전/후 동일(delta 0): admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1, 업로드 62개/21,950,080 bytes 동일. 실행 후 `.env` 비밀번호 로그인 200(`admin-password.spec.js` 원복 확인) |
+| Docker health(app/db healthy, nginx running) | 전/후 app `0b6cec62c3d7`·db `e0e1d4f51741` healthy, nginx `321a9f9d5658` running, restart 0, container 재생성 없음 |
+| 발견된 blocker | application defect로 확인된 것 없음. host 네트워크 상태 변경과 같은 시점의 Playwright 1건 실패로 QA 조건 미충족 |
+| Release QA 최종 판정 | **BLOCKED**(1차) - 재실행 필요 |
+
+#### 2차 실행(전체 Playwright 재실행)
+
+| 항목 | 결과(2차) |
+|---|---|
+| 실행 날짜 | 2026-10-01(Playwright 11:49:29Z~13:02:37Z) |
+| 대상 develop commit SHA | `1132369f42d6bd7da3f1dea39ce15d102a24570a`(1차와 동일, 1차 이후 코드/테스트/설정 변경 없음 - tracked 변경은 이 기록의 `docs/TASK.md`뿐) |
+| 재사용한 1차 결과 | `./gradlew clean build`(792건, failures/errors/skipped 0), Node 539 pass/0 fail, app image/static freshness 일치, HTTPS smoke 통과 |
+| 실행 전 Gate | app `0b6cec62c3d7`·db `e0e1d4f51741` healthy, nginx `321a9f9d5658` running, 1차 이후 restart 0(StartedAt 불변). 실행 직전 row 수가 1차 baseline과 동일(1차 fixture 잔여 없음), 업로드 62개/21,950,080 bytes. `ADMIN_PASSWORD` 정책 충족(값 비출력 판정) |
+| 전체 Playwright(HTTPS, `--workers=1`) | **353 passed / 0 failed / 0 skipped / 0 flaky(1.2h, 4,383s)**, retry 0. `ERR_*` 네트워크 오류 0건, 실행 구간 Windows NetworkProfile 이벤트 0건. 429 helper 정상 동작(nginx `limiting requests`/429 각 299건 - 운영 계약값 `5r/m`·`burst=5` 그대로에서 helper가 13초 대기 후 재시도, `admin-login-rate-limit.spec.js` 포함) |
+| DB(실행 전 → 후, delta) | 전부 delta 0: admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1 |
+| 업로드(전 → 후) | 62개/21,950,080 bytes → 62개/21,950,080 bytes(잔여 없음) |
+| 관리자 비밀번호 복구 | 실행 후 `.env` 비밀번호 로그인 200 → `/api/admin/me` 200 → 로그아웃 200 |
+| Docker health | 실행 후 app/db healthy, nginx running, restart 0, container 재생성 없음 |
+| Git | `develop` / HEAD `1132369f42d6bd7da3f1dea39ce15d102a24570a`, tracked 변경은 이 기록(`docs/TASK.md`)뿐, `test-results/`(gitignore)는 비어 있음 |
+| 발견된 blocker | 없음. 참고(비차단): app 로그 ERROR 27건은 모두 클라이언트 연결 종료(`AsyncRequestNotUsableException` - Broken pipe 26/Connection reset 1) 예외였고, 테스트 결과(0 failed)에 영향은 없었다 |
+| Release QA 최종 판정 | **PASS** |
 
 ### Phase 15 범위 밖(deferred, 운영 가능하나 후속 개선)
 
