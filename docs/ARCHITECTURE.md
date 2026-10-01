@@ -982,7 +982,7 @@ Admin
 
 # 운영 배포 계약(Phase 15)
 
-Phase 15 Production Readiness(P15-T0)에서 확정한 운영 배포 구조 계약이다. 각 항목은 **CURRENT**(현재 저장소 상태)와 **PLANNED**(Phase 15 해당 Task에서 구현 예정)를 구분한다. 구현이 끝난 Task 항목은 CURRENT로 갱신하며, favicon/`og:image`/`og:url`(P15-T7B)은 발주처 asset·최종 도메인에 의존하는 CLIENT-DEPENDENT 항목이고, 실제 도메인/인증서 발급/release/운영 smoke는 개발 Task가 아닌 Launch 단계(OPERATIONS "Launch TBD")다. Task 상세는 `docs/TASK.md` "Phase 15", 실제 운영 명령/절차는 `docs/OPERATIONS.md`(P15-T8, 운영 절차의 canonical 문서)를 따른다. 이 절은 구조/계약만 정의하고 명령어 runbook을 중복 기술하지 않는다.
+Phase 15 Production Readiness(P15-T0)에서 확정한 운영 배포 구조 계약이다. 각 항목의 상태는 **CURRENT**(저장소에 구현됨 - P15-T1~T8 구현 항목은 모두 CURRENT이며 PLANNED로 남은 항목은 없다), **CLIENT-DEPENDENT**(favicon/`og:image`/`og:url` - P15-T7B, 발주처 asset·최종 도메인 대기, 미구현), **LAUNCH**(실제 도메인/인증서 발급/release/운영 smoke - 개발 Task가 아닌 배포 단계, OPERATIONS "Launch TBD")로 구분한다. Task 상세는 `docs/TASK.md` "Phase 15", 실제 운영 명령/절차는 `docs/OPERATIONS.md`(P15-T8, 운영 절차의 canonical 문서)를 따른다. 이 절은 구조/계약만 정의하고 명령어 runbook을 중복 기술하지 않는다.
 
 ## 전체 구조
 
@@ -1005,7 +1005,7 @@ Internet
 - 도메인 없이 Phase 15에서 검증하는 범위: 443/redirect/ACME location/HSTS/rate limit/forward header 구조와 로컬 자체서명 인증서 smoke. 실제 도메인 DNS, Let's Encrypt 발급, 최종 host 확인, 운영 smoke는 배포(Launch) 단계에서 수행한다.
 - `server_tokens off`로 Nginx 버전 노출을 끈다(P15-T3). `Server: nginx` header와 Nginx 기본 오류 본문에 버전이 없다.
 - TLS protocol/cipher는 Nginx 기본값을 사용한다. `:80`의 301은 `https://$host$request_uri`로 보내므로 표준 포트(443)를 전제한다(로컬 override처럼 host 포트를 바꾼 환경에서는 redirect URL에 원래 포트가 붙지 않는다).
-- 로컬 검증(개발 전용, 운영 절차 아님): `./data/certs/`에 `localhost`/`127.0.0.1` SAN을 가진 자체서명 인증서를 고정 파일명으로 생성한다 - 예: `openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout data/certs/privkey.pem -out data/certs/fullchain.pem`(`./data/certbot/`은 빈 디렉토리로 둔다). 사용자 소유 local override(`docker-compose.local-test.yml`)는 host `8088:80`/`8443:443`을 사용한다. Playwright는 `PLAYWRIGHT_BASE_URL=https://localhost:8443`으로 실행하며 `playwright.config.js`와 spec이 직접 만드는 context에 `ignoreHTTPSErrors: true`를 둔다. 관리자 로그인이 rate limit에 걸리면 E2E 공통 helper(`frontend-tests/support/admin-login.js`)가 429일 때만 12초 회복을 기다려 재시도하므로(운영 계약값은 완화하지 않음), 전체 실행은 로그인 순서가 결정적이도록 `--workers=1`로 한다. `admin-login-rate-limit.spec.js`는 helper를 쓰지 않고 운영 계약값 그대로 429를 검증한다.
+- 로컬 검증(개발 전용, 운영 절차 아님): `./data/certs/`에 `localhost`/`127.0.0.1` SAN을 가진 자체서명 인증서를 고정 파일명으로 생성한다 - 예: `openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout data/certs/privkey.pem -out data/certs/fullchain.pem`(`./data/certbot/`은 빈 디렉토리로 둔다). 사용자 소유 local override(`docker-compose.local-test.yml`)는 host `8088:80`/`8443:443`을 사용한다. Playwright는 `PLAYWRIGHT_BASE_URL=https://localhost:8443`으로 실행하며 `playwright.config.js`와 spec이 직접 만드는 context에 `ignoreHTTPSErrors: true`를 둔다. 관리자 로그인이 rate limit에 걸리면 E2E 공통 helper(`frontend-tests/support/admin-login.js`)가 429일 때만 13초(bucket 1건 회복 12초 + 여유 1초, `RATE_LIMIT_RETRY_WAIT_MS = 13000`)를 기다려 재시도하므로(운영 계약값은 완화하지 않음), 전체 실행은 로그인 순서가 결정적이도록 `--workers=1`로 한다. `admin-login-rate-limit.spec.js`는 helper를 쓰지 않고 운영 계약값 그대로 429를 검증한다.
 
 ## Forwarded header / 쿠키 (CURRENT — P15-T1 완료)
 
