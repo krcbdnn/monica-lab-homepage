@@ -329,7 +329,7 @@ CMS에서 수정
 
 - 로그인한 관리자가 현재 비밀번호를 확인한 뒤 새 비밀번호로 변경(관리자 화면 header의 "비밀번호 변경" → `/admin/password`)
 - 비밀번호 찾기/이메일/재설정 UI, 복수 관리자 관리는 제공하지 않는다
-- 비밀번호 분실 시 재설정은 운영 절차(`docs/OPERATIONS.md`, P15-T8에서 작성 예정)로 처리한다
+- 비밀번호 분실에 대한 공식 자동 복구 기능은 제공하지 않는다. 운영 측 비상 복구 후보와 경고는 `docs/OPERATIONS.md` §5에 기록하며, 공식 복구 절차의 확정/검증은 Launch TBD다
 
 ---
 
@@ -499,14 +499,16 @@ CMS에서 수정
 
 # 운영 배포 준비 범위(Phase 15 Production Readiness 계약)
 
-Phase 15는 새 사용자 기능이 아니라 실제 운영 배포에 필요한 최소 작업만 다룬다. 상세 Task는 `docs/TASK.md` "Phase 15", 구조/보안/배포 계약은 `docs/ARCHITECTURE.md` "운영 배포 계약(Phase 15)"을 따른다. 아래 항목은 모두 **PLANNED**(Phase 15에서 구현 예정)다.
+Phase 15는 새 사용자 기능이 아니라 실제 운영 배포에 필요한 최소 작업만 다룬다. 상세 Task는 `docs/TASK.md` "Phase 15", 구조/보안/배포 계약은 `docs/ARCHITECTURE.md` "운영 배포 계약(Phase 15)", 운영 명령은 `docs/OPERATIONS.md`를 따른다. 항목별 상태는 아래와 같다(**CURRENT** = 저장소에 구현됨, **CLIENT-DEPENDENT** = 발주처 asset/정보 대기, **LAUNCH** = 개발 Task가 아닌 실제 운영 배포 단계).
 
-- HTTPS(TLS) 적용과 HTTP→HTTPS 전환, 관리자 로그인 시도 제한
-- 운영 로그/데이터 영속성/환경변수 설정 정비
-- CKEditor 편집 기능과 저장 시 보존 서식 일치
-- 공개 화면 오류 페이지(HTML)
-- 관리자 본인 비밀번호 변경
-- 최소 검색엔진/공유 메타데이터(robots.txt, meta description, 기본 Open Graph) — **CURRENT**(P15-T7A 구현): `/robots.txt`(관리자 화면/API disallow, sitemap·도메인 없음), 공개 화면 공통 meta description, 기본 Open Graph 5종(`og:title`/`og:description`/`og:type`/`og:site_name`/`og:locale`). favicon/`og:image`/`og:url`은 발주처 asset·최종 도메인이 필요한 P15-T7B 범위
-- 운영 절차 문서(배포/백업·복원/비밀번호 재설정/rollback) — `docs/OPERATIONS.md`
+- HTTPS(TLS) 적용과 HTTP→HTTPS 전환, 관리자 로그인 시도 제한 — **CURRENT**(P15-T1/T3): Nginx `:80` ACME + 301, `:443` TLS·HSTS, `/api/admin/login` rate limit, 로그인 화면 429 안내. 실제 도메인 인증서 발급은 **LAUNCH**
+- 운영 로그/데이터 영속성/환경변수 설정 정비 — **CURRENT**(P15-T1/T2)
+- CKEditor 편집 기능과 저장 시 보존 서식 일치 — **CURRENT**(P15-T4)
+- 공개 화면 오류 페이지(HTML) — **CURRENT**(P15-T5)
+- 관리자 본인 비밀번호 변경 — **CURRENT**(P15-T6)
+- 최소 검색엔진/공유 메타데이터(robots.txt, meta description, 기본 Open Graph) — **CURRENT**(P15-T7A 구현): `/robots.txt`(관리자 화면/API disallow, sitemap·도메인 없음), 공개 화면 공통 meta description, 기본 Open Graph 5종(`og:title`/`og:description`/`og:type`/`og:site_name`/`og:locale`)
+- 최종 브랜드/도메인 메타데이터(favicon, `og:image`, `og:url`) — **CLIENT-DEPENDENT**(P15-T7B, 미구현): 발주처 로고 원본과 최종 도메인을 받은 뒤 적용한다. engineering 완료 판정을 막지 않으며 launch checklist에서 확인한다
+- 운영 절차 문서(서버 준비/배포/TLS/백업·복원/rollback/smoke) — **CURRENT**(P15-T8): `docs/OPERATIONS.md`. 관리자 비밀번호 분실에 대한 공식 자동 복구 기능은 없으며 비상 복구 후보만 기록한다. 최종 도메인, 서버, 백업 외부 보관 위치/책임자/보관 기간, 비밀번호 분실 recovery 공식화/검증 등은 OPERATIONS "Launch TBD"
+- release(develop → main, `v1.0.0` tag)와 운영 서버 배포/외부 smoke — **LAUNCH**(GIT_WORKFLOW §6-1, OPERATIONS)
 
 범위 제외: 자동 배포(CD), 백업 자동화 코드, 다중 서버/클러스터, 회원/이메일/SMS 기능.

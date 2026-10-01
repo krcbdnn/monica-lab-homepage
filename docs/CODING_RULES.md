@@ -194,7 +194,7 @@ Controller에서 try-catch를 작성하지 않는다.
 - 최소 8자 이상, 영문/숫자/특수문자 중 2종 이상 조합
 - Request DTO에 `@Pattern` 또는 커스텀 Validator로 적용
 - 관리자 비밀번호 변경(**CURRENT — P15-T6**, API.md `PUT /api/admin/me/password`, `AdminPasswordChangeRequest`): 새 비밀번호에 위 정책 + **최대 64자** + **공백을 제외한 ASCII 출력 문자(0x21~0x7E)만 허용**을 `@Size`/`@Pattern`으로 적용한다. 특수문자는 ASCII 기호(`!`~`/`, `:`~`@`, `[`~`` ` ``, `{`~`~`)다. 한글 등 비ASCII와 공백을 입력 단계에서 거부하므로 새 비밀번호는 항상 64byte 이하이고, BCrypt 입력 한도(72byte - Spring Security `BCryptPasswordEncoder.encode`는 초과 시 `IllegalArgumentException`)에 도달해 500이 되는 경로가 없다. 현재 비밀번호 확인은 필수이며, 불일치 시 `INVALID_CURRENT_PASSWORD`(400)를 반환한다. 새 비밀번호가 현재 비밀번호와 같으면 `INVALID_INPUT_VALUE`(400)로 거부한다. 성공 시 세션 ID를 교체한다(Controller의 `changeSessionId`). 비밀번호 원문/해시는 로그·응답·예외 메시지에 남기지 않는다.
-- 비밀번호 분실 시 재설정은 코드 기능(찾기/이메일/재설정 UI)으로 제공하지 않고 운영 절차(`docs/OPERATIONS.md`, P15-T8)로 처리한다.
+- 비밀번호 분실 시 재설정은 코드 기능(찾기/이메일/재설정 UI)으로 제공하지 않고 운영 절차(`docs/OPERATIONS.md` §5)로 처리한다.
 - 초기 관리자 계정은 ARCHITECTURE.md 기준 `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME` 환경변수를 읽어 미존재 시에만 생성한다. 비밀번호는 BCrypt 해시로 저장하며 `data.sql`/소스에 운영 비밀번호를 두지 않는다. 별도 회원가입 화면/API는 제공하지 않는다.
 
 ---
