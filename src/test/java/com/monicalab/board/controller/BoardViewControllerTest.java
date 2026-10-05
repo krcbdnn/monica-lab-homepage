@@ -878,11 +878,20 @@ class BoardViewControllerTest extends AbstractIntegrationTest {
         Document list = Jsoup.parse(mockMvc.perform(get("/boards"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
-        assertPublicHead(list, "게시판 - 모니카영어교육연구소");
+        assertPublicHead(list, "게시판 - 모니카영어교육연구소", "/boards");
 
         Document detail = Jsoup.parse(mockMvc.perform(get("/boards/{id}", id))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
-        assertPublicHead(detail, "SEO 메타 확인 공지 - 모니카영어교육연구소");
+        assertPublicHead(detail, "SEO 메타 확인 공지 - 모니카영어교육연구소", "/boards/" + id);
+    }
+
+    // P15-T7B: og:url은 요청 path만 쓰고 query string(boardType/page 등)은 붙이지 않는다.
+    @Test
+    void listOgUrlExcludesQueryString() throws Exception {
+        Document list = Jsoup.parse(mockMvc.perform(get("/boards").param("boardType", "REVIEW").param("page", "0"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertPublicHead(list, "강의 후기 - 모니카영어교육연구소", "/boards");
     }
 }

@@ -6,13 +6,13 @@
 
 표기 규칙:
 
-- `<DOMAIN>`: 최종 운영 도메인(미확정 - §17 Launch TBD)
+- `<DOMAIN>`: 최종 운영 도메인(발주처 확정 public domain `www.monicaenglish.com` - §3. 이 runbook의 명령/절차에서는 placeholder로 표기한다)
 - `<REPO_PATH>`: 운영 서버의 저장소 checkout 절대 경로(예: `/srv/monica-lab-homepage` 같은 형태. 이 문서는 특정 경로를 강제하지 않는다)
 - `<BACKUP_DIR>`: `<REPO_PATH>` **밖**의 백업 디렉토리
 - `<DEPLOY_TAG>` / `<PREVIOUS_TAG>`: 배포할 / 직전 release tag(예: `v1.0.0`)
 - `<ADMIN_LOGIN_ID>`: `.env`의 관리자 로그인 ID
 - 이 문서의 모든 `docker compose` 명령은 `<REPO_PATH>`에서 실행한다(compose는 같은 디렉토리의 `docker-compose.yml`과 `.env`를 읽는다). 운영에서는 `docker-compose.yml`만 사용하며 로컬 개발용 override(`docker-compose.local*.yml` 등)를 함께 지정하지 않는다.
-- 실제 비밀번호·도메인·서버 정보는 이 문서와 저장소에 기록하지 않는다.
+- 비밀번호·secret·계정 정보·서버 IP/접속 정보 등 서버별 값은 이 문서와 저장소에 기록하지 않는다. 공식 public domain(`www.monicaenglish.com`)은 공개 웹사이트의 코드/metadata(`og:url`/`og:image`, footer 등)에 사용할 수 있지만, 이 runbook의 명령 예시와 배포 절차에서 운영자가 입력할 값은 `<DOMAIN>` 등 placeholder로 유지한다.
 
 ---
 
@@ -85,11 +85,11 @@
 
 ## 3. DNS / 도메인
 
-- 최종 운영 도메인은 **미확정**이다(발주처 확정 사항 - §19). 저장소 안의 문자열(예: footer의 외부 링크)은 운영 도메인 확정 근거가 아니다.
-- 인증서 발급 전에 `<DOMAIN>`(그리고 `www.<DOMAIN>`을 쓸 경우 그 이름도)의 **A 레코드가 이 서버의 공인 IPv4를 가리켜야** 한다. Let's Encrypt HTTP-01 검증은 인터넷에서 `http://<DOMAIN>/.well-known/acme-challenge/...`로 이 서버의 `:80`에 접근한다.
+- 최종 운영 도메인은 발주처 소유의 `www.monicaenglish.com`으로 확정되었다(DNS 소유·관리 주체: 발주처). 공개 metadata(`og:url`/`og:image`, P15-T7B)가 이 도메인을 사용하며, 아래 명령에서는 `<DOMAIN>`으로 표기한다.
+- 인증서 발급 전에 `<DOMAIN>`(그리고 apex 등 다른 이름도 서비스할 경우 그 이름도)의 **A 레코드가 이 서버의 공인 IPv4를 가리켜야** 한다. Let's Encrypt HTTP-01 검증은 인터넷에서 `http://<DOMAIN>/.well-known/acme-challenge/...`로 이 서버의 `:80`에 접근한다.
 - AAAA(IPv6) 레코드를 두면 Let's Encrypt는 IPv6로도 접근할 수 있다. 서버가 그 IPv6로 `80/443`을 실제로 서비스하지 않으면 AAAA를 두지 않는다(잘못된 AAAA는 발급 실패 원인이 된다).
 - DNS 변경 반영을 `dig +short <DOMAIN>` 등으로 확인한 뒤 §7을 진행한다.
-- favicon/`og:image`/`og:url`(P15-T7B)도 최종 도메인·발주처 asset에 의존한다(§19).
+- favicon/`og:image`/`og:url`(P15-T7B)은 확정 도메인과 발주처 공식 로고 기준으로 적용되어 있다. 도메인을 바꾸면 `home/layout/default.html`의 `siteUrl` 상수 변경과 새 release가 필요하다.
 
 ---
 
@@ -268,7 +268,7 @@ sudo chmod 700 /usr/local/sbin/monica-lab-cert-deploy.sh
 ```bash
 sudo certbot certonly --webroot -w <REPO_PATH>/data/certbot -d <DOMAIN> \
   --deploy-hook /usr/local/sbin/monica-lab-cert-deploy.sh
-# www.<DOMAIN>도 쓰는 경우 -d www.<DOMAIN> 추가(DNS가 먼저 이 서버를 가리켜야 한다)
+# 다른 이름(예: apex 도메인)도 서비스하는 경우 -d <그 이름> 추가(DNS가 먼저 이 서버를 가리켜야 한다)
 ```
 
 - 발급 원본은 `/etc/letsencrypt/live/<DOMAIN>/`(symlink)에 있고, hook이 `data/certs`에 실제 파일로 복사한다. nginx는 `data/certs`만 본다.
@@ -521,6 +521,11 @@ for p in / /boards /programs /pages/INTRODUCTION /css/home.css /actuator/health;
 done
 curl -s -o /dev/null -w "%{http_code}\n" https://<DOMAIN>/no-such-path            # 404 (HTML 오류 페이지)
 curl -sI https://<DOMAIN>/admin/dashboard | grep -iE '^HTTP|^location'           # 302, Location: /admin/login
+for p in /favicon.ico /apple-touch-icon.png /images/og-default.png; do
+  curl -s -o /dev/null -w "%{http_code} %{content_type} $p
+" https://<DOMAIN>$p  # 모두 200, image/*
+done
+curl -s https://<DOMAIN>/ | grep -oE '<meta property="og:(url|image)" content="[^"]*"'   # og:url = https://<DOMAIN>/, og:image = https://<DOMAIN>/images/og-default.png
 ```
 
 브라우저 확인:
@@ -533,6 +538,7 @@ curl -sI https://<DOMAIN>/admin/dashboard | grep -iE '^HTTP|^location'          
 - [ ] `/admin/password` 화면이 열리는지 확인(최초 배포 시에는 §5대로 실제 변경, 그 외 배포에서는 화면 확인만 - 불필요하게 비밀번호를 바꾸지 않는다)
 - [ ] 로그아웃 → `/admin/login`으로 이동, 이후 `/api/admin/me` 401
 - [ ] 5xx 화면은 운영에서 일부러 만들지 않는다(자동 테스트로 검증된 범위)
+- [ ] 브라우저 탭에 favicon이 표시된다(이전 캐시가 있으면 시크릿 창에서 확인). 메신저/SNS 공유 미리보기는 플랫폼 캐시가 있으므로 필요하면 각 플랫폼의 공유 디버거로 캐시를 갱신한 뒤 확인한다
 
 ---
 
@@ -578,13 +584,13 @@ curl -sI https://<DOMAIN>/admin/dashboard | grep -iE '^HTTP|^location'          
 
 ## 19. Launch TBD(발주처/운영 확정 대기)
 
-Engineering 완료(Phase 15 개발 Task)와 실제 공개 launch 준비는 별개다. 아래는 launch 전에 확정/수행해야 하며 현재 **미확정**이다.
+Engineering 완료(Phase 15 개발 Task)와 실제 공개 launch 준비는 별개다. 아래는 launch 전에 확정/수행해야 하는 항목이며, 확정/완료된 항목은 비고에 표시한다.
 
 | 항목 | 담당 | 비고 |
 |---|---|---|
-| 최종 운영 도메인 / DNS 소유·관리 주체 | 발주처 | §3, `og:url`(P15-T7B) |
+| 최종 운영 도메인 / DNS 소유·관리 주체 | 발주처 | **확정**: `www.monicaenglish.com`, DNS 소유·관리 발주처(§3). DNS 레코드 설정은 배포 단계 |
 | 운영 서버/hosting 정보, SSH 접근 관리자 | 발주처/운영 | §2 |
-| 브랜드 asset(로고 원본) → favicon, `og:image` | 발주처 | P15-T7B(CLIENT-DEPENDENT LAUNCH ITEM) |
+| 브랜드 asset(로고 원본) → favicon, `og:image` | 발주처 | **완료**: 발주처 공식 로고 제공, P15-T7B 파생 asset 적용(`v1.0.0` 이후 release에 포함) |
 | 운영 `.env` 값 생성·보관 책임자 | 운영 | §4 |
 | 백업 외부 보관 위치 / 백업 책임자 / 보관 기간 | 발주처/운영 | §12 D7 필수 계약 |
 | 관리자 비밀번호 분실 recovery 공식화/검증 | 발주처/운영 | §5 - 현재 공식 자동 복구 기능 없음, 비상 복구 후보만 기록(공식 절차 아님) |
