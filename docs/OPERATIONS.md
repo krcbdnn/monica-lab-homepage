@@ -658,35 +658,72 @@ Engineering 완료(Phase 15 개발 Task)와 실제 공개 launch 준비는 별�
 | compose project | `monica-lab-homepage`(`docker-compose.yml` top-level `name`) |
 | app image(배포 버전) | `monica-lab-homepage-app:<DEPLOY_TAG>` |
 | app image(compose가 기동하는 이름) | `monica-lab-homepage-app:latest`(`docker-compose.yml` app `image`) |
-| OCI label | `org.opencontainers.image.revision` = tag commit SHA(`git rev-parse HEAD`), `org.opencontainers.image.version` = `<DEPLOY_TAG>` |
+| OCI label | `org.opencontainers.image.revision` = `<DEPLOY_TAG>`가 가리키는 commit SHA(빌드 머신: `git rev-parse "<DEPLOY_TAG>^{commit}"` - 작업 checkout의 HEAD가 아니다), `org.opencontainers.image.version` = `<DEPLOY_TAG>` |
+| build context | `git archive`로 그 commit의 tracked 파일만 추출한 저장소 밖 디렉토리(`<BUILD_CTX>`, §20-2). 작업 checkout(`.`)은 쓰지 않는다 |
+| revision 검증 기준 | 빌드 머신: label = `git rev-parse "<DEPLOY_TAG>^{commit}"`(§20-2). 서버: label = tag checkout 상태의 `git rev-parse HEAD`이고 `git describe --tags --exact-match` = `<DEPLOY_TAG>`(§20-4) |
 | platform | `linux/amd64`(운영 서버 architecture와 일치해야 한다) |
 | archive | `monica-lab-homepage-app_<DEPLOY_TAG>.tar`(빌드 머신·서버 모두 저장소 **밖**) |
 
 ### 20-1. 전제
 
-- 빌드 머신 요건은 §2 "빌드 머신"을 따른다. 아래 빌드 머신 명령은 POSIX shell(Git Bash 등) 기준이다. Windows PowerShell 5.1에서는 `$REV = git rev-parse HEAD`처럼 변수를 쓰고, **`docker save` 출력을 PowerShell pipe/redirect로 받지 말고 반드시 `-o` 파일 옵션을 쓴다**(PowerShell 5.1 pipe는 binary를 텍스트로 변환해 archive를 손상시킬 수 있다). SHA-256은 `Get-FileHash -Algorithm SHA256 <파일>`로 구한다.
+- 빌드 머신 요건은 §2 "빌드 머신"을 따른다. 아래 빌드 머신 명령은 POSIX shell(Git Bash 등) 기준이다. Windows PowerShell 5.1에서는 `$REV = git rev-parse "<DEPLOY_TAG>^{commit}"`처럼 변수를 쓰고(빌드 머신 작업 checkout의 HEAD를 쓰지 않는다), `git archive` 출력도 pipe로 넘기지 말고 `-o` 파일로 받는다(§20-2). **`docker save` 출력을 PowerShell pipe/redirect로 받지 말고 반드시 `-o` 파일 옵션을 쓴다**(PowerShell 5.1 pipe는 binary를 텍스트로 변환해 archive를 손상시킬 수 있다). SHA-256은 `Get-FileHash -Algorithm SHA256 <파일>`로 구한다.
+- **운영 서버로 전달하는 app image는 반드시 main의 release tag(`<DEPLOY_TAG>`)를 기준으로 §20-2 절차를 수행해 만든 것이어야 한다.** release tag 없이 만든 리허설·검증 image(기능 브랜치 commit 기준 등)는 서버로 전달하지 않는다(서버 §20-4의 tag 확인·revision 검증에서 거부된다). 리허설 image를 release tag 이름으로 재tag해 쓰지 않는다.
 - 빌드 머신의 로컬 개발 stack과 image 이름이 겹친다(`monica-lab-homepage-app:latest`는 로컬 개발 `--build`도 만든다). 배포용으로는 항상 `:<DEPLOY_TAG>` tag를 build·save하고, 빌드 머신의 `:latest`를 전달하지 않는다.
 
 ### 20-2. build(빌드 머신)
 
+**빌드 머신의 작업 checkout(`<BUILD_REPO>`)을 build context로 직접 쓰지 않는다.** 작업 checkout에는 Git이 추적하지 않는 파일(gitignored `src/main/resources/application-local.yml` 같은 로컬 비밀 설정, untracked 파일)이 남아 있을 수 있고, `COPY src src`가 이를 build stage로 복사하면 `bootJar`가 jar 리소스(`BOOT-INF/classes/`)에 포함시킬 수 있다(`git status --porcelain`은 ignored 파일을 보여주지 않는다). 그래서 **배포할 commit의 tracked 파일만 `git archive`로 저장소 밖 빈 디렉토리(`<BUILD_CTX>`)에 추출**해 그 디렉토리를 build context로 쓴다(`.dockerignore`의 `src/main/resources/application-local.yml` 제외 규칙은 보조 방어선이다).
+
 ```bash
 cd <BUILD_REPO>
 git fetch --tags origin
-git checkout <DEPLOY_TAG>                          # detached HEAD가 정상
-git describe --tags --exact-match                  # <DEPLOY_TAG>
-# build context에 들어가는 경로에 tracked 변경/untracked 파일이 없어야 한다(출력 없음)
-git status --porcelain -- Dockerfile .dockerignore gradlew gradle build.gradle settings.gradle src
-REV=$(git rev-parse HEAD)
+REV=$(git rev-parse "<DEPLOY_TAG>^{commit}")       # tag가 가리키는 commit SHA
+git describe --tags --exact-match "$REV"           # <DEPLOY_TAG>
+BUILD_CTX=<저장소 밖 빈 디렉토리>                   # 예: 빌드 머신 임시 디렉토리 아래 monica-ctx-<DEPLOY_TAG>
+mkdir "$BUILD_CTX"                                 # 이미 있으면 실패한다 - 실패하면 중단(이전 추출물 재사용 금지)
+
+# 1) 정확한 commit의 tracked 파일만 추출(작업 checkout의 ignored/untracked/미commit 변경은 포함되지 않는다)
+git archive --format=tar "$REV" | tar -x -C "$BUILD_CTX"
+
+# 2) 추출 결과 = commit의 tracked 파일 목록(차이 출력 없음이어야 한다 - ignored/추가 파일 혼입 없음)
+diff <(cd "$BUILD_CTX" && find . -type f | sed 's|^\./||' | sort) <(git ls-tree -r --name-only "$REV" | sort) \
+  && echo "context = tracked files only"
+
+# 3) 로컬 비밀 설정 파일 부재 확인(파일 내용은 열거나 출력하지 않는다)
+test ! -e "$BUILD_CTX/src/main/resources/application-local.yml" && echo "application-local.yml absent"
+
+# 4) gradlew 줄바꿈 LF 확인(CR 0개여야 한다). 실행 권한은 Dockerfile의 `chmod +x gradlew`가 부여한다
+test "$(tr -cd '\r' < "$BUILD_CTX/gradlew" | wc -c)" -eq 0 && echo "gradlew LF OK"
+head -1 "$BUILD_CTX/gradlew"                       # #!/bin/sh 계열 shebang
+
+# 5) build(context = $BUILD_CTX, 작업 checkout `.` 금지)
 docker build --platform linux/amd64 \
   --label org.opencontainers.image.revision=$REV \
   --label org.opencontainers.image.version=<DEPLOY_TAG> \
-  -t monica-lab-homepage-app:<DEPLOY_TAG> .
+  -t monica-lab-homepage-app:<DEPLOY_TAG> "$BUILD_CTX"
 docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}} {{index .Config.Labels "org.opencontainers.image.version"}}' \
   monica-lab-homepage-app:<DEPLOY_TAG>               # linux/amd64 <REV> <DEPLOY_TAG>
+
+# 6) jar 안에 application-local.yml이 없는지 확인(파일 이름 목록만 본다 - 내용 추출/출력 금지)
+CID=$(docker create monica-lab-homepage-app:<DEPLOY_TAG>)   # 실행하지 않는 임시 container(검사용)
+docker cp "$CID":/app/app.jar "$BUILD_CTX/../app-check-<DEPLOY_TAG>.jar"
+docker rm "$CID"
+unzip -Z1 "$BUILD_CTX/../app-check-<DEPLOY_TAG>.jar" | grep -E '^BOOT-INF/classes/application' # application.yml, application-prod.yml만 보여야 한다
+unzip -Z1 "$BUILD_CTX/../app-check-<DEPLOY_TAG>.jar" | grep -q 'BOOT-INF/classes/application-local' \
+  && echo "FOUND application-local - 배포 중단" || echo "application-local absent in jar"
+rm "$BUILD_CTX/../app-check-<DEPLOY_TAG>.jar"
+
+# 7) save + hash
 docker save -o <저장소 밖 경로>/monica-lab-homepage-app_<DEPLOY_TAG>.tar monica-lab-homepage-app:<DEPLOY_TAG>
 sha256sum <저장소 밖 경로>/monica-lab-homepage-app_<DEPLOY_TAG>.tar   # 값을 기록한다
 ```
 
+- 1)~4)와 6) 중 하나라도 기대값이 아니면(diff 출력 있음, `application-local.yml` 존재, gradlew에 CR 존재, jar에 `application-local` 존재) **build/save/전달하지 않고 중단**한다. 6)에서 FOUND이면 그 image는 삭제(`docker image rm monica-lab-homepage-app:<DEPLOY_TAG>`)하고 원인을 확인한다.
+- `unzip`이 없으면 같은 목록을 JDK `jar tf <jar>` 또는 Windows `tar -tf <jar>`로 본다(목록만, `-x`/압축 해제 금지).
+- **비밀값 노출 금지**: `application-local.yml`·`.env`의 내용을 `cat`/`type`/`grep` 결과로 출력하지 않는다. jar 검사는 파일 이름 목록만 다루고 리소스 내용을 추출하거나 출력하지 않는다. build 로그(`docker build` 출력)나 이 절차의 출력에 비밀값이 섞이면 그 로그를 운영 기록·PR·채팅에 붙이지 않는다.
+- `docker create`로 만든 검사용 container는 실행하지 않으며, 6)에서 바로 삭제한다(`docker ps -a`로 남은 것이 없는지 확인).
+- `<BUILD_CTX>`와 검사용 jar는 저장소 밖에 두고, 7) 이후 `<BUILD_CTX>`는 삭제한다(다음 build에 재사용하지 않는다).
+- 빌드 머신의 작업 checkout에서 `git checkout <DEPLOY_TAG>`를 할 필요는 없다(`git archive "$REV"`가 tag commit을 직접 추출한다). Windows PowerShell 5.1에서는 `git archive` 출력을 PowerShell pipe로 넘기지 말고 Git Bash에서 실행하거나 `git archive --format=tar -o <파일> "$REV"` 후 `tar -xf <파일> -C <BUILD_CTX>`로 푼다(§20-1 binary pipe 주의와 같은 이유).
 - Dockerfile은 build stage에서 `./gradlew bootJar -x test`를 실행한다. 테스트는 release 전 CI/Release QA에서 통과한 commit(tag)이어야 한다(GIT_WORKFLOW §6-1).
 - build 중 다운로드 일시 실패 시 같은 tag로 다시 build한다(§2 "빌드 머신").
 
