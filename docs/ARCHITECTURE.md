@@ -961,7 +961,9 @@ Admin
 
 **운영 배포 전 결정 필요**: 현재 정적 리소스는 host checkout bind mount, application/template은 app image로 서로 다른 release lifecycle을 가진다. 그래서 `git pull` 시점에 정적 리소스만 먼저 바뀌거나, app image를 rollback해도 정적 리소스는 새 버전으로 남을 수 있어 atomic deployment/rollback이 보장되지 않는다. 운영 배포 전에 application/template/static asset을 동일 release version으로 묶는 방식, Nginx 정적 리소스의 image 기반 제공 여부, release directory/symlink 방식, versioned asset URL, long-lived cache + `immutable`을 함께 결정한다(현재 계약에서는 특정 방식을 확정하지 않는다).
 
-**결정(Phase 15, P15-T0 — 위 "운영 배포 전 결정 필요" 항목을 닫는다)**: 현재 구조(Nginx가 host checkout의 static을 직접 제공, app image는 같은 checkout에서 build)를 유지하고 재설계하지 않는다. 대신 **"release tag checkout → `docker compose up -d --build`"를 하나의 배포 단위**로 취급해 app/template과 static의 버전 일치를 보장한다. `git pull`/`git checkout`만 하고 rebuild하지 않는 것, app image만 별도로 rollback하는 것은 금지한다. rollback도 "이전 release tag checkout → 전체 `up -d --build`"로 수행한다. Nginx image bake, release directory/symlink, versioned asset URL, long-lived cache는 도입하지 않으며 `Cache-Control: no-cache` 재검증 정책을 유지한다. 상세 절차는 `docs/OPERATIONS.md` §15(배포/rollback)와 GIT_WORKFLOW.md "develop → main 승격"을 따른다.
+**결정(Phase 15, P15-T0 — 위 "운영 배포 전 결정 필요" 항목을 닫는다)**: 현재 구조(Nginx가 host checkout의 static을 직접 제공, app image는 같은 checkout에서 build)를 유지하고 재설계하지 않는다. 대신 **"release tag checkout → `docker compose up -d --build`"를 하나의 배포 단위**로 취급해 app/template과 static의 버전 일치를 보장한다. `git pull`/`git checkout`만 하고 rebuild하지 않는 것, app image만 별도로 rollback하는 것은 금지한다. rollback도 "이전 release tag checkout → 전체 `up -d --build`"로 수행한다. Nginx image bake, release directory/symlink, versioned asset URL, long-lived cache는 도입하지 않으며 `Cache-Control: no-cache` 재검증 정책을 유지한다. 상세 절차는 `docs/OPERATIONS.md` §15(배포/rollback)와 GIT_WORKFLOW.md "develop → main 승격"을 따른다. (이 결정 중 서버 `up -d --build` 부분은 아래 P15-T9 변경으로 대체되었다. 이 단락은 P15-T0 결정 기록으로 유지한다.)
+
+**변경(P15-T9 — 위 P15-T0 결정 중 app image의 build 위치만 바꾼다)**: 운영 서버에서는 app image를 build하지 않는다(서버 `docker compose up -d --build`/`docker build` 금지 - 소형 운영 서버의 Gradle build 메모리 부족 위험과 서버의 Gradle/Maven outbound 의존을 제거). app image는 **빌드 머신에서 같은 release tag checkout 기준으로 `linux/amd64` build**하고, OCI label `org.opencontainers.image.revision`(tag commit SHA)·`org.opencontainers.image.version`(tag)을 붙여 `docker save` archive로 서버에 전달한다. 서버는 같은 tag를 checkout(Nginx 정적 리소스·nginx/compose 설정 공급)한 뒤 archive를 `docker load`하고 **image revision label = 서버 checkout HEAD**를 검증한 다음 `monica-lab-homepage-app:latest`로 tag해 `docker compose up -d --no-build --pull never`로 기동한다. 따라서 배포 단위는 "release tag checkout + 같은 tag에서 build되어 revision 검증을 통과한 app image → `up -d --no-build --pull never`"이며, app/template과 static의 버전 일치 보장(P15-T0 목적)은 rebuild 대신 revision 검증으로 유지한다. 금지 원칙도 유지·대체한다: checkout만 하고 app image를 교체·검증하지 않는 것, revision이 서버 checkout과 다른 app image로 기동하는 것, app image만 별도 rollback하는 것은 금지다. rollback은 "이전 release tag checkout → 그 tag의 app image(서버 보관본 또는 빌드 머신 재build) revision 검증 → `latest` 재tag → `up -d --no-build --pull never`"다. compose는 top-level `name: monica-lab-homepage`와 app `image: monica-lab-homepage-app:latest`를 고정한다(`build:`는 로컬 개발/검증용 `--build`를 위해 유지). registry, CD 자동화, Nginx image bake는 도입하지 않는다. 절차는 `docs/OPERATIONS.md` §20(빌드·전달·검증), §6, §15를 따른다.
 
 ## DB 스키마 관리
 운영 재현성을 위해 Flyway migration을 사용한다. `ddl-auto`는 local/test에서 검증 목적 설정을 명시하고 prod에서는 `validate`를 사용한다. 스키마 변경은 migration 파일로 관리하며 운영에서 `update/create`로 자동 변경하지 않는다.
@@ -982,7 +984,7 @@ Admin
 
 # 운영 배포 계약(Phase 15)
 
-Phase 15 Production Readiness(P15-T0)에서 확정한 운영 배포 구조 계약이다. 각 항목의 상태는 **CURRENT**(저장소에 구현됨 - P15-T1~T8 구현 항목과 P15-T7B(favicon/`og:image`/`og:url`, `v1.0.0` 이후 develop)는 모두 CURRENT이며 PLANNED로 남은 항목은 없다), **LAUNCH**(실제 도메인/인증서 발급/release/운영 smoke - 개발 Task가 아닌 배포 단계, OPERATIONS "Launch TBD")로 구분한다. Task 상세는 `docs/TASK.md` "Phase 15", 실제 운영 명령/절차는 `docs/OPERATIONS.md`(P15-T8, 운영 절차의 canonical 문서)를 따른다. 이 절은 구조/계약만 정의하고 명령어 runbook을 중복 기술하지 않는다.
+Phase 15 Production Readiness(P15-T0)에서 확정한 운영 배포 구조 계약이다. 각 항목의 상태는 **CURRENT**(저장소에 구현됨 - P15-T1~T8 구현 항목, P15-T7B(favicon/`og:image`/`og:url`, `v1.0.0` 이후 develop), P15-T9(외부 app image build 배포, `v1.1.0` 이후 develop)는 모두 CURRENT이며 PLANNED로 남은 항목은 없다), **LAUNCH**(실제 도메인/인증서 발급/release/운영 smoke - 개발 Task가 아닌 배포 단계, OPERATIONS "Launch TBD")로 구분한다. Task 상세는 `docs/TASK.md` "Phase 15", 실제 운영 명령/절차는 `docs/OPERATIONS.md`(P15-T8, 운영 절차의 canonical 문서)를 따른다. 이 절은 구조/계약만 정의하고 명령어 runbook을 중복 기술하지 않는다.
 
 ## 전체 구조
 
@@ -1039,6 +1041,7 @@ Nginx는 기존대로 `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto
 
 ## 배포 단위 / release
 
-- 운영 서버는 mutable 브랜치(develop/main)를 pull하지 않고 **release tag**(예: `v1.0.0`)를 checkout한다. 배포 단위는 "tag checkout → `docker compose up -d --build`"다(위 "Nginx 정적 리소스 공급" 결정). Flyway migration은 app 기동 시 자동 적용된다.
+- 운영 서버는 mutable 브랜치(develop/main)를 pull하지 않고 **release tag**(예: `v1.0.0`)를 checkout한다. 배포 단위는 "tag checkout + 같은 tag에서 외부 build되어 revision 검증을 통과한 app image → `docker compose up -d --no-build --pull never`"다(CURRENT — P15-T9, 위 "Nginx 정적 리소스 공급" 결정과 P15-T9 변경). 운영 서버에서 app image를 build(`--build`)하지 않는다. Flyway migration은 app 기동 시 자동 적용된다.
+- compose project 이름은 top-level `name: monica-lab-homepage`, app image 이름은 `monica-lab-homepage-app:latest`로 고정되어 checkout 디렉토리 이름과 무관하다(CURRENT — P15-T9). `mariadb`/`nginx` image는 기동 전에 `docker compose pull db nginx`로 받고, `--pull never`로 기동 중 registry pull을 하지 않는다(app image는 registry에서 받지 않는다).
 - release/tag/hotfix Git 흐름은 GIT_WORKFLOW.md "develop → main 승격", 서버 명령은 OPERATIONS §6(최초 배포)/§15(배포/rollback)를 따른다.
 - Flyway migration은 forward-only다. 파괴적 migration이 포함된 release를 rollback하려면 배포 전 DB dump 복원이 필요하다(Phase 15 자체는 migration 0건).

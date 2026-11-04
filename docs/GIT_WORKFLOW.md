@@ -153,11 +153,11 @@ GitHub에서 PR 생성: `base: main`, `compare: develop` → 리뷰 후 Merge.
    git push origin v1.0.0
    ```
 
-4. 운영 서버에서 해당 tag checkout(`git checkout v1.0.0`) → `.env`/TLS 구성 → `docker compose up -d --build`(Flyway는 app 기동 시 자동 적용) → smoke test
+4. 운영 서버에서 해당 tag checkout(`git checkout v1.0.0`) → `.env`/TLS 구성 → 빌드 머신에서 같은 tag로 app image를 `linux/amd64` build(revision/version label)하고 `docker save` archive를 서버로 전달 → 서버에서 archive `docker load` + image revision과 checkout HEAD 일치 검증 → `docker compose pull db nginx` → `docker compose up -d --no-build --pull never`(Flyway는 app 기동 시 자동 적용) → smoke test
 
-- "tag checkout → `docker compose up -d --build`"가 하나의 배포 단위입니다. checkout만 하고 rebuild하지 않거나, app image만 따로 rollback하지 않습니다(ARCHITECTURE.md "Nginx 정적 리소스 공급" 결정). rollback은 이전 tag checkout → 전체 `up -d --build`입니다.
+- "tag checkout + 같은 tag에서 build되어 revision 검증을 통과한 app image → `docker compose up -d --no-build --pull never`"가 하나의 배포 단위입니다(P15-T9). 운영 서버에서 `--build`로 app image를 build하지 않고, checkout만 하고 app image를 교체·검증하지 않거나 app image만 따로 rollback하지 않습니다(ARCHITECTURE.md "Nginx 정적 리소스 공급" 결정과 P15-T9 변경). rollback은 이전 tag checkout → 그 tag의 app image revision 검증 → `latest` 재tag → `up -d --no-build --pull never`입니다.
 - 버전 규칙: 기능 묶음 release는 `v1.1.0`처럼 minor, 긴급 수정은 `v1.0.1`처럼 patch를 올립니다.
-- 서버 측 명령/순서의 상세 runbook은 `docs/OPERATIONS.md`(§6 최초 배포, §15 배포/rollback)를 따릅니다.
+- 서버 측 명령/순서의 상세 runbook은 `docs/OPERATIONS.md`(§6 최초 배포, §15 배포/rollback, §20 app image 빌드·전달·검증)를 따릅니다.
 
 ### 6-2. hotfix 기본 흐름
 

@@ -1,3 +1,6 @@
+# P15-T9: compose project 이름을 checkout 디렉토리 이름과 무관하게 고정한다(app image 이름의 기준).
+name: monica-lab-homepage
+
 x-logging: &default-logging
   driver: json-file
   options:
@@ -6,6 +9,10 @@ x-logging: &default-logging
 
 services:
   app:
+    # P15-T9: 운영 서버는 build하지 않는다. 빌드 머신에서 release tag 기준으로 build/save한 image를 load한 뒤
+    # 이 이름으로 tag하고 `docker compose up -d --no-build --pull never`로 기동한다(docs/OPERATIONS.md §20).
+    # build 설정은 로컬 개발/검증용 `--build`를 위해 유지한다.
+    image: monica-lab-homepage-app:latest
     build:
       context: .
       dockerfile: Dockerfile

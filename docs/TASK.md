@@ -1857,7 +1857,7 @@ Phase 14 이후 실제 운영 배포/발주처 전달을 위한 최소 작업 Ph
 | D9 | nginx `limit_req`를 정확히 `/api/admin/login`에만(`5r/m`, `burst=5`, `nodelay`, 429), 로그인 화면 429 안내, CAPTCHA/app dependency 없음 | P15-T3 |
 | D10 | P15-T7A: robots.txt + 공통 meta description + 기본 OG(title/description/type/site_name/locale). P15-T7B: favicon/og:image/og:url(발주처 asset·도메인 의존). sitemap/canonical 범위 밖 | P15-T7A, P15-T7B |
 | D11 | tag 기반 release: develop→main PR(merge commit) → main `v1.0.0` tag → 서버 tag checkout. mutable 브랜치 pull 금지 | GIT_WORKFLOW §6-1, P15-T8 |
-| D12 | 정적 리소스 현재 구조 유지, "tag checkout → `up -d --build`"를 배포 단위로 계약(checkout만 하고 rebuild 생략 금지, app image만 rollback 금지) | ARCHITECTURE, P15-T8 |
+| D12 | 정적 리소스 현재 구조 유지, "tag checkout → `up -d --build`"를 배포 단위로 계약(checkout만 하고 rebuild 생략 금지, app image만 rollback 금지). **P15-T9에서 app image build 위치만 변경**: 서버 build 금지, 빌드 머신 외부 build + revision label 검증 + `up -d --no-build --pull never`(이 행은 P15-T0 결정 기록으로 유지) | ARCHITECTURE, P15-T8, P15-T9 |
 
 ### P15-T0. Production Readiness Contract / Documentation
 - 의존성: P14 완료(P14-T7)
@@ -2008,6 +2008,26 @@ Phase 14 이후 실제 운영 배포/발주처 전달을 위한 최소 작업 Ph
 - 검증 결과: 대상 테스트 12개 class 178건 통과, `./gradlew clean build` 통과(JUnit 73개 class **797/797** - 기존 792 + 신규 5, failures/errors/skipped 0), `node --test src/test/js/**/*.test.js` 539 pass/0 fail. 로컬 dev stack은 `build app` → `up -d --no-deps --force-recreate app`으로 app만 재생성(db `e0e1d4f51741`/nginx `321a9f9d5658` container와 `monica-lab-homepage_db_data` volume 무변경, 테이블 row 수 전후 동일, `down`/`-v`/prune 미사용). HTTPS(`https://localhost:8443`) smoke: `/favicon.ico` 200 `image/x-icon`, `/apple-touch-icon.png` 200 `image/png`, `/images/og-default.png` 200 `image/png`(nginx 제공, HSTS), 응답 바이트가 생성 파일과 동일. `/`·`/boards`·`/boards?boardType=REVIEW&page=0`·`/boards/{id}`·`/programs`·`/programs/{id}`·`/pages/INTRODUCTION`·`/pages/GREETING`에서 기존 title 유지, icon/apple-touch-icon link와 `og:url`(예: `https://www.monicaenglish.com/boards/{id}`, query 경로는 `https://www.monicaenglish.com/boards`), `og:image` `https://www.monicaenglish.com/images/og-default.png`, width/height/alt 정확, canonical·T7B 주석 0건. `/no-such-path`(오류 페이지)·`/admin/login`에는 OG/apple-touch-icon 0건. Playwright(HTTPS, `--workers=1`): `public-console-errors` + `public-error-pages` 9/9, `visual-regression` "반응형 뷰포트" 공개 group 20/20(관리자 로그인 요청 0건). 실제 Chromium 확인: `/favicon.ico`를 브라우저가 decode(48×48 선택), apple-touch-icon 180×180·OG 1200×630 decode, 공개 4개 화면 console error 0·4xx/5xx 응답 0(기존 `/favicon.ico` 404 해소).
 - 범위 밖(유지): canonical, sitemap, robots 재설계, schema.org, 콘텐츠별 OG 이미지, PWA/manifest, header/footer 이미지 로고 교체, Cloudflare/real_ip, DNS/TLS/배포, `v1.1.0` release(별도 승인).
 
+### P15-T9. External Image Build Deploy
+- 분류: `v1.1.0` release 이후 운영 서버 사전 점검(2026-11-04)에서 확인한 launch blocker 대응. 새 사용자 기능이 아니라 배포 절차/compose 계약 변경이다.
+- 의존성: P15-T8(OPERATIONS runbook), `v1.1.0` release
+- CLIENT 의존성: 없음
+- 산출물: `docker-compose.yml`(top-level `name: monica-lab-homepage`, app `image: monica-lab-homepage-app:latest`), `docs/OPERATIONS.md`(표기 규칙, 목차, §1, §2 "빌드 머신", §6, §11, §12, §13-1, §15-1/§15-2, §16-3, §17, §19, 신규 §20), `docs/ARCHITECTURE.md`("Nginx 정적 리소스 공급" P15-T9 변경, "운영 배포 계약" 상태 설명, "배포 단위 / release"), `docs/GIT_WORKFLOW.md` §6-1, `README.md` "배포 운영 기준", 본 문서
+- 배경: 운영 서버 사전 점검 결과 소형 인스턴스(swap 없음)에서 서버 `docker compose up -d --build`(Dockerfile build stage의 Gradle `bootJar`)를 실행하면 실행 중 DB/app과 메모리를 다투어 OOM 위험이 크다. 또한 서버 checkout 디렉토리 이름에 따라 compose 기본 app image 이름이 달라진다(top-level `name` 없음).
+- 작업 내용(결정):
+  - **D-T9-1** 운영 서버는 app image를 build하지 않는다(`--build`/`docker compose build`/`docker build` 금지). 로컬 개발/검증의 `--build` 사용과 compose `build:` 설정은 유지한다.
+  - **D-T9-2** app image는 빌드 머신(개발자 PC의 Docker Desktop 등)에서 release tag checkout 기준 `docker build --platform linux/amd64`로 만들고 OCI label `org.opencontainers.image.revision`(tag commit SHA)·`org.opencontainers.image.version`(tag)을 붙인다. image tag는 `monica-lab-homepage-app:<TAG>`.
+  - **D-T9-3** 전달은 `docker save -o` archive + `scp`, 서버 `docker load` 전후 SHA-256 일치 확인. registry(Docker Hub/GHCR)와 CD 자동화는 도입하지 않는다.
+  - **D-T9-4** 서버는 같은 tag를 checkout(Nginx 정적 리소스·설정 공급)하고 image revision label = `git rev-parse HEAD`, `git describe --tags --exact-match` = tag를 검증한 뒤에만 `monica-lab-homepage-app:latest`로 tag한다.
+  - **D-T9-5** compose에 top-level `name: monica-lab-homepage`(기존 디렉토리 파생 project 이름과 같은 값)와 app `image: monica-lab-homepage-app:latest`를 고정한다. volume 이름(D5)·container/network 구성은 바뀌지 않는다.
+  - **D-T9-6** 기동은 `docker compose pull db nginx` → `docker compose up -d --no-build --pull never`. service 미지정 `docker compose pull`과 registry의 app image pull은 금지한다.
+  - **D-T9-7** rollback은 이전 tag checkout → 그 tag app image(서버 보관본, 없으면 빌드 머신 재build·전달) revision 검증 → `:latest` 재tag → `up -d --no-build --pull never`. 서버에는 현재·직전 tag image를 보관한다.
+- 범위 제외: Dockerfile/`nginx/nginx.conf`/`.env.example`/production source/test 변경, registry·CD, Nginx image bake, image digest 고정, container non-root, 운영 서버 Docker 설치·실제 배포(배포 단계), `v1.1.1` release PR/tag(별도 승인).
+- DB migration: 없음
+- 검증: `docker compose config --images`(project/app image 이름 확인, 비밀값 비출력)와 `docker compose config --quiet`, `git diff --check`, `./gradlew build`, 운영 절차 문서의 서버 `up -d --build` 잔존 검색(로컬 개발/검증 기록과 P15-T0 결정 이력은 유지). 로컬 리허설(빌드 머신 build → save → load → revision 검증 → `--no-build --pull never` 기동, image 부재 시 `--pull never` 실패 확인)은 Docker Desktop 실행·로컬 stack 재생성 승인 후 수행하고 이 절에 기록한다.
+- DoD: compose 변경은 `name`/app `image`(+주석)만, 그 외 production source/Dockerfile/nginx/`.env.example` 변경 0. OPERATIONS §20 절차와 §1/§2/§6/§13-1/§15/§16-3/§17, ARCHITECTURE, GIT_WORKFLOW §6-1, README가 같은 배포 단위("tag checkout + revision 검증된 외부 build image → `up -d --no-build --pull never`")로 일관. 정적 검증/`./gradlew build` 통과. 로컬 리허설 기록(승인 후). PR base `develop`, merge commit.
+- 구현 결과(P15-T9, develop `3a78db2` 기준 브랜치 `feature/p15-t9-external-image-deploy` - commit 전): 위 산출물대로 변경. 정적 검증 - `docker compose config --images` = `mariadb:11.4.12`/`nginx:1.27-alpine`/`monica-lab-homepage-app:latest`, project `name` = `monica-lab-homepage`, app `build` 유지, volume `db_data` 이름 `monica-lab-homepage_db_data` 무변경, `docker compose config --quiet` 통과, `git diff --check` 통과, 운영 절차 문서의 서버 `up -d --build` 잔존 0건(ARCHITECTURE P15-T0 결정 단락은 "P15-T9로 대체" 표시 후 이력 유지, TASK.md 로컬 검증 기록 유지). `./gradlew build` BUILD SUCCESSFUL(문서/compose만 변경되어 Gradle task 전부 UP-TO-DATE - test 재실행 없음, PR CI에서 재실행). Docker Desktop 미실행·image build/save/load·로컬 stack 재생성 없음(로컬 리허설 미실행). 최종 문서 점검 - OPERATIONS의 모든 `docker compose pull`이 `db nginx` 지정(service 미지정 pull 0건), §6/§15-1/§15-2/§13-1/§16-3/§20과 GIT_WORKFLOW §6-1의 순서를 "tag checkout → `.env`/TLS → image build·전달·load·revision 검증 → `pull db nginx` → `up -d --no-build --pull never` → 실행 image ID 확인"으로 정렬, rollback/복원 시 서버 보관 image는 load 생략 후 revision 검증부터 수행하도록 §20-4에 명시.
+
 ### Phase 15 의존성 그래프
 
 ```
@@ -2017,11 +2037,15 @@ P15-T0 ─┬─ P15-T1 ─┬──────────── P15-T5
         ├─ P15-T4               ├─ P15-T8 ── Release/Launch
         ├─ P15-T6 ──────────────┘               ↑
         └─ P15-T7A ── P15-T7B(CLIENT asset) ────┘ (launch checklist에서 확인)
+
+P15-T8 ── P15-T9(외부 app image build 배포, v1.1.0 이후) ── Release(v1.1.1)/Launch
 ```
 
 ### Phase 15 실행 순서
 
 **P15-T0 → P15-T1 → P15-T2 → P15-T4 → P15-T5 → P15-T6 → P15-T3 → P15-T7A → P15-T8 → P15-T7B(asset 준비 시) → Release/Launch**
+
+- P15-T9는 `v1.1.0` release 이후 운영 서버 사전 점검 결과로 추가된 Task다: **P15-T8 → P15-T9 → Release(`v1.1.1`) → Launch**. 실제 운영 launch는 P15-T9 절차(OPERATIONS §20)로 수행한다.
 
 - P15-T3을 앱/콘텐츠 변경(P15-T4~T6) 뒤에 두는 이유: HTTPS/자체서명 인증서 전환이 로컬 Docker/Playwright 실행 방식을 바꾸므로, infra 전환을 한 번만 하고 앞선 Task의 테스트 흐름을 흔들지 않기 위함이다.
 - Release/Launch는 개발 Task가 아니라 GIT_WORKFLOW.md §6-1 + OPERATIONS 절차다(도메인 DNS, Let's Encrypt 발급, 운영 `.env`, 운영 smoke 포함).
@@ -2124,7 +2148,7 @@ Release QA는 GIT_WORKFLOW.md §6-1 1단계("Phase 15 완료 → 전체 QA(JUnit
 | 테스트 완료 | 테스트 완료 | `./gradlew test` 성공 + 커버리지 리포트 |
 | 운영 런타임/배포 완료 | Flyway/prod/영속성/CI | P1-T7 + P12-T1~T3 통과, 헬스체크 200 |
 | 공개 UI 디자인 적용 완료 | 공개 UI/UX 개선 | Phase13(P13-T0~T7) 통과, 기존 뷰 통합 테스트 + Playwright 반응형 유지 |
-| 운영 배포 준비 완료 | Production Readiness | P15-T0~T6, P15-T7A, P15-T8 DoD 통과(P15-T7B는 CLIENT-DEPENDENT LAUNCH ITEM으로 별도 확인 - 발주처 asset/도메인 확보 후 `v1.0.0` 이후 develop에서 구현) |
+| 운영 배포 준비 완료 | Production Readiness | P15-T0~T6, P15-T7A, P15-T8 DoD 통과, 실제 launch 전 P15-T9 DoD 통과(P15-T7B는 CLIENT-DEPENDENT LAUNCH ITEM으로 별도 확인 - 발주처 asset/도메인 확보 후 `v1.0.0` 이후 develop에서 구현) |
 
 ---
 

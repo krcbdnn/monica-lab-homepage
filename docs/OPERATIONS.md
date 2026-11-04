@@ -11,6 +11,9 @@
 - `<BACKUP_DIR>`: `<REPO_PATH>` **밖**의 백업 디렉토리
 - `<DEPLOY_TAG>` / `<PREVIOUS_TAG>`: 배포할 / 직전 release tag(예: `v1.0.0`)
 - `<ADMIN_LOGIN_ID>`: `.env`의 관리자 로그인 ID
+- `<BUILD_REPO>`: 빌드 머신(app image를 build하는 개발자 PC 등)의 저장소 checkout 경로(§20)
+- `<IMAGE_DIR>`: 운영 서버에서 app image archive를 받는 디렉토리(`<REPO_PATH>` **밖**, §20)
+- `<SERVER>`: 빌드 머신에서 운영 서버로 접속하는 SSH 대상(호스트 별칭 등 - 서버별 값은 기록하지 않는다)
 - 이 문서의 모든 `docker compose` 명령은 `<REPO_PATH>`에서 실행한다(compose는 같은 디렉토리의 `docker-compose.yml`과 `.env`를 읽는다). 운영에서는 `docker-compose.yml`만 사용하며 로컬 개발용 override(`docker-compose.local*.yml` 등)를 함께 지정하지 않는다.
 - 비밀번호·secret·계정 정보·서버 IP/접속 정보 등 서버별 값은 이 문서와 저장소에 기록하지 않는다. 공식 public domain(`www.monicaenglish.com`)은 공개 웹사이트의 코드/metadata(`og:url`/`og:image`, footer 등)에 사용할 수 있지만, 이 runbook의 명령 예시와 배포 절차에서 운영자가 입력할 값은 `<DOMAIN>` 등 placeholder로 유지한다.
 
@@ -37,6 +40,7 @@
 17. 보안 / secret / 금지 명령
 18. 관리자 운영 안내
 19. Launch TBD(발주처/운영 확정 대기)
+20. app image 외부 빌드·전달·검증(P15-T9)
 
 ---
 
@@ -47,12 +51,13 @@
 | service | image | 역할 | host 노출 |
 |---|---|---|---|
 | `nginx` | `nginx:1.27-alpine` | `:80` ACME challenge + 그 외 301 https, `:443` TLS termination·HSTS·관리자 로그인 rate limit·정적 리소스(`/css/`, `/js/`, `/images/`, `/vendor/`)·reverse proxy | `80`, `443` |
-| `app` | 저장소 `Dockerfile`로 build(Spring Boot, Java 21, `SPRING_PROFILES_ACTIVE=prod`) | 애플리케이션. 기동 시 Flyway migration 적용 | 없음(내부 `8080`) |
+| `app` | `monica-lab-homepage-app:latest` - 빌드 머신에서 저장소 `Dockerfile`로 build해 서버에 load한 image(Spring Boot, Java 21, `SPRING_PROFILES_ACTIVE=prod`). 서버에서는 build하지 않는다(§20) | 애플리케이션. 기동 시 Flyway migration 적용 | 없음(내부 `8080`) |
 | `db` | `mariadb:11.4.12` | DB `monica_lab`, 계정 `monica` | 없음(내부 `3306`) |
 
 - 기동 순서는 `db`(healthy) → `app`(healthy, `/actuator/health`) → `nginx`다(`depends_on: service_healthy`).
 - 3개 service 모두 `restart: unless-stopped`, Docker 로그 `json-file` `max-size 10m` × `max-file 3`.
-- Nginx는 정적 리소스를 **host checkout의 `./src/main/resources/static`**에서 직접 제공하고, app image는 같은 checkout에서 build된다. 그래서 **"release tag checkout → `docker compose up -d --build`"가 하나의 배포 단위**다(checkout만 하고 rebuild 생략 금지, app image만 따로 rollback 금지 - ARCHITECTURE "Nginx 정적 리소스 공급").
+- Nginx는 정적 리소스를 **host checkout의 `./src/main/resources/static`**에서 직접 제공하고, app image는 **빌드 머신에서 같은 release tag로 build**된다(P15-T9 - 운영 서버에서 build하지 않는다). 그래서 **"release tag checkout + 같은 tag에서 build되어 revision 검증을 통과한 app image → `docker compose up -d --no-build --pull never`"가 하나의 배포 단위**다(checkout만 하고 app image 교체·검증 생략 금지, revision이 checkout과 다른 image 기동 금지, app image만 따로 rollback 금지 - ARCHITECTURE "Nginx 정적 리소스 공급" 결정과 P15-T9 변경). 빌드·전달·검증 절차는 §20.
+- compose project 이름(`name: monica-lab-homepage`)과 app image 이름(`monica-lab-homepage-app:latest`)은 `docker-compose.yml`에 고정되어 있어 `<REPO_PATH>` 디렉토리 이름과 무관하다.
 - 영속 데이터: MariaDB named volume `monica-lab-homepage_db_data`, 업로드 `./data/uploads`, 인증서 `./data/certs`, ACME webroot `./data/certbot`, 비밀값 `.env`(§11).
 - Secret 원칙: 비밀번호/인증서 개인키/백업은 Git에 넣지 않는다. `.env`와 `data/`는 `.gitignore` 대상이다(§17).
 
@@ -64,7 +69,7 @@
 
 | 필요 software | 용도 |
 |---|---|
-| Docker Engine + Docker Compose v2(`docker compose`) | 서비스 실행(`docker-compose.yml`) |
+| Docker Engine + Docker Compose v2(`docker compose`, `up --pull never` 지원 버전) | 서비스 실행(`docker-compose.yml`), app image load(§20) |
 | git | release tag checkout |
 | openssl | 비밀번호 생성, placeholder 인증서, 인증서 확인 |
 | certbot(host 설치) | Let's Encrypt 인증서 발급/갱신(webroot 방식, certbot 컨테이너는 쓰지 않는다) |
@@ -72,7 +77,7 @@
 
 1. Docker daemon을 부팅 시 자동 시작하도록 설정한다(systemd 사용 배포판: `sudo systemctl enable --now docker`). 컨테이너는 `restart: unless-stopped`이므로 daemon이 뜨면 함께 올라온다.
 2. 방화벽은 인바운드 `80/tcp`, `443/tcp`(+ 서버 관리용 SSH)만 연다. `8080`/`3306`은 compose가 host에 노출하지 않으므로 열 필요가 없다.
-3. **서버 outbound 네트워크가 필요하다**: image pull(Docker Hub), app image build 중 Gradle 배포본(`services.gradle.org`)·Maven 의존성 다운로드와 `apt-get`(runtime image에 `curl` 설치), Let's Encrypt ACME 통신, CDN은 사용자 브라우저가 직접 받는다. build 중 다운로드가 일시적으로 실패하면(로컬 검증에서 Gradle 배포본 10초 read timeout 사례 있음) 같은 tag로 build를 다시 실행한다.
+3. **서버 outbound 네트워크가 필요하다**: `mariadb`/`nginx` image pull(Docker Hub), Let's Encrypt ACME 통신. CDN은 사용자 브라우저가 직접 받는다. 서버는 app image를 build하지 않으므로 Gradle/Maven 다운로드는 서버에 필요 없다(P15-T9 - app image build의 outbound는 빌드 머신에 필요하다, 아래 "빌드 머신").
 4. 저장소를 clone한다.
 
    ```bash
@@ -80,6 +85,22 @@
    cd <REPO_PATH>
    mkdir -p data/uploads data/certs data/certbot
    ```
+
+5. app image archive 수신 디렉토리를 저장소 밖에 만든다(§20): `mkdir -p <IMAGE_DIR> && chmod 700 <IMAGE_DIR>`
+
+### 빌드 머신(P15-T9)
+
+app image는 운영 서버가 아니라 빌드 머신에서 build한다(§20). 빌드 머신은 운영 서버와 별개이며 다음이 필요하다.
+
+| 필요 software / 조건 | 용도 |
+|---|---|
+| Docker Engine 또는 Docker Desktop(`linux/amd64` image build 가능) | app image build/save(§20-2) |
+| git + 저장소 clone(`<BUILD_REPO>`) | release tag checkout |
+| SSH client(`scp`)와 운영 서버 접속 권한 | archive 전달(§20-3) |
+| outbound 네트워크 | build 중 base image pull(Docker Hub), Gradle 배포본(`services.gradle.org`)·Maven 의존성 다운로드, runtime image의 `apt-get`(`curl` 설치) |
+
+- build 중 다운로드가 일시적으로 실패하면(로컬 검증에서 Gradle 배포본 10초 read timeout 사례 있음) 같은 tag로 build를 다시 실행한다.
+- 운영 서버 CPU architecture가 `linux/amd64`가 아니면 이 절차를 그대로 쓰지 않는다(§20의 `--platform` 값과 서버 architecture가 일치해야 한다).
 
 ---
 
@@ -189,19 +210,23 @@ git status --porcelain             # 출력 없음이어야 한다(.env, data/�
 1. §4 `.env` 작성, `docker compose config --quiet` 통과.
 2. `data/uploads`, `data/certs`, `data/certbot` 디렉토리 존재 확인(§2).
 3. §7-1 placeholder 인증서 생성(인증서 파일이 없으면 nginx 설정 검사가 `cannot load certificate`로 실패해 nginx가 기동하지 않는다 - 로컬 확인).
-4. 전체 기동:
+4. §20-2~20-4로 `<DEPLOY_TAG>`의 app image를 빌드 머신에서 build → 서버로 전달 → load·revision 검증 → `monica-lab-homepage-app:latest` tag.
+5. 전체 기동(서버에서 build하지 않는다 - `--build` 금지):
 
    ```bash
-   docker compose up -d --build
+   docker compose pull db nginx       # mariadb/nginx image만 받는다(app image는 registry에서 받지 않음)
+   docker compose up -d --no-build --pull never
    docker compose ps                  # db/app: healthy, nginx: Up
    docker compose logs --tail=200 app # Flyway migration 적용, "Started ..." 확인
    ```
 
+   기동 후 §20-5로 실행 중 app container의 image가 검증한 image인지 확인한다.
+
    최초 기동에서 Flyway가 V1부터 전체 migration을 적용한다(§14). app healthcheck는 `start_period 30s` + `10s` 간격 5회다.
-5. §7-2~7-4로 실제 인증서 발급·적용.
-6. §5 초기 관리자 비밀번호 변경.
-7. §16-4 smoke checklist.
-8. 배포 기록: 배포한 tag, `git rev-parse HEAD`, 일시를 운영 기록에 남긴다(§11).
+6. §7-2~7-4로 실제 인증서 발급·적용.
+7. §5 초기 관리자 비밀번호 변경.
+8. §16-4 smoke checklist.
+9. 배포 기록: 배포한 tag, `git rev-parse HEAD`, app image ID(`docker image inspect --format '{{.Id}}' monica-lab-homepage-app:latest`), 일시를 운영 기록에 남긴다(§11).
 
 ---
 
@@ -324,6 +349,8 @@ sudo certbot certonly --webroot -w <REPO_PATH>/data/certbot -d <DOMAIN> \
 | `.env` | `<REPO_PATH>/.env` | 상(secret, DB volume 초기화 비밀번호와 일치해야 함) | secret으로 별도 보관 | gitignore |
 | TLS 인증서 | 원본 `/etc/letsencrypt/`(certbot), 사용본 `<REPO_PATH>/data/certs` | 중(재발급 가능) | 선택(아래) | gitignore(`data/`) |
 | ACME webroot | `<REPO_PATH>/data/certbot` | 하(임시 파일) | 불필요 | gitignore |
+| app image(현재·직전 release tag) | 서버 Docker image 저장소(`monica-lab-homepage-app:<TAG>`, `:latest`) | 중(빌드 머신에서 같은 tag로 재build 가능) | 불필요. rollback용으로 직전 tag image를 서버에 남긴다(§20-6) | 해당 없음 |
+| app image archive | `<IMAGE_DIR>`(서버), 빌드 머신의 저장소 밖 디렉토리 | 하(load 후 불필요) | 불필요 | 저장소 밖에 둔다 |
 | 배포 기록 | 운영 기록(배포 tag, commit, 일시) | 상(rollback·복원 기준) | 백업과 함께 기록 | 해당 없음 |
 
 - 인증서 백업은 필수가 아니다: 서버를 잃어도 DNS를 새 서버로 옮기고 §7로 재발급할 수 있다. 다만 `/etc/letsencrypt/`에는 ACME 계정 키와 개인키가 있으므로 백업한다면 secret으로 취급한다.
@@ -350,7 +377,7 @@ tar -C data -czf <BACKUP_DIR>/uploads-$TS.tar.gz uploads
 
 # 3) .env(secret) 와 배포 기록
 install -m 600 .env <BACKUP_DIR>/env-$TS
-{ git describe --tags --exact-match 2>/dev/null || echo "no-tag"; git rev-parse HEAD; } > <BACKUP_DIR>/deployed-$TS.txt
+{ git describe --tags --exact-match 2>/dev/null || echo "no-tag"; git rev-parse HEAD; docker image inspect --format '{{.Id}}' monica-lab-homepage-app:latest; } > <BACKUP_DIR>/deployed-$TS.txt
 
 chmod 600 <BACKUP_DIR>/*-$TS*
 ```
@@ -391,7 +418,7 @@ chmod 600 <BACKUP_DIR>/*-$TS*
    tar -C data -xzf <BACKUP_DIR>/uploads-<TS>.tar.gz
    ```
 
-5. §7 TLS 준비 후 `docker compose up -d --build`, §16-4 smoke.
+5. §20으로 백업 시점 tag의 app image를 준비(서버 보관본이 없으면 빌드 머신에서 같은 tag로 build·전달)하고 revision을 검증한 뒤, §7 TLS 준비 후 `docker compose pull db nginx` → `docker compose up -d --no-build --pull never`, §16-4 smoke.
 
 기존 서버의 운영 DB를 되돌려야 하는 경우도 3)의 import가 dump에 포함된 테이블을 drop 후 다시 만든다(`mariadb-dump` 기본 동작). 이 작업은 데이터 손실을 수반하므로 운영 책임자 승인 후 수행한다. `down -v`/volume 삭제로 "초기화"하지 않는다.
 
@@ -444,25 +471,38 @@ git show --no-patch <DEPLOY_TAG>                 # 대상 tag 확인(main의 ann
 git checkout <DEPLOY_TAG>
 git status --porcelain                           # 출력 없음
 docker compose config --quiet
-docker compose up -d --build                     # app image rebuild + 변경된 service 재생성
+# §20-2~20-4: 빌드 머신에서 <DEPLOY_TAG> app image build → 전달 → load·revision 검증 → :latest tag
+docker compose pull db nginx                     # mariadb/nginx image만 받는다
+docker compose up -d --no-build --pull never     # 검증한 app image로 변경된 service 재생성(서버 build 없음)
 docker compose ps
+# §20-5: 실행 중 app container image ID = 검증한 image ID 확인
 docker compose logs --tail=200 app
 ```
 
-- 반드시 `--build`와 함께 실행한다. checkout만 하고 rebuild를 생략하면 nginx의 정적 리소스(host checkout)와 app/template(image)의 버전이 어긋난다.
-- build는 외부 네트워크가 필요하다(§2).
+- 서버에서는 `--build`/`docker build`를 쓰지 않는다(운영 서버 메모리 부족 위험, P15-T9). 반드시 §20-4 revision 검증을 통과한 image로 `--no-build --pull never` 기동한다. checkout만 하고 app image 교체·검증을 생략하면 nginx의 정적 리소스(host checkout)와 app/template(image)의 버전이 어긋난다.
+- `--pull never`이므로 필요한 image가 서버에 없으면 기동이 실패한다(registry에서 대체 image를 받지 않는다). `mariadb`/`nginx`는 직전의 `docker compose pull db nginx`로 준비한다. `docker compose pull`(service 지정 없음)은 app image까지 registry에서 받으려 하므로 쓰지 않는다.
+- app image build는 빌드 머신의 외부 네트워크가 필요하다(§2 "빌드 머신").
+- 직전 tag의 app image(`monica-lab-homepage-app:<PREVIOUS_TAG>`)는 rollback용으로 서버에 남긴다(§20-6).
 - 컨테이너가 재생성되면 그 컨테이너의 이전 Docker 로그는 사라진다. 이전 로그가 필요하면 배포 전에 `docker compose logs app > <BACKUP_DIR>/app-before-$TS.log`로 남긴다.
 - 배포 후 §16-4 smoke, 배포 기록(§11) 갱신.
 
 ### 15-2. Rollback
 
-- 기본: 이전 tag로 **전체 stack**을 다시 build한다(app image만 따로 되돌리지 않는다).
+- 기본: 이전 tag checkout과 **그 tag의 app image**로 전체 stack을 다시 기동한다(app image만 따로 되돌리지 않는다, 서버에서 build하지 않는다).
 
   ```bash
   cd <REPO_PATH>
   # 현재 상태 §12 백업
   git checkout <PREVIOUS_TAG>
-  docker compose up -d --build
+  git status --porcelain                           # 출력 없음
+  # 서버에 monica-lab-homepage-app:<PREVIOUS_TAG>가 남아 있으면 §20-4의 revision/platform 검증만 수행(archive hash/load 생략)
+  # 없으면 빌드 머신에서 §20-2~20-3으로 다시 build·전달하고 §20-4 전체(hash 확인·load·검증) 수행
+  # (§20의 <DEPLOY_TAG> 자리에 <PREVIOUS_TAG>) - "revision OK"일 때만:
+  docker tag monica-lab-homepage-app:<PREVIOUS_TAG> monica-lab-homepage-app:latest
+  docker compose pull db nginx
+  docker compose up -d --no-build --pull never
+  docker compose ps
+  # §20-5: 실행 중 app container image ID = <PREVIOUS_TAG> image ID 확인
   ```
 
 - 되돌리는 release에 **migration이 없었다면** 위 절차로 충분하다.
@@ -504,7 +544,7 @@ docker compose logs -f app                          # 실시간
 5. 디스크 여유(`df -h`), 인증서 만료일(§8).
 
 - 502가 계속되면 app이 healthy인지 먼저 본다(nginx는 app이 healthy가 된 뒤 기동하지만, 이후 app 장애 시 502를 반환한다).
-- 같은 tag로 다시 올릴 때도 `docker compose up -d --build`를 쓴다. `down -v`는 쓰지 않는다(§17).
+- 같은 tag로 다시 올릴 때도 서버에서 build하지 않고 `docker compose up -d --no-build --pull never`를 쓴다(app image는 §20-4 검증을 통과한 `:latest`). `down -v`는 쓰지 않는다(§17).
 
 ### 16-4. 배포 후 smoke checklist
 
@@ -561,7 +601,12 @@ curl -s https://<DOMAIN>/ | grep -oE '<meta property="og:(url|image)" content="[
 | `docker volume rm monica-lab-homepage_db_data`, 무계획 `docker volume prune`/`docker system prune --volumes` | DB volume 삭제 |
 | 운영 DB/volume에 복원 리허설 | 운영 데이터 덮어쓰기 - 리허설은 §13-2의 별도 컨테이너에서만 |
 | 백업 없이 migration 포함 release 배포 | Flyway는 forward-only라 되돌릴 방법이 백업 복원뿐 |
-| `git pull`/`git checkout`만 하고 `--build` 생략, mutable branch(develop/main) 배포 | 정적 리소스와 app/template 버전 불일치, 배포 버전 추적 불가 |
+| `git pull`/`git checkout`만 하고 app image 교체·revision 검증 생략, mutable branch(develop/main) 배포 | 정적 리소스와 app/template 버전 불일치, 배포 버전 추적 불가 |
+| 운영 서버에서 `docker compose up --build`/`docker compose build`/`docker build`(P15-T9) | 서버 메모리 부족(OOM)으로 실행 중 DB/app이 종료될 위험, 서버 Gradle/Maven outbound 의존 |
+| revision label이 서버 checkout HEAD와 다르거나 label이 없는 app image로 기동 | 정적 리소스·schema와 불일치, 출처 미확인 image 실행 |
+| `docker compose pull`(service 미지정)·registry에서 app image pull, `--pull never` 없이 기동 | 검증하지 않은 image로 대체될 위험(app image는 §20 archive로만 공급) |
+| 무계획 `docker image prune -a`/`docker system prune -a`, 직전 tag app image 삭제 | rollback용 app image 손실(재build 필요) |
+| app image archive를 `<REPO_PATH>` 안에 두기 | 실수로 commit될 위험(`.gitignore` 대상 아님) |
 | app image만 이전 버전으로 rollback | 정적 리소스·schema와 불일치 |
 | `flyway_schema_history` 수정/삭제, 수동 DDL | schema 이력 손상 |
 | 인증서 개인키·`.env`·dump commit | secret 유출 |
@@ -598,3 +643,97 @@ Engineering 완료(Phase 15 개발 Task)와 실제 공개 launch 준비는 별�
 | release PR(develop → main) / `v1.0.0` tag | 개발 | GIT_WORKFLOW §6-1 |
 | 운영 외부 HTTPS smoke | 운영 | §16-4 |
 | 앞단 proxy(Cloudflare/LB) 사용 여부 | 발주처/운영 | 사용 시 §10 별도 변경 Task |
+| app image 빌드 머신 / 빌드·전달 담당자 | 개발/운영 | §2 "빌드 머신", §20(P15-T9) |
+
+---
+
+## 20. app image 외부 빌드·전달·검증(P15-T9)
+
+운영 서버에서는 app image를 build하지 않는다(ARCHITECTURE "Nginx 정적 리소스 공급" P15-T9 변경). 빌드 머신에서 release tag 기준으로 build한 image를 `docker save` archive로 전달하고, 서버에서 load·검증한 뒤 `docker compose up -d --no-build --pull never`로 기동한다. registry(Docker Hub/GHCR 등)는 사용하지 않는다.
+
+이름 규칙:
+
+| 항목 | 값 |
+|---|---|
+| compose project | `monica-lab-homepage`(`docker-compose.yml` top-level `name`) |
+| app image(배포 버전) | `monica-lab-homepage-app:<DEPLOY_TAG>` |
+| app image(compose가 기동하는 이름) | `monica-lab-homepage-app:latest`(`docker-compose.yml` app `image`) |
+| OCI label | `org.opencontainers.image.revision` = tag commit SHA(`git rev-parse HEAD`), `org.opencontainers.image.version` = `<DEPLOY_TAG>` |
+| platform | `linux/amd64`(운영 서버 architecture와 일치해야 한다) |
+| archive | `monica-lab-homepage-app_<DEPLOY_TAG>.tar`(빌드 머신·서버 모두 저장소 **밖**) |
+
+### 20-1. 전제
+
+- 빌드 머신 요건은 §2 "빌드 머신"을 따른다. 아래 빌드 머신 명령은 POSIX shell(Git Bash 등) 기준이다. Windows PowerShell 5.1에서는 `$REV = git rev-parse HEAD`처럼 변수를 쓰고, **`docker save` 출력을 PowerShell pipe/redirect로 받지 말고 반드시 `-o` 파일 옵션을 쓴다**(PowerShell 5.1 pipe는 binary를 텍스트로 변환해 archive를 손상시킬 수 있다). SHA-256은 `Get-FileHash -Algorithm SHA256 <파일>`로 구한다.
+- 빌드 머신의 로컬 개발 stack과 image 이름이 겹친다(`monica-lab-homepage-app:latest`는 로컬 개발 `--build`도 만든다). 배포용으로는 항상 `:<DEPLOY_TAG>` tag를 build·save하고, 빌드 머신의 `:latest`를 전달하지 않는다.
+
+### 20-2. build(빌드 머신)
+
+```bash
+cd <BUILD_REPO>
+git fetch --tags origin
+git checkout <DEPLOY_TAG>                          # detached HEAD가 정상
+git describe --tags --exact-match                  # <DEPLOY_TAG>
+# build context에 들어가는 경로에 tracked 변경/untracked 파일이 없어야 한다(출력 없음)
+git status --porcelain -- Dockerfile .dockerignore gradlew gradle build.gradle settings.gradle src
+REV=$(git rev-parse HEAD)
+docker build --platform linux/amd64 \
+  --label org.opencontainers.image.revision=$REV \
+  --label org.opencontainers.image.version=<DEPLOY_TAG> \
+  -t monica-lab-homepage-app:<DEPLOY_TAG> .
+docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}} {{index .Config.Labels "org.opencontainers.image.version"}}' \
+  monica-lab-homepage-app:<DEPLOY_TAG>               # linux/amd64 <REV> <DEPLOY_TAG>
+docker save -o <저장소 밖 경로>/monica-lab-homepage-app_<DEPLOY_TAG>.tar monica-lab-homepage-app:<DEPLOY_TAG>
+sha256sum <저장소 밖 경로>/monica-lab-homepage-app_<DEPLOY_TAG>.tar   # 값을 기록한다
+```
+
+- Dockerfile은 build stage에서 `./gradlew bootJar -x test`를 실행한다. 테스트는 release 전 CI/Release QA에서 통과한 commit(tag)이어야 한다(GIT_WORKFLOW §6-1).
+- build 중 다운로드 일시 실패 시 같은 tag로 다시 build한다(§2 "빌드 머신").
+
+### 20-3. 전달(빌드 머신 → 서버)
+
+```bash
+scp <저장소 밖 경로>/monica-lab-homepage-app_<DEPLOY_TAG>.tar <SERVER>:<IMAGE_DIR>/
+```
+
+- 접속 정보·호스트 키 검증은 운영자 SSH 설정을 따른다(호스트 키 검증을 끄지 않는다).
+
+### 20-4. load·revision 검증(서버)
+
+```bash
+cd <REPO_PATH>
+git describe --tags --exact-match                  # <DEPLOY_TAG>(§6/§15에서 이미 checkout한 상태)
+sha256sum <IMAGE_DIR>/monica-lab-homepage-app_<DEPLOY_TAG>.tar   # 20-2에서 기록한 값과 일치해야 한다
+docker load -i <IMAGE_DIR>/monica-lab-homepage-app_<DEPLOY_TAG>.tar
+EXPECTED=$(git rev-parse HEAD)
+ACTUAL=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' monica-lab-homepage-app:<DEPLOY_TAG>)
+docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.version"}}' \
+  monica-lab-homepage-app:<DEPLOY_TAG>               # linux/amd64 <DEPLOY_TAG>
+if [ -n "$ACTUAL" ] && [ "$EXPECTED" = "$ACTUAL" ]; then echo "revision OK"; else echo "revision MISMATCH - 기동 중단"; fi
+```
+
+- rollback(§15-2)·복원(§13-1)에서 해당 tag image가 이미 서버에 보관되어 있으면 archive hash 확인과 `docker load`는 생략하고, `EXPECTED`/`ACTUAL` revision 비교와 platform 확인부터 수행한다.
+- `revision OK`일 때만 다음을 실행한다. hash 불일치, label 없음, revision 불일치, platform 불일치이면 기동하지 않고 20-2부터 다시 수행한다.
+
+  ```bash
+  docker tag monica-lab-homepage-app:<DEPLOY_TAG> monica-lab-homepage-app:latest
+  ```
+
+### 20-5. 기동과 실행 image 확인(서버)
+
+```bash
+docker compose pull db nginx
+docker compose up -d --no-build --pull never
+docker compose ps
+# 실행 중 app container의 image ID = 검증한 image ID
+docker inspect --format '{{.Image}}' $(docker compose ps -q app)
+docker image inspect --format '{{.Id}}' monica-lab-homepage-app:<DEPLOY_TAG>
+```
+
+- 두 ID가 다르면 배포 실패로 보고 원인을 확인한다(같은 tag의 image를 다시 load/tag 후 재기동).
+- 이후 §6(최초 배포) 또는 §15-1(배포)의 나머지 단계(로그 확인, smoke, 배포 기록)를 이어간다.
+
+### 20-6. 보관/정리
+
+- 서버에는 현재 tag와 직전 tag의 app image(`monica-lab-homepage-app:<DEPLOY_TAG>`, `:<PREVIOUS_TAG>`)를 남긴다(§15-2 rollback). 그보다 오래된 tag image는 운영자가 확인 후 `docker image rm monica-lab-homepage-app:<OLD_TAG>`로 지운다(무계획 `prune -a` 금지 - §17).
+- archive는 20-5 확인 후 서버 `<IMAGE_DIR>`와 빌드 머신에서 삭제해도 된다(같은 tag로 다시 build 가능). 남긴다면 저장소 밖에만 둔다.
