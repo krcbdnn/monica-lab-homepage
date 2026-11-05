@@ -670,7 +670,7 @@ Engineering 완료(Phase 15 개발 Task)와 실제 공개 launch 준비는 별�
 - 빌드 머신 요건은 §2 "빌드 머신"을 따른다. 아래 빌드 머신 명령은 POSIX shell(Git Bash 등) 기준이다. Windows PowerShell 5.1에서는 `$REV = git rev-parse "<DEPLOY_TAG>^{commit}"`처럼 변수를 쓰고(빌드 머신 작업 checkout의 HEAD를 쓰지 않는다), `git archive` 출력도 pipe로 넘기지 말고 `-o` 파일로 받는다(§20-2). **`docker save` 출력을 PowerShell pipe/redirect로 받지 말고 반드시 `-o` 파일 옵션을 쓴다**(PowerShell 5.1 pipe는 binary를 텍스트로 변환해 archive를 손상시킬 수 있다). SHA-256은 `Get-FileHash -Algorithm SHA256 <파일>`로 구한다.
 - **운영 서버로 전달하는 app image는 반드시 main의 release tag(`<DEPLOY_TAG>`)를 기준으로 §20-2 절차를 수행해 만든 것이어야 한다.** release tag 없이 만든 리허설·검증 image(기능 브랜치 commit 기준 등)는 서버로 전달하지 않는다(서버 §20-4의 tag 확인·revision 검증에서 거부된다). 리허설 image를 release tag 이름으로 재tag해 쓰지 않는다.
 - 빌드 머신의 로컬 개발 stack과 image 이름이 겹친다(`monica-lab-homepage-app:latest`는 로컬 개발 `--build`도 만든다). 배포용으로는 항상 `:<DEPLOY_TAG>` tag를 build·save하고, 빌드 머신의 `:latest`를 전달하지 않는다.
-- **Windows Git Bash 주의**: (1) Git Bash의 GNU tar는 `C:/…`처럼 콜론이 있는 경로를 `host:path` 원격 경로로 해석해 `Cannot connect to C: resolve failed`로 실패하고 대상 디렉토리를 빈 채로 남긴다. `tar -x -C`에는 `/c/…` 형식 경로를 쓰거나 `tar --force-local`을 쓰고, tar가 실패하면 그 자리에서 중단한다(빈 context는 §20-2의 2) diff에서도 걸러지지만 1)에서 멈춘다). (2) `docker cp "$CID":/app/app.jar …`의 container 쪽 경로가 Git Bash 경로 변환으로 Windows 경로로 바뀌지 않도록 `MSYS_NO_PATHCONV=1`을 설정하고 실행한다(로컬 리허설은 이 설정 상태로만 정상 동작을 확인했다. 미설정 시 동작은 미검증).
+- **Windows Git Bash 주의**: (1) Git Bash의 GNU tar는 `C:/…`처럼 콜론이 있는 경로를 `host:path` 원격 경로로 해석해 `Cannot connect to C: resolve failed`로 실패하고 대상 디렉토리를 빈 채로 남긴다. `tar -x -C`에는 `/c/…` 형식 경로를 쓰거나 `tar --force-local`을 쓰고, tar가 실패하면 그 자리에서 중단한다(빈 context는 §20-2의 2) diff에서도 걸러지지만 1)에서 멈춘다). (2) `docker cp "$CID":/app/app.jar …`의 container 쪽 경로가 Git Bash 경로 변환으로 Windows 경로로 바뀌지 않도록 `MSYS_NO_PATHCONV=1`을 설정하고 실행한다. 이 설정은 호스트 쪽 경로 변환도 끄므로 `docker cp`의 호스트 경로는 `C:/…` 형식을 써야 한다(`/c/…`를 그대로 넘기면 Docker가 `C:\c\…`로 해석해 `invalid output path`로 실패한다). 즉 같은 디렉토리라도 `tar -x -C`에는 `/c/…`, `docker cp` 호스트 경로에는 `C:/…`를 쓴다(로컬 리허설·v1.1.1 Release QA는 `MSYS_NO_PATHCONV=1` 설정 상태로만 정상 동작을 확인했다. 미설정 시 동작은 미검증).
 - **검증 범위**: §20의 빌드 머신 절차와 로컬 기동·rollback·`--pull never`·service 지정 pull 동작은 빌드 머신 Docker Desktop(Compose v2.37.1-desktop.1, Git Bash)에서 확인했다(TASK.md P15-T9 리허설 결과). 서버 `docker-compose-v2 2.40.3`(설치 예정)에서의 동작, `scp` 전달, 서버 sha256 확인·`docker load`·revision 검증은 **미검증**이며 최초 배포 때 §20-4/§20-5로 확인한다.
 
 ### 20-2. build(빌드 머신)
@@ -709,7 +709,7 @@ docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .Config.Labels 
 
 # 6) jar 안에 application-local.yml이 없는지 확인(파일 이름 목록만 본다 - 내용 추출/출력 금지)
 CID=$(docker create monica-lab-homepage-app:<DEPLOY_TAG>)   # 실행하지 않는 임시 container(검사용)
-# Git Bash: MSYS_NO_PATHCONV=1 (§20-1)
+# Git Bash: MSYS_NO_PATHCONV=1, 호스트 경로는 C:/… 형식(§20-1)
 docker cp "$CID":/app/app.jar "$BUILD_CTX/../app-check-<DEPLOY_TAG>.jar"
 docker rm "$CID"
 unzip -Z1 "$BUILD_CTX/../app-check-<DEPLOY_TAG>.jar" | grep -E '^BOOT-INF/classes/application' # application.yml, application-prod.yml만 보여야 한다

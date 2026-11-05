@@ -2137,6 +2137,35 @@ Release QA는 GIT_WORKFLOW.md §6-1 1단계("Phase 15 완료 → 전체 QA(JUnit
 | 발견된 blocker | 없음. 참고(비차단): app 로그 ERROR 29건은 모두 클라이언트 연결 종료(`AsyncRequestNotUsableException`) 예외였고 테스트 결과(0 failed)에 영향은 없었다 |
 | Release QA 최종 판정 | **v1.1.0 RELEASE QA: PASS** |
 
+#### v1.1.1 Release QA
+
+이 절은 `v1.1.0` 이후 P15-T9(PR #176, 외부 app image build 배포)가 들어간 develop을 `v1.1.1` release 후보로 검증한 실행 기록이다. QA 계약은 위와 같다(GIT_WORKFLOW §6-1, ARCHITECTURE "운영 배포 계약(Phase 15)", OPERATIONS §16-4). 이번 실행에서는 app image를 P15-T9 절차(OPERATIONS §20-2 - `git archive` context, OCI label, jar 파일 이름 검사)로 build하고 로컬 stack의 app만 재생성해 검증했다.
+
+- 최종 상태: **PASS** - release 후보 QA 통과를 뜻하며 운영 배포 완료를 뜻하지 않는다. 서버 전달·`docker load`·revision 검증·운영 smoke는 Launch 때 OPERATIONS §20-4/§20-5로 확인한다.
+
+| 항목 | 결과(v1.1.1) |
+|---|---|
+| 실행 날짜 | 2026-11-05(Playwright 05:19:54Z~06:32:55Z) |
+| 대상 develop commit SHA | `d1c3e613c565b02559c6e97623edd88a8205bd2b`(version 후보 `v1.1.1`) |
+| release diff(`main..develop`) | commit 4개 - `d1e6ab1`, `f60f478`, `c9d93e4`, `d1c3e61`(PR #176 merge). 변경 파일 7개(+264/−28) - `.dockerignore`, `docker-compose.yml`, `README.md`, `docs/ARCHITECTURE.md`, `docs/GIT_WORKFLOW.md`, `docs/OPERATIONS.md`, `docs/TASK.md`. Java production/test·migration·Dockerfile·nginx·Gradle 변경 0 |
+| `./gradlew clean build` | BUILD SUCCESSFUL(5m 59s), JUnit 73개 class 797건 - pass 797, failures/errors/skipped 0 |
+| Node test(`node --test src/test/js/**/*.test.js`) | 24개 파일 539 pass / 0 fail / 0 cancelled·skipped·todo(Node v24.16.0) |
+| app image build(OPERATIONS §20-2 절차) | `git archive d1c3e61` 추출 파일 362개 = `git ls-tree -r --name-only` 362개, `application-local.yml` 부재. `docker build --platform linux/amd64` → `monica-lab-homepage-app:qa-v1.1.1`(image ID `sha256:f98b9123c4e0c27d66ec763d4d77b99977f6ddd5c0ef86ce7d5edde2de81454a`, `linux/amd64`, revision label `d1c3e61…`, version label `qa-v1.1.1`). jar 파일 이름 550개 중 `application-local` 포함 경로 0개(내용 미추출). QA용 image이므로 운영 서버로 전달하지 않으며, release image는 `v1.1.1^{commit}` 기준으로 §20-2를 다시 수행해 build한다 |
+| app 재생성 | QA image로 `up -d --no-deps --no-build --pull never app` - app만 재생성(`2af8183ee861`, healthy). db `e0e1d4f51741`·nginx `321a9f9d5658` container와 `monica-lab-homepage_db_data` volume 변경 없음 |
+| HTTPS smoke(로컬 `https://localhost:8443`) | 통과 - 자체서명 cert(CN=localhost, TLSv1.3), `:8088` 301 → https, ACME 404, `/` 200 + HSTS + `Server: nginx`, `robots.txt` 3줄, `/`·`/boards`·`/programs`·`/pages/INTRODUCTION`·`/css/home.css`(HSTS·`X-Static-Served-By`·`no-cache`) 200, `/actuator/health` `UP`, 404 HTML, 미인증 `/admin/dashboard` 302 `Location: /admin/login`, brand asset 200·OG tag 정상, 로그인 1회 200(쿠키 속성 정상) → `/api/admin/me`·`/admin/password`·`/admin/dashboard` 200 → 로그아웃 200 → `/api/admin/me` 401. smoke 전후 DB·업로드 delta 0, app 로그 ERROR 0 |
+| 실행 전 Gate | app healthy, db·nginx running, restart 0. row 수 admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1, 업로드 62개/21,950,080 bytes. `ADMIN_PASSWORD` 정책 충족(값 비출력 판정) |
+| 전체 Playwright(HTTPS, `--workers=1`) | `PLAYWRIGHT_BASE_URL=https://localhost:8443 npx playwright test -c frontend-tests/playwright.config.js --workers=1`(결과 수집용 `--reporter=list,json` 추가) - **353 passed / 0 failed / 0 skipped / 0 flaky(1.2h, 4,381s)**, retry 0. `ERR_*` 네트워크 오류 0건 |
+| 429(비차단 warning) | 실행 중 nginx `limiting requests`/429가 각 287건 관찰됐다. 운영 계약값(`5r/m`, `burst=5`) 그대로에서 E2E helper가 13초 대기 후 재시도해 모두 회복했고, 이로 인한 test failure는 없다. release blocker가 아니다(rate limit·helper는 변경하지 않음) |
+| DB(실행 전 → 후, delta) | 전부 delta 0: admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1 |
+| 업로드(전 → 후) | 62개/21,950,080 bytes → 62개/21,950,080 bytes(파일 잔여 없음) |
+| 관리자 비밀번호 복구 | `admin-password.spec.js:198`(실행 순번 #73) passed - 이 테스트는 `finally`에서 임시 비밀번호를 원래 비밀번호로 되돌린 뒤 원래 비밀번호 로그인 200을 assert하며, 이 복구 assertion이 통과했다. 실행 후 별도 수동 로그인 확인은 수행하지 않았다 |
+| Docker health | 실행 후 app `2af8183ee861` healthy, db `e0e1d4f51741`·nginx `321a9f9d5658` running, restart 0, Playwright 중 container 재생성 없음, `monica-lab-homepage_db_data` volume 유지 |
+| Git | `develop` / HEAD `d1c3e613c565b02559c6e97623edd88a8205bd2b`(origin 동일), main(`6ab03cc` = `v1.1.0`) 변경 없음, tracked 변경 0, 사용자 소유 untracked `docker-compose.local-test.yml`만 존재 |
+| production 영향 | 없음 - DNS/TLS/운영 서버/운영 DB 변경, release/tag, 배포 없음 |
+| 기타 관찰 사항(비차단) | (1) app 로그 ERROR 37건은 모두 클라이언트 연결 종료(`AsyncRequestNotUsableException` - Broken pipe write 33/flush 4, `GlobalExceptionHandler`) 예외였다. (2) 실행 중 빈 업로드 디렉토리 2개(`data/uploads/2026/11`, `data/uploads/2026/11/05`)가 생성되어 남아 있다(파일 0개, 정리하지 않음). 두 항목 모두 테스트 결과(0 failed)와 DB row·업로드 파일 delta 0에 영향이 없다 |
+| 발견된 blocker | 없음 |
+| Release QA 최종 판정 | **v1.1.1 RELEASE QA: PASS** |
+
 ### Phase 15 범위 밖(deferred, 운영 가능하나 후속 개선)
 
 비공개 게시글 첨부 URL 접근 제어, 업로드 Content-Type을 확장자 기준으로 도출, 파일 참조 확인/orphan 정리, 이미지 응답 캐시 헤더, container non-root, CKEditor self-host, Node 테스트 CI 추가, docker build CI, 관리자 세션 timeout 조정, 관리자 HTML 상세 404, 로그인 응답 시간 기반 계정 존재 추정 완화, popup focus trap/Escape focus 복귀/본문 tabindex, 이미지 대체 텍스트 입력 강제 UI(운영 안내로 대체), sitemap, canonical, gzip, CSP, SRI, image digest 고정, nginx 413 JSON 응답, CSS 구조 정리, Firefox/WebKit 전체 QA, public-console-errors 상세 화면 확대, 전체 Playwright 실행 시간 최적화(현재 HTTPS `--workers=1` 전체 약 1.2시간 - 예: 인증된 `storageState` 재사용으로 로그인 횟수를 줄이는 방안 검토, 구체 구현 방식은 미확정). P0/P1과 반드시 함께 처리해야 하는 예외 항목은 없다.
