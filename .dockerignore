@@ -9,3 +9,4 @@ frontend-tests/
 data/
 local-uploads-tmp/
 .env
+src/main/resources/application-local.yml

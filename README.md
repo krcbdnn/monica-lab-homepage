@@ -440,7 +440,7 @@ Copyright © Monika Research Institute
 # 배포 운영 기준
 
 - CI: GitHub Actions에서 Gradle test/build를 자동 검증한다(pull_request trigger).
-- 배포: 운영 서버에서는 Docker Compose 기반 수동 배포를 기본으로 한다. 자동 CD workflow는 현재 범위에 포함하지 않는다. 운영 서버는 main의 release tag(예: `v1.0.0`)를 checkout하고 "tag checkout → `docker compose up -d --build`"를 하나의 배포 단위로 수행한다(GIT_WORKFLOW.md §6-1).
+- 배포: 운영 서버에서는 Docker Compose 기반 수동 배포를 기본으로 한다. 자동 CD workflow는 현재 범위에 포함하지 않는다. 운영 서버는 main의 release tag(예: `v1.0.0`)를 checkout하고, 같은 tag에서 빌드 머신이 build한 app image(revision label 검증)를 load해 `docker compose up -d --no-build --pull never`로 기동하는 것을 하나의 배포 단위로 수행한다. 운영 서버에서는 app image를 build하지 않는다(P15-T9, GIT_WORKFLOW.md §6-1, `docs/OPERATIONS.md` §20).
 - 업로드 파일: Docker에서는 `/app/uploads`를 `./data/uploads:/app/uploads` bind mount로 영속화한다.
 - DB: MariaDB `/var/lib/mysql`은 `db_data` named volume으로 영속화한다. Schema 변경은 `db/migration/**` Flyway migration만 사용하고 prod `ddl-auto=validate`로 검증한다.
 - 초기 관리자: `ApplicationRunner`가 `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `ADMIN_NAME`을 읽어 미존재 시에만 BCrypt로 생성하며 운영 비밀번호를 `data.sql`에 두지 않는다. 생성 이후 `.env`의 비밀번호를 바꿔도 DB에는 반영되지 않는다.

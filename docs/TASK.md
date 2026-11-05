@@ -1857,7 +1857,7 @@ Phase 14 이후 실제 운영 배포/발주처 전달을 위한 최소 작업 Ph
 | D9 | nginx `limit_req`를 정확히 `/api/admin/login`에만(`5r/m`, `burst=5`, `nodelay`, 429), 로그인 화면 429 안내, CAPTCHA/app dependency 없음 | P15-T3 |
 | D10 | P15-T7A: robots.txt + 공통 meta description + 기본 OG(title/description/type/site_name/locale). P15-T7B: favicon/og:image/og:url(발주처 asset·도메인 의존). sitemap/canonical 범위 밖 | P15-T7A, P15-T7B |
 | D11 | tag 기반 release: develop→main PR(merge commit) → main `v1.0.0` tag → 서버 tag checkout. mutable 브랜치 pull 금지 | GIT_WORKFLOW §6-1, P15-T8 |
-| D12 | 정적 리소스 현재 구조 유지, "tag checkout → `up -d --build`"를 배포 단위로 계약(checkout만 하고 rebuild 생략 금지, app image만 rollback 금지) | ARCHITECTURE, P15-T8 |
+| D12 | 정적 리소스 현재 구조 유지, "tag checkout → `up -d --build`"를 배포 단위로 계약(checkout만 하고 rebuild 생략 금지, app image만 rollback 금지). **P15-T9에서 app image build 위치만 변경**: 서버 build 금지, 빌드 머신 외부 build + revision label 검증 + `up -d --no-build --pull never`(이 행은 P15-T0 결정 기록으로 유지) | ARCHITECTURE, P15-T8, P15-T9 |
 
 ### P15-T0. Production Readiness Contract / Documentation
 - 의존성: P14 완료(P14-T7)
@@ -2008,6 +2008,44 @@ Phase 14 이후 실제 운영 배포/발주처 전달을 위한 최소 작업 Ph
 - 검증 결과: 대상 테스트 12개 class 178건 통과, `./gradlew clean build` 통과(JUnit 73개 class **797/797** - 기존 792 + 신규 5, failures/errors/skipped 0), `node --test src/test/js/**/*.test.js` 539 pass/0 fail. 로컬 dev stack은 `build app` → `up -d --no-deps --force-recreate app`으로 app만 재생성(db `e0e1d4f51741`/nginx `321a9f9d5658` container와 `monica-lab-homepage_db_data` volume 무변경, 테이블 row 수 전후 동일, `down`/`-v`/prune 미사용). HTTPS(`https://localhost:8443`) smoke: `/favicon.ico` 200 `image/x-icon`, `/apple-touch-icon.png` 200 `image/png`, `/images/og-default.png` 200 `image/png`(nginx 제공, HSTS), 응답 바이트가 생성 파일과 동일. `/`·`/boards`·`/boards?boardType=REVIEW&page=0`·`/boards/{id}`·`/programs`·`/programs/{id}`·`/pages/INTRODUCTION`·`/pages/GREETING`에서 기존 title 유지, icon/apple-touch-icon link와 `og:url`(예: `https://www.monicaenglish.com/boards/{id}`, query 경로는 `https://www.monicaenglish.com/boards`), `og:image` `https://www.monicaenglish.com/images/og-default.png`, width/height/alt 정확, canonical·T7B 주석 0건. `/no-such-path`(오류 페이지)·`/admin/login`에는 OG/apple-touch-icon 0건. Playwright(HTTPS, `--workers=1`): `public-console-errors` + `public-error-pages` 9/9, `visual-regression` "반응형 뷰포트" 공개 group 20/20(관리자 로그인 요청 0건). 실제 Chromium 확인: `/favicon.ico`를 브라우저가 decode(48×48 선택), apple-touch-icon 180×180·OG 1200×630 decode, 공개 4개 화면 console error 0·4xx/5xx 응답 0(기존 `/favicon.ico` 404 해소).
 - 범위 밖(유지): canonical, sitemap, robots 재설계, schema.org, 콘텐츠별 OG 이미지, PWA/manifest, header/footer 이미지 로고 교체, Cloudflare/real_ip, DNS/TLS/배포, `v1.1.0` release(별도 승인).
 
+### P15-T9. External Image Build Deploy
+- 분류: `v1.1.0` release 이후 운영 서버 사전 점검(2026-11-04)에서 확인한 launch blocker 대응. 새 사용자 기능이 아니라 배포 절차/compose 계약 변경이다.
+- 의존성: P15-T8(OPERATIONS runbook), `v1.1.0` release
+- CLIENT 의존성: 없음
+- 산출물: `docker-compose.yml`(top-level `name: monica-lab-homepage`, app `image: monica-lab-homepage-app:latest`), `docs/OPERATIONS.md`(표기 규칙, 목차, §1, §2 "빌드 머신", §6, §11, §12, §13-1, §15-1/§15-2, §16-3, §17, §19, 신규 §20), `docs/ARCHITECTURE.md`("Nginx 정적 리소스 공급" P15-T9 변경, "운영 배포 계약" 상태 설명, "배포 단위 / release"), `docs/GIT_WORKFLOW.md` §6-1, `README.md` "배포 운영 기준", `.dockerignore`(`src/main/resources/application-local.yml` 제외 1줄 - D-T9-8 보안 보완), 본 문서
+- 배경: 운영 서버 사전 점검 결과 소형 인스턴스(swap 없음)에서 서버 `docker compose up -d --build`(Dockerfile build stage의 Gradle `bootJar`)를 실행하면 실행 중 DB/app과 메모리를 다투어 OOM 위험이 크다. 또한 서버 checkout 디렉토리 이름에 따라 compose 기본 app image 이름이 달라진다(top-level `name` 없음).
+- 작업 내용(결정):
+  - **D-T9-1** 운영 서버는 app image를 build하지 않는다(`--build`/`docker compose build`/`docker build` 금지). 로컬 개발/검증의 `--build` 사용과 compose `build:` 설정은 유지한다.
+  - **D-T9-2** app image는 빌드 머신(개발자 PC의 Docker Desktop 등)에서 release tag checkout 기준 `docker build --platform linux/amd64`로 만들고 OCI label `org.opencontainers.image.revision`(tag commit SHA)·`org.opencontainers.image.version`(tag)을 붙인다. image tag는 `monica-lab-homepage-app:<TAG>`. (D-T9-8로 구체화: build 기준은 tag가 가리키는 정확한 commit(`git rev-parse "<TAG>^{commit}"`)이고 build context는 그 commit을 `git archive`로 추출한 별도 디렉토리다. 이 행의 "release tag checkout 기준" 표현은 최초 결정 기록으로 유지한다.)
+  - **D-T9-3** 전달은 `docker save -o` archive + `scp`, 서버 `docker load` 전후 SHA-256 일치 확인. registry(Docker Hub/GHCR)와 CD 자동화는 도입하지 않는다.
+  - **D-T9-4** 서버는 같은 tag를 checkout(Nginx 정적 리소스·설정 공급)하고 image revision label = `git rev-parse HEAD`, `git describe --tags --exact-match` = tag를 검증한 뒤에만 `monica-lab-homepage-app:latest`로 tag한다. revision 검증 기준은 구분한다: 빌드 머신은 label = `git rev-parse "<TAG>^{commit}"`(작업 checkout HEAD가 아님), 서버는 label = tag checkout 상태의 `git rev-parse HEAD`.
+  - **D-T9-5** compose에 top-level `name: monica-lab-homepage`(기존 디렉토리 파생 project 이름과 같은 값)와 app `image: monica-lab-homepage-app:latest`를 고정한다. volume 이름(D5)·container/network 구성은 바뀌지 않는다.
+  - **D-T9-6** 기동은 `docker compose pull db nginx` → `docker compose up -d --no-build --pull never`. service 미지정 `docker compose pull`과 registry의 app image pull은 금지한다.
+  - **D-T9-7** rollback은 이전 tag checkout → 그 tag app image(서버 보관본, 없으면 빌드 머신 재build·전달) revision 검증 → `:latest` 재tag → `up -d --no-build --pull never`. 서버에는 현재·직전 tag image를 보관한다.
+  - **D-T9-8(보안 보완, PR #176 리뷰 후 추가)** 빌드 머신 작업 checkout을 build context로 쓰지 않는다. 리허설 사전 확인에서 gitignored `src/main/resources/application-local.yml`(로컬 비밀 설정)이 작업 checkout에 있고 `.dockerignore`에 없어 `COPY src src` → `bootJar`로 jar 리소스에 포함될 수 있음을 확인했다(`git status --porcelain`은 ignored 파일을 보여주지 않아 기존 §20-2 확인으로는 검출 불가). 대응: (1) `git archive "<TAG>^{commit}"`로 저장소 밖 빈 디렉토리에 tracked 파일만 추출해 build context로 사용, (2) 추출 목록 = `git ls-tree -r --name-only` 일치·`application-local.yml` 부재·gradlew LF(CR 0) 확인, (3) build 후 `docker create`/`docker cp`로 꺼낸 jar의 **파일 이름 목록만** 보고 `BOOT-INF/classes/application-local*` 부재 확인(내용 추출·출력 금지), (4) `.dockerignore`에 `src/main/resources/application-local.yml` 추가(보조 방어선, 로컬 `--build`에도 적용), (5) 비밀값을 출력·로그·PR에 남기지 않는다. 기존 로컬 image(`monica-lab-homepage-app:latest`/`:pre-p15-t9`, `monica-lab-homepage:local`)는 이 파일을 포함했을 가능성이 있어(미확인) 서버로 전달하지 않는다.
+- 범위 제외: Dockerfile/`nginx/nginx.conf`/`.env.example`/production source/test 변경(`.dockerignore` 1줄 추가는 D-T9-8로 범위 포함), registry·CD, Nginx image bake, image digest 고정, container non-root, 운영 서버 Docker 설치·실제 배포(배포 단계), `v1.1.1` release PR/tag(별도 승인).
+- DB migration: 없음
+- 검증: `docker compose config --images`(project/app image 이름 확인, 비밀값 비출력)와 `docker compose config --quiet`, `git diff --check`, `./gradlew build`, 운영 절차 문서의 서버 `up -d --build` 잔존 검색(로컬 개발/검증 기록과 P15-T0 결정 이력은 유지). 로컬 리허설(빌드 머신 `git archive` 추출·context 검증 → build → jar의 `application-local` 부재 확인 → save → load → revision 검증 → `--no-build --pull never` 기동, image 부재 시 `--pull never` 실패 확인)은 Docker Desktop 실행·로컬 stack 재생성 승인 후 수행하고 이 절에 기록한다.
+  - **로컬 리허설 기준(release tag 없음 - OPERATIONS §20의 운영 release 절차와 구분)**: 기준 commit `S` = D-T9-8 보안 보완 commit의 40자리 SHA(commit 직후 `git rev-parse HEAD`로 확정, push 후 `origin/feature/p15-t9-external-image-deploy` head = `S` 확인). build context는 `git archive --format=tar S`로 추출한 저장소 밖 디렉토리, revision label = `S`, version label·image tag = `p15-t9-rehearsal`(`monica-lab-homepage-app:p15-t9-rehearsal`, `v*` 형식 사용 금지). release tag가 없으므로 §20-2의 `git describe --tags --exact-match`는 "origin 브랜치 head == `S`" 확인으로 대체하고, §20-4 서버 흉내 단계의 exact-tag 확인은 생략하되 revision 비교(`git rev-parse HEAD` = label `S`)는 수행한다. 서버 흉내 기동은 로컬 작업 트리(HEAD = `S`)에서 `-f docker-compose.yml -f docker-compose.local-test.yml`로 `--no-deps` app만 재생성한다.
+  - **리허설 image의 용도 제한**: 리허설 image(label `S`)는 운영 서버로 전달하지 않는다. 실제 release image는 release PR merge 후 main의 `v1.1.1` tag 기준 `REV=$(git rev-parse "v1.1.1^{commit}")`(main merge commit `M`, `S`와 SHA가 다름)로 §20-2를 처음부터 다시 수행해 build한다(리허설 image를 재tag해 쓰지 않는다 - 서버 §20-4 revision 검증에서 거부된다).
+  - **재리허설 기준**: 리허설 기준 commit `S` 이후 후속 commit의 변경 파일(`git diff --name-only S <후속 commit>`)로 판정한다. 세 경우는 서로 겹치지 않는다.
+    1. **재리허설 제외**: 변경 파일이 모두 `docs/**`인 후속 commit(결과 기록, runbook 보완 등)은 재리허설 대상이 아니다.
+    2. **재리허설 필요**: `docker-compose.yml`, `.dockerignore`, `Dockerfile`, `src/**`, gradle 관련 파일(`build.gradle`, `settings.gradle`, `gradlew`, `gradle/**`) 중 하나라도 변경되면, 다른 파일의 변경 여부와 관계없이 새 commit 기준으로 재리허설한다.
+    3. **사용자 판정**: 2에 해당하지 않으면서 `docs/**` 밖의 파일이 하나라도 변경되면(예: `nginx/nginx.conf`, `README.md`) 재리허설 여부를 자동으로 판정하지 않고, 변경 파일 목록을 보고해 사용자 검토·승인을 받는다.
+  - 리허설 결과(**로컬 빌드 머신 한정** - 2026-11-04, 기준 `S` = `f60f4782e12bbd3c5b0b9d53fb9f660f47c4cacf`, Docker Desktop Compose v2.37.1-desktop.1·containerd image store, Git Bash. 서버 전달·서버 검증·운영 배포는 수행하지 않음):
+    - context 추출: `git archive --format=tar -o`로 archive 생성(sha256 `d953f2118c8f2b8ba67a78f40fd19b449b56e66555e42bf2617fde0fd796acf3`) 후 저장소 밖 디렉토리에 추출. 추출 파일 362개 = `git ls-tree -r --name-only S` 362개(diff 없음), `src/main/resources/application-local.yml` 부재, `.dockerignore` 존재, gradlew CR 0·shebang `#!/bin/sh`. 첫 추출은 Git Bash GNU tar의 `-C C:/…` 경로 해석 실패(`Cannot connect to C: resolve failed`)로 빈 디렉토리가 되어 `/c/…` 경로로 다시 추출했다(OPERATIONS §20-1 주의 추가).
+    - build: `docker build --platform linux/amd64`(revision label `S`, version label `p15-t9-rehearsal`) EXIT 0, 경고·오류 없음. image `monica-lab-homepage-app:p15-t9-rehearsal` ID `sha256:44a2b4df97a90c2dbc42cace77a5e7922d321442cb5fbc423d1ec0863c678e60`(containerd store의 manifest list digest), `linux/amd64`, revision = `S`, version = `p15-t9-rehearsal`.
+    - jar 검사: 실행하지 않은 임시 container에서 `/app/app.jar`만 `docker cp`(Git Bash `MSYS_NO_PATHCONV=1` 설정) 후 `unzip -Z1` 파일 이름 목록 550개 확인 - `application-local` 포함 경로 0개, `BOOT-INF/classes/` 직하 설정 파일은 `application.yml`·`application-prod.yml`뿐. 임시 container는 `docker rm`으로 제거.
+    - save/load: `docker save -o` archive sha256 `2661f3b3b7224ab6aca3ce1dffa7816e646103de7456726f3e5e13bbbabf7596`. 리허설 tag 제거(image 삭제) → 같은 sha256 재확인 → `docker load -i` 후 tag·ID·platform·revision·version이 save 전 기록과 동일.
+    - 기동: `:latest`를 리허설 image로 재tag → `docker compose -f docker-compose.yml -f docker-compose.local-test.yml up -d --no-deps --no-build --pull never app` EXIT 0, app container만 재생성되어 healthy(Flyway 13 migrations validate, migration 없음). db·nginx container ID·시작 시각과 `monica-lab-homepage_db_data` 무변경(top-level `name:` 추가가 기존 container/volume에 영향 없음 확인). 기존 orphan container 경고(`Found orphan containers`)가 나왔으나 `--remove-orphans`는 쓰지 않았고 해당 container 무변경.
+    - smoke(Nginx 경유 GET만): `http://localhost:8088/actuator/health` 301(HTTPS redirect), `https://localhost:8443/actuator/health` 200 `"status":"UP"`, `https://localhost:8443/` 200. 응답 `Server: nginx`·HSTS 헤더와 nginx access log로 경유 확인(app은 host port 미공개). Nginx 재시작 없이 새 app container로 전달.
+    - rollback: `:latest`를 `:pre-p15-t9`(`sha256:821c51add1a6…`)로 재tag → 같은 `up` 명령으로 app만 재생성, healthy, db·nginx·volume 무변경, 같은 smoke 3건 동일 결과.
+    - 분리 project `p15t9-check`(scratch compose, image 이름 `p15t9-check.invalid/*`, `network_mode: none`): (1) image 부재 시 `up -d --no-deps --no-build --pull never app` → `No such image` EXIT 1, pull·build 시도 없음, 남은 container/network/volume 0. (2) service 미지정 `docker compose pull` → `app Pulling`·`db Pulling` 모두 출력되어 `build:`가 있는 app도 pull 대상에 포함됨 확인(db DNS 실패로 전체 중단, app은 `Interrupted`). (3) `docker compose pull db` → db만 대상, app 언급 0건. 세 테스트 모두 기존 container·image·volume·network 무변경.
+    - 미검증: build 가능한 app의 pull 실패가 경고/오류 중 어느 쪽으로 처리되는지(위 (2)에서 db 실패로 중단되어 관찰 못함), 서버 Compose(설치 예정 `docker-compose-v2 2.40.3`)·Ubuntu `docker.io`에서의 위 동작, `scp` 전달·서버 sha256·서버 `docker load`·서버 `git describe --tags --exact-match`·서버 revision 검증, 빌드 머신과 서버의 image ID 차이, PowerShell 5.1 경로 절차, `MSYS_NO_PATHCONV` 미설정 시 `docker cp` 동작, 기존 로컬 image(`:pre-p15-t9`/`monica-lab-homepage:local`)의 `application-local.yml` 포함 여부(검사하지 않음 - 서버 전달 금지 유지).
+- DoD: compose 변경은 `name`/app `image`(+주석)만, `.dockerignore`는 `application-local.yml` 제외 1줄만, 그 외 production source/Dockerfile/nginx/`.env.example` 변경 0. OPERATIONS §20 절차와 §1/§2/§6/§13-1/§15/§16-3/§17, ARCHITECTURE, GIT_WORKFLOW §6-1, README가 같은 배포 단위("tag checkout + revision 검증된 외부 build image → `up -d --no-build --pull never`")로 일관. 정적 검증/`./gradlew build` 통과. 로컬 리허설 기록(승인 후). PR base `develop`, merge commit.
+- 구현 결과(P15-T9, develop `3a78db2` 기준 브랜치 `feature/p15-t9-external-image-deploy`, commit `d1e6ab1` - PR #176, CI `test-and-build` pass): 위 산출물대로 변경. 정적 검증 - `docker compose config --images` = `mariadb:11.4.12`/`nginx:1.27-alpine`/`monica-lab-homepage-app:latest`, project `name` = `monica-lab-homepage`, app `build` 유지, volume `db_data` 이름 `monica-lab-homepage_db_data` 무변경, `docker compose config --quiet` 통과, `git diff --check` 통과, 운영 절차 문서의 서버 `up -d --build` 잔존 0건(ARCHITECTURE P15-T0 결정 단락은 "P15-T9로 대체" 표시 후 이력 유지, TASK.md 로컬 검증 기록 유지). `./gradlew build` BUILD SUCCESSFUL(문서/compose만 변경되어 Gradle task 전부 UP-TO-DATE - test 재실행 없음, PR CI에서 재실행). Docker Desktop 미실행·image build/save/load·로컬 stack 재생성 없음(`d1e6ab1` 시점 기준. 로컬 리허설은 이후 `S` 기준으로 수행 - 위 리허설 결과). 최종 문서 점검 - OPERATIONS의 모든 `docker compose pull`이 `db nginx` 지정(service 미지정 pull 0건), §6/§15-1/§15-2/§13-1/§16-3/§20과 GIT_WORKFLOW §6-1의 순서를 "tag checkout → `.env`/TLS → image build·전달·load·revision 검증 → `pull db nginx` → `up -d --no-build --pull never` → 실행 image ID 확인"으로 정렬, rollback/복원 시 서버 보관 image는 load 생략 후 revision 검증부터 수행하도록 §20-4에 명시.
+- 보안 보완 결과(D-T9-8 - commit `f60f478`(`S`), PR #176 push, CI `test-and-build` pass, 로컬 리허설 수행 - 위 리허설 결과): `.dockerignore`에 `src/main/resources/application-local.yml` 1줄 추가, OPERATIONS §20-2를 `git archive` 추출 context 기반 절차(추출 목록 diff, `application-local.yml` 부재, gradlew LF, jar 파일 이름 목록 검사, 비밀값 비출력 주의)로 재작성, §20-1과 §20 이름 규칙 표(revision 기준 빌드 머신/서버 구분, build context 행), ARCHITECTURE P15-T9 단락, GIT_WORKFLOW §6-1, 본 절 D-T9-2/D-T9-4 보충과 D-T9-8 추가. `git diff --check` 통과. 리허설 확인 결과(로컬): `git archive` 추출 결과 검증 - 확인, jar 검사 명령(`docker create`/`cp`/`rm`, `unzip -Z1`) 동작 - 확인(Git Bash에서는 `MSYS_NO_PATHCONV=1` 설정 상태로 실행), 빌드 머신 `unzip` - 있음(Git Bash UnZip 6.00), 기존 로컬 image(`:pre-p15-t9` = `821c51add1a6…`, `monica-lab-homepage:local`)의 `application-local.yml` 포함 여부 - **미확인**(리허설에서 검사하지 않음 - 서버 전달 금지 유지). 리허설 대상 revision = `S`(`f60f478`, `d1e6ab1` 아님).
+
 ### Phase 15 의존성 그래프
 
 ```
@@ -2017,11 +2055,15 @@ P15-T0 ─┬─ P15-T1 ─┬──────────── P15-T5
         ├─ P15-T4               ├─ P15-T8 ── Release/Launch
         ├─ P15-T6 ──────────────┘               ↑
         └─ P15-T7A ── P15-T7B(CLIENT asset) ────┘ (launch checklist에서 확인)
+
+P15-T8 ── P15-T9(외부 app image build 배포, v1.1.0 이후) ── Release(v1.1.1)/Launch
 ```
 
 ### Phase 15 실행 순서
 
 **P15-T0 → P15-T1 → P15-T2 → P15-T4 → P15-T5 → P15-T6 → P15-T3 → P15-T7A → P15-T8 → P15-T7B(asset 준비 시) → Release/Launch**
+
+- P15-T9는 `v1.1.0` release 이후 운영 서버 사전 점검 결과로 추가된 Task다: **P15-T8 → P15-T9 → Release(`v1.1.1`) → Launch**. 실제 운영 launch는 P15-T9 절차(OPERATIONS §20)로 수행한다.
 
 - P15-T3을 앱/콘텐츠 변경(P15-T4~T6) 뒤에 두는 이유: HTTPS/자체서명 인증서 전환이 로컬 Docker/Playwright 실행 방식을 바꾸므로, infra 전환을 한 번만 하고 앞선 Task의 테스트 흐름을 흔들지 않기 위함이다.
 - Release/Launch는 개발 Task가 아니라 GIT_WORKFLOW.md §6-1 + OPERATIONS 절차다(도메인 DNS, Let's Encrypt 발급, 운영 `.env`, 운영 smoke 포함).
@@ -2095,6 +2137,35 @@ Release QA는 GIT_WORKFLOW.md §6-1 1단계("Phase 15 완료 → 전체 QA(JUnit
 | 발견된 blocker | 없음. 참고(비차단): app 로그 ERROR 29건은 모두 클라이언트 연결 종료(`AsyncRequestNotUsableException`) 예외였고 테스트 결과(0 failed)에 영향은 없었다 |
 | Release QA 최종 판정 | **v1.1.0 RELEASE QA: PASS** |
 
+#### v1.1.1 Release QA
+
+이 절은 `v1.1.0` 이후 P15-T9(PR #176, 외부 app image build 배포)가 들어간 develop을 `v1.1.1` release 후보로 검증한 실행 기록이다. QA 계약은 위와 같다(GIT_WORKFLOW §6-1, ARCHITECTURE "운영 배포 계약(Phase 15)", OPERATIONS §16-4). 이번 실행에서는 app image를 P15-T9 절차(OPERATIONS §20-2 - `git archive` context, OCI label, jar 파일 이름 검사)로 build하고 로컬 stack의 app만 재생성해 검증했다.
+
+- 최종 상태: **PASS** - release 후보 QA 통과를 뜻하며 운영 배포 완료를 뜻하지 않는다. 서버 전달·`docker load`·revision 검증·운영 smoke는 Launch 때 OPERATIONS §20-4/§20-5로 확인한다.
+
+| 항목 | 결과(v1.1.1) |
+|---|---|
+| 실행 날짜 | 2026-11-05(Playwright 05:19:54Z~06:32:55Z) |
+| 대상 develop commit SHA | `d1c3e613c565b02559c6e97623edd88a8205bd2b`(version 후보 `v1.1.1`) |
+| release diff(`main..develop`) | commit 4개 - `d1e6ab1`, `f60f478`, `c9d93e4`, `d1c3e61`(PR #176 merge). 변경 파일 7개(+264/−28) - `.dockerignore`, `docker-compose.yml`, `README.md`, `docs/ARCHITECTURE.md`, `docs/GIT_WORKFLOW.md`, `docs/OPERATIONS.md`, `docs/TASK.md`. Java production/test·migration·Dockerfile·nginx·Gradle 변경 0 |
+| `./gradlew clean build` | BUILD SUCCESSFUL(5m 59s), JUnit 73개 class 797건 - pass 797, failures/errors/skipped 0 |
+| Node test(`node --test src/test/js/**/*.test.js`) | 24개 파일 539 pass / 0 fail / 0 cancelled·skipped·todo(Node v24.16.0) |
+| app image build(OPERATIONS §20-2 절차) | `git archive d1c3e61` 추출 파일 362개 = `git ls-tree -r --name-only` 362개, `application-local.yml` 부재. `docker build --platform linux/amd64` → `monica-lab-homepage-app:qa-v1.1.1`(image ID `sha256:f98b9123c4e0c27d66ec763d4d77b99977f6ddd5c0ef86ce7d5edde2de81454a`, `linux/amd64`, revision label `d1c3e61…`, version label `qa-v1.1.1`). jar 파일 이름 550개 중 `application-local` 포함 경로 0개(내용 미추출). QA용 image이므로 운영 서버로 전달하지 않으며, release image는 `v1.1.1^{commit}` 기준으로 §20-2를 다시 수행해 build한다 |
+| app 재생성 | QA image로 `up -d --no-deps --no-build --pull never app` - app만 재생성(`2af8183ee861`, healthy). db `e0e1d4f51741`·nginx `321a9f9d5658` container와 `monica-lab-homepage_db_data` volume 변경 없음 |
+| HTTPS smoke(로컬 `https://localhost:8443`) | 통과 - 자체서명 cert(CN=localhost, TLSv1.3), `:8088` 301 → https, ACME 404, `/` 200 + HSTS + `Server: nginx`, `robots.txt` 3줄, `/`·`/boards`·`/programs`·`/pages/INTRODUCTION`·`/css/home.css`(HSTS·`X-Static-Served-By`·`no-cache`) 200, `/actuator/health` `UP`, 404 HTML, 미인증 `/admin/dashboard` 302 `Location: /admin/login`, brand asset 200·OG tag 정상, 로그인 1회 200(쿠키 속성 정상) → `/api/admin/me`·`/admin/password`·`/admin/dashboard` 200 → 로그아웃 200 → `/api/admin/me` 401. smoke 전후 DB·업로드 delta 0, app 로그 ERROR 0 |
+| 실행 전 Gate | app healthy, db·nginx running, restart 0. row 수 admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1, 업로드 62개/21,950,080 bytes. `ADMIN_PASSWORD` 정책 충족(값 비출력 판정) |
+| 전체 Playwright(HTTPS, `--workers=1`) | `PLAYWRIGHT_BASE_URL=https://localhost:8443 npx playwright test -c frontend-tests/playwright.config.js --workers=1`(결과 수집용 `--reporter=list,json` 추가) - **353 passed / 0 failed / 0 skipped / 0 flaky(1.2h, 4,381s)**, retry 0. `ERR_*` 네트워크 오류 0건 |
+| 429(비차단 warning) | 실행 중 nginx `limiting requests`/429가 각 287건 관찰됐다. 운영 계약값(`5r/m`, `burst=5`) 그대로에서 E2E helper가 13초 대기 후 재시도해 모두 회복했고, 이로 인한 test failure는 없다. release blocker가 아니다(rate limit·helper는 변경하지 않음) |
+| DB(실행 전 → 후, delta) | 전부 delta 0: admin 3/banner 3/board 25/file 62/flyway_schema_history 13(success 13)/home_pinned_content 2/menu 16/page 4/popup 11/program 3/site_theme_setting 1 |
+| 업로드(전 → 후) | 62개/21,950,080 bytes → 62개/21,950,080 bytes(파일 잔여 없음) |
+| 관리자 비밀번호 복구 | `admin-password.spec.js:198`(실행 순번 #73) passed - 이 테스트는 `finally`에서 임시 비밀번호를 원래 비밀번호로 되돌린 뒤 원래 비밀번호 로그인 200을 assert하며, 이 복구 assertion이 통과했다. 실행 후 별도 수동 로그인 확인은 수행하지 않았다 |
+| Docker health | 실행 후 app `2af8183ee861` healthy, db `e0e1d4f51741`·nginx `321a9f9d5658` running, restart 0, Playwright 중 container 재생성 없음, `monica-lab-homepage_db_data` volume 유지 |
+| Git | `develop` / HEAD `d1c3e613c565b02559c6e97623edd88a8205bd2b`(origin 동일), main(`6ab03cc` = `v1.1.0`) 변경 없음, tracked 변경 0, 사용자 소유 untracked `docker-compose.local-test.yml`만 존재 |
+| production 영향 | 없음 - DNS/TLS/운영 서버/운영 DB 변경, release/tag, 배포 없음 |
+| 기타 관찰 사항(비차단) | (1) app 로그 ERROR 37건은 모두 클라이언트 연결 종료(`AsyncRequestNotUsableException` - Broken pipe write 33/flush 4, `GlobalExceptionHandler`) 예외였다. (2) 실행 중 빈 업로드 디렉토리 2개(`data/uploads/2026/11`, `data/uploads/2026/11/05`)가 생성되어 남아 있다(파일 0개, 정리하지 않음). 두 항목 모두 테스트 결과(0 failed)와 DB row·업로드 파일 delta 0에 영향이 없다 |
+| 발견된 blocker | 없음 |
+| Release QA 최종 판정 | **v1.1.1 RELEASE QA: PASS** |
+
 ### Phase 15 범위 밖(deferred, 운영 가능하나 후속 개선)
 
 비공개 게시글 첨부 URL 접근 제어, 업로드 Content-Type을 확장자 기준으로 도출, 파일 참조 확인/orphan 정리, 이미지 응답 캐시 헤더, container non-root, CKEditor self-host, Node 테스트 CI 추가, docker build CI, 관리자 세션 timeout 조정, 관리자 HTML 상세 404, 로그인 응답 시간 기반 계정 존재 추정 완화, popup focus trap/Escape focus 복귀/본문 tabindex, 이미지 대체 텍스트 입력 강제 UI(운영 안내로 대체), sitemap, canonical, gzip, CSP, SRI, image digest 고정, nginx 413 JSON 응답, CSS 구조 정리, Firefox/WebKit 전체 QA, public-console-errors 상세 화면 확대, 전체 Playwright 실행 시간 최적화(현재 HTTPS `--workers=1` 전체 약 1.2시간 - 예: 인증된 `storageState` 재사용으로 로그인 횟수를 줄이는 방안 검토, 구체 구현 방식은 미확정). P0/P1과 반드시 함께 처리해야 하는 예외 항목은 없다.
@@ -2124,7 +2195,7 @@ Release QA는 GIT_WORKFLOW.md §6-1 1단계("Phase 15 완료 → 전체 QA(JUnit
 | 테스트 완료 | 테스트 완료 | `./gradlew test` 성공 + 커버리지 리포트 |
 | 운영 런타임/배포 완료 | Flyway/prod/영속성/CI | P1-T7 + P12-T1~T3 통과, 헬스체크 200 |
 | 공개 UI 디자인 적용 완료 | 공개 UI/UX 개선 | Phase13(P13-T0~T7) 통과, 기존 뷰 통합 테스트 + Playwright 반응형 유지 |
-| 운영 배포 준비 완료 | Production Readiness | P15-T0~T6, P15-T7A, P15-T8 DoD 통과(P15-T7B는 CLIENT-DEPENDENT LAUNCH ITEM으로 별도 확인 - 발주처 asset/도메인 확보 후 `v1.0.0` 이후 develop에서 구현) |
+| 운영 배포 준비 완료 | Production Readiness | P15-T0~T6, P15-T7A, P15-T8 DoD 통과, 실제 launch 전 P15-T9 DoD 통과(P15-T7B는 CLIENT-DEPENDENT LAUNCH ITEM으로 별도 확인 - 발주처 asset/도메인 확보 후 `v1.0.0` 이후 develop에서 구현) |
 
 ---
 
